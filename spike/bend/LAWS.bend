@@ -45,6 +45,7 @@ import ./nfc_lemmas.bend as NfcL
 import ./fetch.bend as Fetch
 import ./utf8.bend as Utf8
 import ./host_lemmas.bend as HostL
+import ./listed_lemmas.bend as ListedL
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -2949,3 +2950,49 @@ law run_asks_for_what_it_names:
   for +args: List<&2, String>
   for +h: {HostL.all_nosep(dir <> program <> args, '\u{0}') == True{} : Bool}
   {String.split(Store.run.query(dir, program, args), '\u{0}') == dir <> program <> args : List<&2, String>}
+
+# The walk reads a directory as the host lists it. `Store.folder` writes
+# an entry a line, as its adapter does — `d <name>`, `f <x> <size> <name>`,
+# `l <name>` with the link's target on the next line, `L`, `o`, and `u`
+# with a name that is not UTF-8 spelled lossily — and one step of the walk
+# reads each line as the entry it was written for, whatever its name holds
+# but a newline, a space included: the directories it names go on to be
+# listed, each as the walk names it — in normal form C, under the
+# directory — beside where the folder spells it, all but the store and
+# those a rule skips whole; the files and links `tracked` takes are found,
+# a file with its execute bit and its size, a link with its target as the
+# folder spells it; each file, link and other entry is refused for what
+# `refusal.of` finds in it, and a link's target is no entry; and each name
+# that cannot be spelled is refused where it is on disk. What was found,
+# refused and still to list before stays, behind it.
+law a_directory_is_read_as_the_host_lists_it:
+  for +es: List<&2, ListedL.Entry>
+  for +dir: String
+  for +disk: String
+  for +at: String
+  for +rules: List<&2, Folder.Scope>
+  for +rest: List<&2, T.Split>
+  for +found: List<&2, Folder.Found>
+  for +refused: List<&2, T.Split>
+  for +odd: List<&2, Folder.Keyed>
+  for +h: {ListedL.entries_ok(es) == True{} : Bool}
+  {ListedL.seen(Folder.walk.step(ListedL.text(es), dir, disk, at, rules, rest, found, refused, odd)) == ListedL.Seen{List.append(&2, T.Split, List.reverse(&2, T.Split, ListedL.dirs(es, dir, disk, rules)), rest), List.reverse.go(&2, Folder.Found, ListedL.found(es, dir, rules), found), List.reverse.go(&2, T.Split, ListedL.refused(es, dir, rules), refused), List.append(&2, T.Split, List.reverse(&2, T.Split, ListedL.odd(es, at)), Folder.unkeyed(odd))} : ListedL.Seen}
+
+# The walk yields its files in path order. Whatever order it found them
+# in, what it returns for the folder is sorted by path.
+law the_walk_yields_its_files_in_path_order:
+  for +fs: List<&2, Folder.Found>
+  for +rs: List<&2, T.Split>
+  {SortL.sorted(~Folder.Found, ~(f => Folder.found.path(f)), Folder.walked.found(Folder.walk.finish(Folder.Walked{fs, rs}))) == True{} : Bool}
+
+# And at each path, the file it met there last, and no other. Two names a
+# filesystem tells apart can be one path in normal form C, and the Rust
+# walk keeps the file it met last; the walk puts each file on the front of
+# what it found as it meets it, so of the files found at a path, the first
+# is the one met last — and what the walk yields at the path is exactly
+# that one, or nothing where it found nothing there.
+law the_walk_keeps_the_file_it_met_last:
+  for +fs: List<&2, Folder.Found>
+  for +rs: List<&2, T.Split>
+  for +p: String
+  {SortL.keyed(~Folder.Found, ~(f => Folder.found.path(f)), p, Folder.walked.found(Folder.walk.finish(Folder.Walked{fs, rs}))) == ListedL.first(SortL.keyed(~Folder.Found, ~(f => Folder.found.path(f)), p, fs)) : List<&2, Folder.Found>}

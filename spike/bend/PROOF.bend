@@ -84,6 +84,7 @@ import ./words_lemmas.bend as WordsL
 import ./nfc_lemmas.bend as NfcL
 import ./fetching_lemmas.bend as FetchingL
 import ./host_lemmas.bend as HostL
+import ./listed_lemmas.bend as ListedL
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -1110,3 +1111,12 @@ def Laws.unsettled_answer_reads_back(ds, as, fs, h):
 
 def Laws.run_asks_for_what_it_names(dir, program, args, h):
   HostL.run_asks(dir, program, args, h)
+
+def Laws.a_directory_is_read_as_the_host_lists_it(es, dir, disk, at, rules, rest, found, refused, odd, h):
+  ListedL.step_reads(es, dir, disk, at, rules, rest, found, refused, odd, h)
+
+def Laws.the_walk_yields_its_files_in_path_order(fs, rs):
+  ListedL.finish_sorted(fs, rs)
+
+def Laws.the_walk_keeps_the_file_it_met_last(fs, rs, p):
+  ListedL.finish_keeps(fs, rs, p)

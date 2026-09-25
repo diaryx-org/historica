@@ -5093,6 +5093,63 @@ def check_mutations(temporary):
             "host_lemmas.split_args",
             "store.bend",
         ),
+        (
+            "the walk reads a link's target in normal form C",
+            "      line <> normal.lines(rest, False{})",
+            "      normal.line(line) <> normal.lines(rest, False{})",
+            "listed_lemmas.normal_lines",
+            "folder.bend",
+        ),
+        (
+            "the walk lists a directory where its name's normal form spells it",
+            "later, joined(disk, String.drop(line, 2n)) <> later)",
+            "later, joined(disk, name) <> later)",
+            "listed_lemmas.raw_dirs",
+            "folder.bend",
+        ),
+        (
+            "the walk pairs each directory with another's spelling",
+            "paired(listing.dirs(l), List.reverse(&2, String, raw.dirs(raw, dir, disk, rules, False{})))",
+            "paired(listing.dirs(l), raw.dirs(raw, dir, disk, rules, False{}))",
+            "listed_lemmas.step_lines",
+            "folder.bend",
+        ),
+        (
+            "the walk reads a file's name as the folder spells it",
+            "      runs ++ \" \" ++ size ++ \" \" ++ Nfc.nfc(name)",
+            "      runs ++ \" \" ++ size ++ \" \" ++ name",
+            "listed_lemmas.file_line",
+            "folder.bend",
+        ),
+        (
+            "the walk finds every file empty",
+            "Listing{dirs, Found.File{joined(prefix, name), runs, Maybe.default(&2, Nat, Nat.read(size), 0n)} <> found, None{}}",
+            "Listing{dirs, Found.File{joined(prefix, name), runs, 0n} <> found, None{}}",
+            "listed_lemmas.took_case",
+            "folder.bend",
+        ),
+        (
+            "the walk reads a file that runs as one that does not",
+            "listing.file(dirs, found, prefix, rules, String.starts_with(name, \"1\"), T.split_once(String.drop(name, 2n)))",
+            "listing.file(dirs, found, prefix, rules, String.starts_with(name, \"0\"), T.split_once(String.drop(name, 2n)))",
+            "listed_lemmas.file_case",
+            "folder.bend",
+        ),
+        (
+            "the walk sorts its files by path backwards",
+            "      Walked{distinct(List.sort(~Found, ~(a => b => String.is_le(found.path(a), found.path(b))), found)), refused}",
+            "      Walked{distinct(List.sort(~Found, ~(a => b => String.is_le(found.path(b), found.path(a))), found)), refused}",
+            "listed_lemmas.finish_sorted",
+            "folder.bend",
+        ),
+        (
+            "the walk yields every file found at a path",
+            "      Walked{distinct(List.sort(~Found, ~(a => b => String.is_le(found.path(a), found.path(b))), found)), refused}",
+            "      Walked{List.sort(~Found, ~(a => b => String.is_le(found.path(a), found.path(b))), found), refused}",
+            # And `LAWS.the_walk_keeps_the_file_it_met_last`, met after it.
+            "listed_lemmas.finish_sorted",
+            "folder.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

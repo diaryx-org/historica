@@ -912,32 +912,47 @@ def walked.refused(w: Walked) -> List<&2, T.Split>:
     case Walked{found, refused}:
       refused
 
-# One directory at a time: `pending` holds each still to list, as the walk
-# names it and as the folder spells it, and `odd` the names that cannot be
-# spelled, keyed.
-def walk.go(fuel: Nat, +repo: String, +rules: List<&2, Scope>, pending: List<&2, T.Split>, found: List<&2, Found>, refused: List<&2, T.Split>, odd: List<&2, Keyed>) -> IO(Walked):
-  match fuel pending:
-    case 0n _:
+# What the walk holds between one directory's listing and the next:
+# `pending` holds each directory still to list, as the walk names it and as
+# the folder spells it, and `odd` the names that cannot be spelled, keyed.
+type Walking is Data:
+  Walking{pending: List<&2, T.Split>, found: List<&2, Found>, refused: List<&2, T.Split>, odd: List<&2, Keyed>}
+
+# One directory's listing read onto what the walk holds: `got` is what the
+# host said of the directory the walk names `dir`, which the folder spells
+# `disk` and which is at `at`, and `rest` what was still to list.
+def walk.step(+got: String, +dir: String, +disk: String, +at: String, +rules: List<&2, Scope>, +rest: List<&2, T.Split>, found: List<&2, Found>, refused: List<&2, T.Split>, odd: List<&2, Keyed>) -> Walking:
+  +raw = String.split(got, '\n')
+  +ls = normal.lines(raw, False{})
+  +l = listing.go(ls, dir, rules, Listing{Nil{}, found, None{}})
+  Walking{List.append(&2, T.Split, paired(listing.dirs(l), List.reverse(&2, String, raw.dirs(raw, dir, disk, rules, False{}))), rest), listing.found(l), refusals.go(ls, dir, rules, False{}, refused), List.append(&2, Keyed, unspelled(ls, dir, at), odd)}
+
+# One directory at a time, from the one at the top.
+def walk.go(fuel: Nat, +repo: String, +rules: List<&2, Scope>, w: Walking) -> IO(Walked):
+  match fuel w:
+    case 0n Walking{p, found, refused, odd}:
       IO.pure(Walked, Walked{found, walk.refusals(refused, odd)})
-    case 1n+q Nil{}:
+    case 1n+q Walking{Nil{}, found, refused, odd}:
       IO.pure(Walked, Walked{found, walk.refusals(refused, odd)})
-    case 1n+q T.Split{+dir, +disk} <> rest:
+    case 1n+q Walking{T.Split{+dir, +disk} <> rest, found, refused, odd}:
       do IO<Walked>:
         +at : String = Bool.pick(String, String.is_empty(disk), repo, repo ++ "/" ++ disk)
         got : String <- listed(at)
-        +raw : List<&2, String> = String.split(got, '\n')
-        +ls : List<&2, String> = normal.lines(raw, False{})
-        +l : Listing = listing.go(ls, dir, rules, Listing{Nil{}, found, None{}})
-        +next : List<&2, T.Split> = paired(listing.dirs(l), List.reverse(&2, String, raw.dirs(raw, dir, disk, rules, False{})))
-        walk.go(q, repo, rules, List.append(&2, T.Split, next, rest), listing.found(l), refusals.go(ls, dir, rules, False{}, refused), List.append(&2, Keyed, unspelled(ls, dir, at), odd))
+        walk.go(q, repo, rules, walk.step(got, dir, disk, at, rules, rest, found, refused, odd))
+
+# The walk's files in path order, the one it met last kept for a path two
+# names spell, and its refusals as they were.
+def walk.finish(w: Walked) -> Walked:
+  match w:
+    case Walked{found, refused}:
+      Walked{distinct(List.sort(~Found, ~(a => b => String.is_le(found.path(a), found.path(b))), found)), refused}
 
 # Every file the working copy tracks, in path order, and every path it
 # refused, in the order the Rust walk refuses them.
 def walk.all(+repo: String, +rules: List<&2, Scope>) -> IO(Walked):
   do IO<Walked>:
-    w : Walked <- walk.go(U32.to_nat(1000000), repo, rules, [T.Split{SNil{}, SNil{}}], Nil{}, Nil{}, Nil{})
-    +w2 : Walked = w
-    return Walked{distinct(List.sort(~Found, ~(a => b => String.is_le(found.path(a), found.path(b))), walked.found(w2))), walked.refused(w2)}
+    w : Walked <- walk.go(U32.to_nat(1000000), repo, rules, Walking{[T.Split{SNil{}, SNil{}}], Nil{}, Nil{}, Nil{}})
+    return walk.finish(w)
 
 # Every file the working copy tracks, in path order.
 def walk(+repo: String, +rules: List<&2, Scope>) -> IO(List<&2, Found>):
