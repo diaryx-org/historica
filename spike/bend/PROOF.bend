@@ -82,6 +82,7 @@ import ./offer_lemmas.bend as OfferL
 import ./export_lemmas.bend as ExportL
 import ./words_lemmas.bend as WordsL
 import ./nfc_lemmas.bend as NfcL
+import ./fetching_lemmas.bend as FetchingL
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -1081,3 +1082,21 @@ def Laws.the_folder_spells_what_is_opened(ls, want):
 
 def Laws.a_name_that_cannot_be_spelled_is_refused(es, prefix, dir):
   NfcL.all_refused(es, prefix, dir)
+
+def Laws.fetch_reads_its_words(ws):
+  WordsL.fetch_words(ws)
+
+def Laws.fetch_asks_under_the_manifests_directory(url, r, m, e):
+  FetchingL.addressed_ok(url, r, m, e)
+
+def Laws.fetch_asks_only_for_what_the_manifest_names(h, os):
+  FetchingL.asks_what_is_named(h, os)
+
+def Laws.fetch_files_only_text_that_hashes_to_its_line(root, held, o, g, at, t, e):
+  FetchingL.filed_is_its_digest(root, held, o, g, at, t, e)
+
+def Laws.fetch_lands_a_file_only_where_it_hashes_to_its_line(folder, name, o, g, f, a, b, e):
+  FetchingL.moved_is_its_digest(folder, name, o, g, f, a, b, e)
+
+def Laws.fetch_files_a_payload_under_what_it_hashes_to(root, o, g, f, a, b, e):
+  FetchingL.payload_lands_under_its_digest(root, o, g, f, a, b, e)

@@ -42,6 +42,8 @@ import ./export.bend as Export
 import ./nfc.bend as Nfc
 import ./nfc_tables.bend as Tab
 import ./nfc_lemmas.bend as NfcL
+import ./fetch.bend as Fetch
+import ./utf8.bend as Utf8
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -2836,3 +2838,71 @@ law a_name_that_cannot_be_spelled_is_refused:
   for +prefix: String
   for +dir: String
   {Folder.unkeyed(Folder.unspelled(NfcL.listed.lines(es), prefix, dir)) == List.reverse(&2, T.Split, NfcL.listed.refused(es, dir)) : List<&2, T.Split>}
+
+# `fetch` reads its words as their plain reading says, though it reads them
+# in one pass: it accepts a command line exactly where the words starting
+# `-` are all `--join-unrelated` or `--fields`, wherever each stands, and
+# one word does not start `-`; and then it joins unrelated histories
+# exactly where `--join-unrelated` is among them, states what it wrote
+# exactly where `--fields` is, and the URL is that one other word.
+law fetch_reads_its_words:
+  for +ws: List<&2, String>
+  {Fetch.args.read(Fetch.args.r(ws)) == Bool.pick(Maybe<&2, Fetch.Said>, Bool.and(List.all(~&2, ~String, ~(w => Rev.member(["--join-unrelated", "--fields"], w)), List.filter(~String, ~(w => String.starts_with(w, "-")), ws)), Nat.is_eq(List.length(&2, String, List.filter(~String, ~(w => Bool.not(String.starts_with(w, "-"))), ws)), 1n)), Some{Fetch.Said{Rev.member(ws, "--join-unrelated"), Rev.member(ws, "--fields"), List.filter(~String, ~(w => Bool.not(String.starts_with(w, "-"))), ws)}}, None{}) : Maybe<&2, Fetch.Said>}
+
+# A URL `fetch` accepts is cut into the directory the manifest sits in and
+# the manifest's own name: put back together they are the URL, the
+# directory ends with `/`, and the name is not empty and holds no `/`. So
+# the directory every path of the manifest is asked for under is the URL up
+# to its last `/`, that included (decision 0052), and nothing after it.
+law fetch_asks_under_the_manifests_directory:
+  for +url: String
+  for r: String
+  for m: String
+  for e: {Fetch.addressed.r(url) == Done{Fetch.Addressed{r, m}} : Result<&2, &2, Main.Refused, Fetch.Addressed>}
+  {Bool.and(String.eq(String.append(r, m), url), Bool.and(String.ends_with(r, "/"), Bool.and(Bool.not(String.is_empty(m)), List.all(~&2, ~Char, ~(c => Bool.not(Char.is_eq(c, '/'))), String.to_list(m))))) == True{} : Bool}
+
+# Every path a pass of `fetch` asks the host for is one the manifest names:
+# nothing it asks for is a path it made up.
+law fetch_asks_only_for_what_the_manifest_names:
+  for h: Fetch.Here
+  for +os: List<&2, Offer.Offered>
+  {Main.all_held(T.map(~Offer.Offered, ~String, ~(o => Offer.offered.path(o)), os), Fetch.asked(Fetch.steps.of(Fetch.plan.of(h, os)))) == True{} : Bool}
+
+# A document of text is filed only where the text that arrived hashes to
+# the digest the manifest's line gave it (decision 0048): whatever the host
+# answered, what `fetch` files is what was offered.
+law fetch_files_only_text_that_hashes_to_its_line:
+  for +root: String
+  for +held: List<&2, String>
+  for +o: Offer.Offered
+  for g: Fetch.Got
+  for at: String
+  for t: String
+  for e: {Fetch.got.text(root, held, o, g) == Fetch.Land.File{at, t} : Fetch.Land}
+  {Sha.digest(Utf8.encode(t)) == Fetch.entry.digest(o) : String}
+
+# And a file that arrives whole — a payload, or another tool's — is renamed
+# from where it was staged into the store only where the host found its
+# bytes to hash to the digest its line gave.
+law fetch_lands_a_file_only_where_it_hashes_to_its_line:
+  for +folder: String
+  for +name: String
+  for +o: Offer.Offered
+  for g: Fetch.Got
+  for f: String
+  for a: String
+  for b: String
+  for e: {Fetch.got.pull(folder, name, o, g) == Fetch.Land.Move{f, a, b} : Fetch.Land}
+  {g == Fetch.Got.Pulled{Fetch.entry.digest(o)} : Fetch.Got}
+
+# A payload lands under the very digest the host found its bytes to have:
+# its name here is what it is, and never a name the publisher gave it.
+law fetch_files_a_payload_under_what_it_hashes_to:
+  for +root: String
+  for +o: Offer.Offered
+  for +g: Fetch.Got
+  for f: String
+  for a: String
+  for b: String
+  for +e: {Fetch.pay.land(root, o, g) == Fetch.Land.Move{f, a, b} : Fetch.Land}
+  {Fetch.Got.Pulled{b} == g : Fetch.Got}
