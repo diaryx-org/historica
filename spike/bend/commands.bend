@@ -5238,35 +5238,43 @@ def planned.read(ps: List<&2, Planned>) -> List<&2, String>:
     case Planned{+h, d, p, +read} <> rest:
       Rev.keep(read, here.path(h), planned.read(rest))
 
-# What the digests stated leave open. A file of lines is settled where the
-# folder holds a regular file at its path with the digest the file's nearest
-# statement leaves; a file of bytes or a link the position holds is settled
-# by its digest or its target, whatever the folder holds there.
-# `LAWS.diff_folder_replays_what_is_unsettled` and
-# `LAWS.diff_folder_reads_what_is_unsettled` hold `plans` to it.
+# What `LAWS.diff_folder_compares_like_with_like` asks of each path's plan,
+# by what the position and the folder hold there: a file the position does
+# not hold is read where the folder holds a regular one, and nothing is
+# replayed; a file of lines against a regular file is replayed exactly
+# where the folder's is read; a file of lines against anything else is
+# replayed and nothing read; and anything else is neither.
+def planned.like(p: Planned) -> Bool:
+  match p:
+    case Planned{Here{q, None{}, Some{Folder.Found.File{x, r, n}}}, d, replay, read}:
+      Bool.and(Bool.not(replay), read)
+    case Planned{Here{q, Some{Tree.Entry{f, y, Tree.Lines{}, g, h, m}}, Some{Folder.Found.File{x, r, n}}}, d, replay, read}:
+      Bool.not(Bool.xor(replay, read))
+    case Planned{Here{q, Some{Tree.Entry{f, y, Tree.Lines{}, g, h, m}}, found}, d, replay, read}:
+      Bool.and(replay, Bool.not(read))
+    case Planned{h, d, replay, read}:
+      Bool.and(Bool.not(replay), Bool.not(read))
+
+def plans.like(ps: List<&2, Planned>) -> Bool:
+  match ps:
+    case Nil{}:
+      True{}
+    case p <> rest:
+      Bool.and(planned.like(p), plans.like(rest))
+
+# The files of lines no statement settles: settled where the folder holds a
+# regular file at its path with the digest the file's nearest statement
+# leaves. `LAWS.diff_folder_fetches_what_it_replays` names them.
 def here.settled(+dg: Map<&2, String>, +os: Map<&2, T.Split>, +eds: List<&2, Store.Doc>, h: Here) -> Bool:
   +h2 = h
   Bool.and(Bool.and(here.lines(h2), here.regular(h2)), here.same(eds, os, h2, here.digest(dg, h2)))
 
-def here.kept(h: Here) -> Bool:
-  +h2 = h
-  Bool.and(here.held(h2), Bool.not(here.lines(h2)))
-
-# The files of lines no statement settles, by file; and the folder's regular
-# files nothing the position holds settles, by path.
 def unsettled.files(+dg: Map<&2, String>, +os: Map<&2, T.Split>, +eds: List<&2, Store.Doc>, hs: List<&2, Here>) -> List<&2, String>:
   match hs:
     case Nil{}:
       Nil{}
     case +h <> rest:
       Rev.keep(Bool.and(here.lines(h), Bool.not(here.settled(dg, os, eds, h))), here.file(h), unsettled.files(dg, os, eds, rest))
-
-def unsettled.paths(+dg: Map<&2, String>, +os: Map<&2, T.Split>, +eds: List<&2, Store.Doc>, hs: List<&2, Here>) -> List<&2, String>:
-  match hs:
-    case Nil{}:
-      Nil{}
-    case +h <> rest:
-      Rev.keep(Bool.and(here.regular(h), Bool.not(Bool.or(here.kept(h), here.settled(dg, os, eds, h)))), here.path(h), unsettled.paths(dg, os, eds, rest))
 
 def wanted_all(+fs: List<&2, Full>, files: List<&2, String>) -> List<&2, String>:
   match files:
@@ -10352,13 +10360,27 @@ def when.r(r: Result<&1, &1, U32 & String, String>) -> Result<&2, &2, Refused, S
       Fail{Refused{1, msg}}
 
 # Decision 0010: the failure worth catching is a machine that says 1970,
-# since every later revision of the change copies what it says.
-def clock.warned(+now: String, newest: Maybe<&2, String>) -> IO(Unit):
+# since every later revision of the change copies what it says. The warning
+# is decided here, and said by `clock.warned`.
+def clock.line(+now: String, +n: String) -> String:
+  "historica: this machine's clock reads " ++ now ++ ", and this store already holds work recorded at " ++ n
+
+def clock.warning(+now: String, newest: Maybe<&2, String>) -> Maybe<&2, String>:
   match newest:
     case Some{+n}:
-      Bool.pick(IO(Unit), Nat.is_lt(Naming.instant(now), Naming.instant(n)), IO.print_err("historica: this machine's clock reads " ++ now ++ ", and this store already holds work recorded at " ++ n), IO.pure(Unit, Unit{}))
+      Bool.pick(Maybe<&2, String>, Nat.is_lt(Naming.instant(now), Naming.instant(n)), Some{clock.line(now, n)}, None{})
+    case None{}:
+      None{}
+
+def clock.said(w: Maybe<&2, String>) -> IO(Unit):
+  match w:
+    case Some{line}:
+      IO.print_err(line)
     case None{}:
       IO.pure(Unit, Unit{})
+
+def clock.warned(+now: String, newest: Maybe<&2, String>) -> IO(Unit):
+  clock.said(clock.warning(now, newest))
 
 def whens(ds: List<&2, T.Split>) -> List<&2, String>:
   match ds:
@@ -11165,108 +11187,6 @@ def name.args(ws: List<&2, String>, c: NameCmd) -> NameCmd:
     case +w <> rest:
       name.args(rest, name.word(c, nword(w), w))
 
-# The words read a field at a time, as `LAWS.name_reads_its_words` holds
-# `name.args` to: the last of `--revision` and `--change`, the last of
-# `--private` and `--shared`, whether `--delete` and `--fields` are there,
-# the flags shaping a target in the order typed, and every other word in
-# order.
-def nargs.pin.of(k: NWord, last: Bool) -> Bool:
-  match k:
-    case NWord.Revision{}:
-      True{}
-    case NWord.Change{}:
-      False{}
-    case _:
-      last
-
-def nargs.pin(ws: List<&2, String>, last: Bool) -> Bool:
-  match ws:
-    case Nil{}:
-      last
-    case +w <> rest:
-      nargs.pin(rest, nargs.pin.of(nword(w), last))
-
-def nargs.axis.of(k: NWord, last: Maybe<&2, Bool>) -> Maybe<&2, Bool>:
-  match k:
-    case NWord.Private{}:
-      Some{True{}}
-    case NWord.Shared{}:
-      Some{False{}}
-    case _:
-      last
-
-def nargs.axis(ws: List<&2, String>, last: Maybe<&2, Bool>) -> Maybe<&2, Bool>:
-  match ws:
-    case Nil{}:
-      last
-    case +w <> rest:
-      nargs.axis(rest, nargs.axis.of(nword(w), last))
-
-def nargs.delete.of(k: NWord, had: Bool) -> Bool:
-  match k:
-    case NWord.Delete{}:
-      True{}
-    case _:
-      had
-
-def nargs.delete(ws: List<&2, String>, had: Bool) -> Bool:
-  match ws:
-    case Nil{}:
-      had
-    case +w <> rest:
-      nargs.delete(rest, nargs.delete.of(nword(w), had))
-
-def nargs.fields.of(k: NWord, had: Bool) -> Bool:
-  match k:
-    case NWord.Fields{}:
-      True{}
-    case _:
-      had
-
-def nargs.fields(ws: List<&2, String>, had: Bool) -> Bool:
-  match ws:
-    case Nil{}:
-      had
-    case +w <> rest:
-      nargs.fields(rest, nargs.fields.of(nword(w), had))
-
-def nargs.shaping.of(k: NWord, w: String, rest: List<&2, String>) -> List<&2, String>:
-  match k:
-    case NWord.Revision{}:
-      w <> rest
-    case NWord.Change{}:
-      w <> rest
-    case NWord.Private{}:
-      w <> rest
-    case NWord.Shared{}:
-      w <> rest
-    case _:
-      rest
-
-def nargs.shaping(ws: List<&2, String>) -> List<&2, String>:
-  match ws:
-    case Nil{}:
-      Nil{}
-    case +w <> rest:
-      nargs.shaping.of(nword(w), w, nargs.shaping(rest))
-
-def nargs.words.of(k: NWord, w: String, rest: List<&2, String>) -> List<&2, String>:
-  match k:
-    case NWord.Other{}:
-      w <> rest
-    case _:
-      rest
-
-def nargs.words(ws: List<&2, String>) -> List<&2, String>:
-  match ws:
-    case Nil{}:
-      Nil{}
-    case +w <> rest:
-      nargs.words.of(nword(w), w, nargs.words(rest))
-
-def nargs.said(+ws: List<&2, String>) -> NameCmd:
-  NameCmd{nargs.pin(ws, False{}), nargs.axis(ws, None{}), nargs.delete(ws, False{}), nargs.fields(ws, False{}), nargs.shaping(ws), nargs.words(ws)}
-
 # `store::check_name`, and decision 0024's refusal of a name spelled as a
 # file identifier, which would stop the identifier naming its own file.
 def name_fault(+n: String) -> Maybe<&2, String>:
@@ -11491,27 +11411,35 @@ def name.plan.meant(c: NameCmd, p: NamePlan) -> Bool:
       Bool.and(Bool.not(d), Bool.and(nplan.words(rest, n <> t <> nplan.path(path)), Bool.and(nplan.same(pin, pin2), Bool.and(nplan.axis(axis, axis2), Bool.and(nplan.same(f, f2),
         Bool.and(Bool.not(Bool.and(pin2, Maybe.is_some(&2, String, path))), Bool.or(Bool.not(early), f2)))))))
 
-# Where a set points, as `LAWS.name_points_where_asked` holds it: the
-# bookmark named as asked, under `names/`; at a revision the store holds
-# where `--revision` pins it, at a change one of its revisions carries
-# where a target alone is given, and at a file one of its revisions' trees
-# holds where a path is; private as `--private` or `--shared` says, or as
+# Where a set points, as `LAWS.name_points_where_asked` holds it, with
+# `id` the revision the target names as `resolve` reads it for every
+# command: the bookmark named as asked, under `names/`; at that revision
+# where `--revision` pins it, at the change that revision carries where a
+# target alone is given, and at the file `show` names at that revision and
+# path where a path is; private as `--private` or `--shared` says, or as
 # the bookmark of that name already is, or shared where there is none.
-def name.somewhere(held: List<&2, String>, +fs: List<&2, Full>, +x: String) -> Bool:
-  match held:
+def name.carries(fs: List<&2, Full>, +id: String, +c: String) -> Bool:
+  match fs:
     case Nil{}:
       False{}
-    case +i <> rest:
-      Bool.or(tree.holds.r(tree.r(fs, i), x), name.somewhere(rest, fs, x))
+    case +f <> rest:
+      Bool.or(Bool.and(String.eq(id_of(f), id), String.eq(change_of(f), c)), name.carries(rest, id, c))
 
-def name.aimed(+fs: List<&2, Full>, path: Maybe<&2, String>, pin: Bool, t: Bm.Target) -> Bool:
+def name.shown(r: Result<&2, &2, Refused, String>, +x: String) -> Bool:
+  match r:
+    case Done{y}:
+      String.eq(y, x)
+    case Fail{e}:
+      False{}
+
+def name.aimed(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +id: String, path: Maybe<&2, String>, pin: Bool, t: Bm.Target) -> Bool:
   match path pin t:
-    case None{} True{} Bm.Target.Revision{id}:
-      Rev.member(ids(fs), id)
+    case None{} True{} Bm.Target.Revision{r}:
+      String.eq(r, id)
     case None{} False{} Bm.Target.Change{c}:
-      Rev.member(changes(fs), c)
+      name.carries(fs, id, c)
     case Some{p} _ Bm.Target.File{x}:
-      name.somewhere(ids(fs), fs, x)
+      name.shown(show.file.r(fs, bs, id, p), x)
     case _ _ _:
       False{}
 
@@ -11529,10 +11457,10 @@ def name.kept(bs: List<&2, Bm.Bookmark>, +n: String, axis: Maybe<&2, Bool>, p: B
     case None{}:
       name.kept.of(found_of(bs, n), p)
 
-def name.points(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +n: String, path: Maybe<&2, String>, pin: Bool, axis: Maybe<&2, Bool>, b: Bm.Bookmark) -> Bool:
+def name.points(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +n: String, +id: String, path: Maybe<&2, String>, pin: Bool, axis: Maybe<&2, Bool>, b: Bm.Bookmark) -> Bool:
   match b:
     case Bm.Bookmark{+m, t, p}:
-      Bool.and(String.eq(m, n), Bool.and(Bool.not(escapes(m)), Bool.and(name.aimed(fs, path, pin, t), name.kept(bs, n, axis, p))))
+      Bool.and(String.eq(m, n), Bool.and(Bool.not(escapes(m)), Bool.and(name.aimed(fs, bs, id, path, pin, t), name.kept(bs, n, axis, p))))
 
 # What `--delete` finds, as `LAWS.name_deletes_the_bookmark_named` holds
 # it: a refusal exactly where the store has no bookmark of that name, and

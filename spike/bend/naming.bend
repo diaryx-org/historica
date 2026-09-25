@@ -322,15 +322,24 @@ def days_before_month(+y: Nat, +m: Nat) -> Nat:
   Nat.add(Maybe.default(&2, Nat, List.get(&2, Nat, [0n, 31n, 59n, 90n, 120n, 151n, 181n, 212n, 243n, 273n, 304n, 334n], Nat.sub(m, 1n)), 0n),
     Bool.pick(Nat, Bool.and(Nat.is_gt(m, 2n), leap(y)), 1n, 0n))
 
-# A timestamp as seconds from an origin a day before year zero, which no
-# offset can reach below: what `record` compares to see a clock that is
-# behind the store. Only the order means anything.
+# A local time as seconds from the start of year zero, read from the
+# nineteen characters `YYYY-MM-DDTHH:MM:SS` that spell it.
+def local(+s: String) -> Nat:
+  +y = field(s, 0n, 4n)
+  +days = Nat.add(Nat.add(days_before_year(y), days_before_month(y, field(s, 5n, 2n))), Nat.sub(field(s, 8n, 2n), 1n))
+  Nat.add(Nat.mul(days, 86400n), Nat.add(Nat.add(Nat.mul(field(s, 11n, 2n), 3600n), Nat.mul(field(s, 14n, 2n), 60n)), field(s, 17n, 2n)))
+
+# That local time at the offset spelled after it, `+HH:MM` east of UTC or
+# `-HH:MM` west of it, counted from an origin a day before year zero, which
+# no offset can reach below.
+def at_offset(+secs: Nat, +rest: String) -> Nat:
+  +offset = Nat.add(Nat.mul(field(rest, 1n, 2n), 3600n), Nat.mul(field(rest, 4n, 2n), 60n))
+  Bool.pick(Nat, String.starts_with(rest, "-"), Nat.add(Nat.add(secs, 86400n), offset), Nat.sub(Nat.add(secs, 86400n), offset))
+
+# A timestamp as seconds from that origin: what `record` compares to see a
+# clock that is behind the store. Only the order means anything.
 def instant(+w: String) -> Nat:
-  +y = field(w, 0n, 4n)
-  +days = Nat.add(Nat.add(days_before_year(y), days_before_month(y, field(w, 5n, 2n))), Nat.sub(field(w, 8n, 2n), 1n))
-  +local = Nat.add(Nat.mul(days, 86400n), Nat.add(Nat.add(Nat.mul(field(w, 11n, 2n), 3600n), Nat.mul(field(w, 14n, 2n), 60n)), field(w, 17n, 2n)))
-  +offset = Nat.add(Nat.mul(field(w, 20n, 2n), 3600n), Nat.mul(field(w, 23n, 2n), 60n))
-  Bool.pick(Nat, String.starts_with(String.drop(w, 19n), "-"), Nat.add(Nat.add(local, 86400n), offset), Nat.sub(Nat.add(local, 86400n), offset))
+  at_offset(local(String.take(w, 19n)), String.drop(w, 19n))
 
 # The latest of some timestamps, the last of several at one instant, as
 # `max_by_key` keeps it.
@@ -398,7 +407,7 @@ def helds_controlless(fs: List<&2, Filing>) -> Bool:
     case Filing{h, p, d} <> rest:
       Bool.and(controlless(h), helds_controlless(rest))
 
-# What `LAWS.record_compares_with_the_latest` asks of the timestamp `newest`
+# What `LAWS.record_names_the_latest_work` asks of the timestamp `newest`
 # answers: one it was handed, and none of them later.
 def no_later(ws: List<&2, String>, +w: String) -> Bool:
   match ws:
@@ -409,6 +418,15 @@ def no_later(ws: List<&2, String>, +w: String) -> Bool:
 
 def latest(+ws: List<&2, String>, +w: String) -> Bool:
   Bool.and(member(ws, w), no_later(ws, w))
+
+# What `LAWS.record_compares_with_the_latest` asks of the timestamps `record`
+# is handed: whether any of them names a later instant than the clock.
+def later_than(ws: List<&2, String>, +now: String) -> Bool:
+  match ws:
+    case Nil{}:
+      False{}
+    case +v <> rest:
+      Bool.or(Nat.is_lt(instant(now), instant(v)), later_than(rest, now))
 
 def show_split(s: T.Split) -> String:
   match s:

@@ -570,15 +570,6 @@ def Laws.diff_folder_shows_what_differs(t, older, ds, left, reads, ps, cs, e):
 def Laws.diff_colour_changes_no_character(cs):
   Colour.colour_fit(cs)
 
-def Laws.diff_folder_replays_what_is_unsettled(dg, os, eds, hs):
-  PlanL.replayed_unsettled(dg, os, eds, hs)
-
-def Laws.diff_folder_reads_what_is_unsettled(dg, os, eds, hs):
-  PlanL.read_unsettled(dg, os, eds, hs)
-
-def Laws.diff_sizes_what_the_host_stated(found, stats, cs):
-  SizesL.sized_told(found, stats, cs)
-
 def Laws.diff_folder_plans_by_the_edits_it_fetches(dg, os, eds, all, hs, h):
   FetchL.plans_fetched(dg, os, eds, all, hs, h)
 
@@ -699,9 +690,6 @@ def Laws.name_reads_its_words(ws):
 def Laws.name_does_what_it_reads(c, p, e):
   NameL.plan_meant(c, p, e)
 
-def Laws.name_points_where_asked(fs, bs, n, spelling, path, pin, axis, b, e):
-  NameL.points_ok(fs, bs, n, spelling, path, pin, axis, b, e)
-
 def Laws.name_deletes_the_bookmark_named(bs, n):
   NameL.found_gone(bs, n)
 
@@ -762,9 +750,6 @@ def Laws.a_revision_is_filed_under_its_month(when, message, change, id, ns, hw, 
 
 def Laws.content_is_filed_under_a_name_a_filesystem_holds(fs, held, hf, hh):
   NamingL.filed_as_ok(Naming.filed(fs), held, NamingL.filed_ok(fs, hf), hh)
-
-def Laws.record_compares_with_the_latest(ws, w, e):
-  NamingL.latest_ok(ws, w, e)
 
 def reason_pick(b: Bool, -r: Main.Refused) -> {Result.is_done(&2, &2, Main.Refused, Unit, Bool.pick(Result<&2, &2, Main.Refused, Unit>, b, Fail{r}, Done{Unit{}})) == Bool.not(b) : Bool}:
   match b:
@@ -1128,3 +1113,27 @@ def Laws.status_leaves_a_disputed_file_unsettled(t, dg, bf, bf2, reads, props, p
 
 def Laws.status_joins_what_it_reads(hs, fs, ds, ps, xs, h):
   StatusL.pairs_files(hs, fs, ds, ps, xs, h)
+
+def Laws.diff_folder_compares_like_with_like(dg, os, eds, hs):
+  PlanL.plans_like(dg, os, eds, hs)
+
+def Laws.diff_folder_believes_a_stated_digest(dg, os, eds, path, file, at, y, g, m, fp, runs, size, d, os2, ho, w, hw, more, dg2, hd):
+  PlanL.believed(dg, os, eds, path, file, at, y, g, m, fp, runs, size, d, os2, ho, w, hw, more, dg2, hd)
+
+def Laws.diff_sizes_only_what_the_host_stated(found, stats, cs):
+  SizesL.sized_told(found, stats, cs)
+
+def Laws.diff_sizes_what_the_host_stated(f1, s1, hl, d, hn, hd, hs, p, f2, size, n, hz, s2, from, to, modes, targets):
+  SizesL.sized_given(f1, s1, hl, d, hn, hd, hs, p, f2, size, n, hz, s2, from, to, modes, targets)
+
+def Laws.name_points_where_asked(fs, bs, n, spelling, path, pin, axis, b, e, id, ei):
+  NameL.points_ok(fs, bs, n, spelling, path, pin, axis, b, e, id, ei)
+
+def Laws.record_compares_with_the_latest(now, ws):
+  NamingL.warns(now, ws)
+
+def Laws.record_names_the_latest_work(ws, w, e):
+  NamingL.latest_ok(ws, w, e)
+
+def Laws.a_timestamp_is_read_at_its_offset(base, hb, hh, hh2, h, eh, mm, hm2, m, em, hd):
+  NamingL.two.hh(hh, hh2, base, hb, h, eh, mm, hm2, m, em, hd)

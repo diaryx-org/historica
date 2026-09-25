@@ -6,7 +6,9 @@
 # cutting all keep only characters that were there. A summary is sixty
 # characters at most and gives up a dot or a space at either end. And each
 # file of content is filed under its path, or a digest, with every control
-# character scrubbed.
+# character scrubbed. And `record` warns of a clock behind the store
+# exactly where a timestamp it is handed names a later instant, the one it
+# names being the latest, each timestamp read at the offset it spells.
 import Base
 import ./naming.bend as N
 import ./folder.bend as Folder
@@ -17,6 +19,7 @@ import ./abbrev_lemmas.bend as Abbrev
 import ./string_lemmas.bend as S
 import ./sort_lemmas.bend as SortL
 import ./equality_lemmas.bend as Eq
+import ./commands.bend as Main
 
 # Every character passing a test
 # ------------------------------
@@ -596,6 +599,225 @@ def latest_ok(+ws: List<&2, String>, +r: String, e: {N.newest(ws, None{}) == Som
   %or_false_id(N.member(ws, r)) : {Bool.and(_, N.no_later(ws, r)) == True{} : Bool}
   %and_true_id(N.no_later(ws, r)) : {Bool.and(Bool.or(N.member(ws, r), False{}), _) == True{} : Bool}
   newest_inv(ws, None{}, r, e)
+
+# The clock against the latest work
+# ---------------------------------
+
+def is_some_pick(c: Bool, -x: String) -> {Maybe.is_some(&2, String, Bool.pick(Maybe<&2, String>, c, Some{x}, None{})) == c : Bool}:
+  match c:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def some_pick(c: Bool, +w: String, -best: Maybe<&2, String>, hb: {Maybe.is_some(&2, String, best) == True{} : Bool}) -> {Maybe.is_some(&2, String, Bool.pick(Maybe<&2, String>, c, Some{w}, best)) == True{} : Bool}:
+  match c:
+    case True{}:
+      {==}
+    case False{}:
+      hb
+
+# Once it has been handed one timestamp, `newest` has an answer.
+def some_after(ws: List<&2, String>, +best: Maybe<&2, String>, hb: {Maybe.is_some(&2, String, best) == True{} : Bool}) -> {Maybe.is_some(&2, String, N.newest(ws, best)) == True{} : Bool}:
+  match ws:
+    case Nil{}:
+      hb
+    case +w <> +rest:
+      some_after(rest, Bool.pick(Maybe<&2, String>, Nat.is_ge(N.instant(w), Maybe.default(&2, Nat, Maybe.map(&2, String, Nat, b => N.instant(b), best), 0n)), Some{w}, best),
+        some_pick(Nat.is_ge(N.instant(w), Maybe.default(&2, Nat, Maybe.map(&2, String, Nat, b => N.instant(b), best), 0n)), w, best, hb))
+
+def some_first(+w: String) -> {Maybe.is_some(&2, String, Bool.pick(Maybe<&2, String>, Nat.is_ge(N.instant(w), 0n), Some{w}, None{})) == True{} : Bool}:
+  %Equal.sym(Bool, Nat.is_ge(N.instant(w), 0n), True{}, ge_zero(N.instant(w))) : {Maybe.is_some(&2, String, Bool.pick(Maybe<&2, String>, _, Some{w}, None{})) == True{} : Bool}
+  {==}
+
+# So it answers nothing only where it was handed nothing, and nothing
+# handed is later than the clock.
+def none_after(+now: String, ws: List<&2, String>, er: {N.newest(ws, None{}) == None{} : Maybe<&2, String>}) -> {N.later_than(ws, now) == False{} : Bool}:
+  match ws:
+    case Nil{}:
+      {==}
+    case +w <> +rest:
+      Empty.absurd({N.later_than(w <> rest, now) == False{} : Bool}, S.true_false(Equal.trans(Bool, True{}, Maybe.is_some(&2, String, N.newest(rest, Bool.pick(Maybe<&2, String>, Nat.is_ge(N.instant(w), 0n), Some{w}, None{}))), False{},
+        Equal.sym(Bool, Maybe.is_some(&2, String, N.newest(rest, Bool.pick(Maybe<&2, String>, Nat.is_ge(N.instant(w), 0n), Some{w}, None{}))), True{}, some_after(rest, Bool.pick(Maybe<&2, String>, Nat.is_ge(N.instant(w), 0n), Some{w}, None{}), some_first(w))),
+        Equal.cong(Maybe<&2, String>, Bool, m => Maybe.is_some(&2, String, m), N.newest(rest, Bool.pick(Maybe<&2, String>, Nat.is_ge(N.instant(w), 0n), Some{w}, None{})), None{}, er))))
+
+def lt_zero(a: Nat) -> {Nat.is_lt(a, 0n) == False{} : Bool}:
+  match a:
+    case 0n:
+      {==}
+    case 1n+p:
+      {==}
+
+# No later than `c`, and `a` not before `c`: `a` is not before it either.
+def lt_below(a: Nat, b: Nat, c: Nat, hbc: {Nat.is_le(b, c) == True{} : Bool}, hac: {Nat.is_lt(a, c) == False{} : Bool}) -> {Nat.is_lt(a, b) == False{} : Bool}:
+  match a b c:
+    case 0n 0n _:
+      {==}
+    case 1n+p 0n _:
+      {==}
+    case 0n 1n+q 0n:
+      Empty.absurd({Nat.is_lt(0n, 1n+q) == False{} : Bool}, S.false_true(hbc))
+    case 0n 1n+q 1n+r:
+      Empty.absurd({Nat.is_lt(0n, 1n+q) == False{} : Bool}, S.true_false(hac))
+    case 1n+p 1n+q 0n:
+      Empty.absurd({Nat.is_lt(1n+p, 1n+q) == False{} : Bool}, S.false_true(hbc))
+    case 1n+p 1n+q 1n+r:
+      lt_below(p, q, r, hbc, hac)
+
+# The latest handed is later than the clock: so one handed is.
+def later_at(ws: List<&2, String>, +now: String, +n: String, hm: {N.member(ws, n) == True{} : Bool}, +hc: {Nat.is_lt(N.instant(now), N.instant(n)) == True{} : Bool}) -> {N.later_than(ws, now) == True{} : Bool}:
+  match ws:
+    case Nil{}:
+      Empty.absurd({N.later_than(Nil{}, now) == True{} : Bool}, S.false_true(hm))
+    case +v <> +rest:
+      AL.or_cases({N.later_than(v <> rest, now) == True{} : Bool}, String.eq(v, n), N.member(rest, n), hm,
+        hv => (%Equal.sym(String, v, n, S.eq_true(v, n, hv)) : {Bool.or(Nat.is_lt(N.instant(now), N.instant(_)), N.later_than(rest, now)) == True{} : Bool}; AL.or_left(Nat.is_lt(N.instant(now), N.instant(n)), N.later_than(rest, now), hc)),
+        hr => AL.or_right(Nat.is_lt(N.instant(now), N.instant(v)), N.later_than(rest, now), later_at(rest, now, n, hr, hc)))
+
+# It is not: then none handed is, since none is later than it.
+def none_later(ws: List<&2, String>, +now: String, +n: String, +hl: {N.no_later(ws, n) == True{} : Bool}, +hc: {Nat.is_lt(N.instant(now), N.instant(n)) == False{} : Bool}) -> {N.later_than(ws, now) == False{} : Bool}:
+  match ws:
+    case Nil{}:
+      {==}
+    case +v <> +rest:
+      %Equal.sym(Bool, Nat.is_lt(N.instant(now), N.instant(v)), False{}, lt_below(N.instant(now), N.instant(v), N.instant(n), Comp.and_left(Nat.is_le(N.instant(v), N.instant(n)), N.no_later(rest, n), hl), hc)) : {Bool.or(_, N.later_than(rest, now)) == False{} : Bool}
+      none_later(rest, now, n, Comp.and_right(Nat.is_le(N.instant(v), N.instant(n)), N.no_later(rest, n), hl), hc)
+
+def compared(c: Bool, +ws: List<&2, String>, +now: String, +n: String, +hm: {N.member(ws, n) == True{} : Bool}, +hl: {N.no_later(ws, n) == True{} : Bool}, +ec: {Nat.is_lt(N.instant(now), N.instant(n)) == c : Bool}) -> {Nat.is_lt(N.instant(now), N.instant(n)) == N.later_than(ws, now) : Bool}:
+  match c:
+    case True{}:
+      Equal.trans(Bool, Nat.is_lt(N.instant(now), N.instant(n)), True{}, N.later_than(ws, now), ec, Equal.sym(Bool, N.later_than(ws, now), True{}, later_at(ws, now, n, hm, ec)))
+    case False{}:
+      Equal.trans(Bool, Nat.is_lt(N.instant(now), N.instant(n)), False{}, N.later_than(ws, now), ec, Equal.sym(Bool, N.later_than(ws, now), False{}, none_later(ws, now, n, hl, ec)))
+
+def warns.of(+now: String, +ws: List<&2, String>, r: Maybe<&2, String>, +er: {N.newest(ws, None{}) == r : Maybe<&2, String>}) -> {Maybe.is_some(&2, String, Main.clock.warning(now, r)) == N.later_than(ws, now) : Bool}:
+  match r:
+    case None{}:
+      Equal.sym(Bool, N.later_than(ws, now), False{}, none_after(now, ws, er))
+    case Some{+n}:
+      +hlat = latest_ok(ws, n, er)
+      %Equal.sym(Bool, Maybe.is_some(&2, String, Bool.pick(Maybe<&2, String>, Nat.is_lt(N.instant(now), N.instant(n)), Some{Main.clock.line(now, n)}, None{})), Nat.is_lt(N.instant(now), N.instant(n)), is_some_pick(Nat.is_lt(N.instant(now), N.instant(n)), Main.clock.line(now, n))) : {_ == N.later_than(ws, now) : Bool}
+      compared(Nat.is_lt(N.instant(now), N.instant(n)), ws, now, n, Comp.and_left(N.member(ws, n), N.no_later(ws, n), hlat), Comp.and_right(N.member(ws, n), N.no_later(ws, n), hlat), {==})
+
+# `record` warns exactly where a timestamp it is handed is later than the
+# clock.
+def warns(+now: String, +ws: List<&2, String>) -> {Maybe.is_some(&2, String, Main.clock.warning(now, N.newest(ws, None{}))) == N.later_than(ws, now) : Bool}:
+  warns.of(now, ws, N.newest(ws, None{}), {==})
+
+# A timestamp's offset
+# --------------------
+
+def take_zero(s: String) -> {String.take(s, 0n) == SNil{} : String}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{h, t}:
+      {==}
+
+def drop_zero(s: String) -> {String.drop(s, 0n) == s : String}:
+  match s:
+    case SNil{}:
+      {==}
+    case SCon{h, t}:
+      {==}
+
+def take_app(t: String, +x: String) -> {String.take(t ++ x, String.length(t)) == t : String}:
+  match t:
+    case SNil{}:
+      take_zero(x)
+    case SCon{+h, rest}:
+      Equal.cong(String, String, z => SCon{h, z}, String.take(rest ++ x, String.length(rest)), rest, take_app(rest, x))
+
+def drop_app(t: String, +x: String) -> {String.drop(t ++ x, String.length(t)) == x : String}:
+  match t:
+    case SNil{}:
+      drop_zero(x)
+    case SCon{h, rest}:
+      drop_app(rest, x)
+
+def sub_zero(n: Nat) -> {Nat.sub(n, 0n) == n : Nat}:
+  match n:
+    case 0n:
+      {==}
+    case 1n+p:
+      {==}
+
+# Nineteen characters of local time, then whatever follows: the instant is
+# that local time at the offset that follows.
+def inst_at(+base: String, hb: {String.length(base) == 19n : Nat}, +x: String) -> {N.instant(base ++ x) == N.at_offset(N.local(base), x) : Nat}:
+  %hb : {N.at_offset(N.local(String.take(base ++ x, _)), String.drop(base ++ x, _)) == N.at_offset(N.local(base), x) : Nat}
+  %Equal.sym(String, String.take(base ++ x, String.length(base)), base, take_app(base, x)) : {N.at_offset(N.local(_), String.drop(base ++ x, String.length(base))) == N.at_offset(N.local(base), x) : Nat}
+  %Equal.sym(String, String.drop(base ++ x, String.length(base)), x, drop_app(base, x)) : {N.at_offset(N.local(base), _) == N.at_offset(N.local(base), x) : Nat}
+  {==}
+
+# East of UTC, the offset is taken away; west of it, added; `Z` is UTC.
+def east(+secs: Nat, +a1: Char, +a2: Char, +b1: Char, +b2: Char, +h: Nat, +m: Nat, eh: {Nat.read(SCon{a1, SCon{a2, SNil{}}}) == Some{h} : Maybe<&2, Nat>}, em: {Nat.read(SCon{b1, SCon{b2, SNil{}}}) == Some{m} : Maybe<&2, Nat>}) -> {N.at_offset(secs, "+" ++ (SCon{a1, SCon{a2, SNil{}}} ++ (":" ++ SCon{b1, SCon{b2, SNil{}}}))) == Nat.sub(Nat.add(secs, 86400n), Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n))) : Nat}:
+  %Equal.sym(Maybe<&2, Nat>, Nat.read(SCon{a1, SCon{a2, SNil{}}}), Some{h}, eh) : {Nat.sub(Nat.add(secs, 86400n), Nat.add(Nat.mul(Maybe.default(&2, Nat, _, 0n), 3600n), Nat.mul(Maybe.default(&2, Nat, Nat.read(SCon{b1, SCon{b2, SNil{}}}), 0n), 60n))) == Nat.sub(Nat.add(secs, 86400n), Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n))) : Nat}
+  %Equal.sym(Maybe<&2, Nat>, Nat.read(SCon{b1, SCon{b2, SNil{}}}), Some{m}, em) : {Nat.sub(Nat.add(secs, 86400n), Nat.add(Nat.mul(h, 3600n), Nat.mul(Maybe.default(&2, Nat, _, 0n), 60n))) == Nat.sub(Nat.add(secs, 86400n), Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n))) : Nat}
+  {==}
+
+def west(+secs: Nat, +a1: Char, +a2: Char, +b1: Char, +b2: Char, +h: Nat, +m: Nat, eh: {Nat.read(SCon{a1, SCon{a2, SNil{}}}) == Some{h} : Maybe<&2, Nat>}, em: {Nat.read(SCon{b1, SCon{b2, SNil{}}}) == Some{m} : Maybe<&2, Nat>}) -> {N.at_offset(secs, "-" ++ (SCon{a1, SCon{a2, SNil{}}} ++ (":" ++ SCon{b1, SCon{b2, SNil{}}}))) == Nat.add(Nat.add(secs, 86400n), Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n))) : Nat}:
+  %Equal.sym(Maybe<&2, Nat>, Nat.read(SCon{a1, SCon{a2, SNil{}}}), Some{h}, eh) : {Nat.add(Nat.add(secs, 86400n), Nat.add(Nat.mul(Maybe.default(&2, Nat, _, 0n), 3600n), Nat.mul(Maybe.default(&2, Nat, Nat.read(SCon{b1, SCon{b2, SNil{}}}), 0n), 60n))) == Nat.add(Nat.add(secs, 86400n), Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n))) : Nat}
+  %Equal.sym(Maybe<&2, Nat>, Nat.read(SCon{b1, SCon{b2, SNil{}}}), Some{m}, em) : {Nat.add(Nat.add(secs, 86400n), Nat.add(Nat.mul(h, 3600n), Nat.mul(Maybe.default(&2, Nat, _, 0n), 60n))) == Nat.add(Nat.add(secs, 86400n), Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n))) : Nat}
+  {==}
+
+def zulu(+secs: Nat) -> {N.at_offset(secs, "Z") == Nat.sub(Nat.add(secs, 86400n), 0n) : Nat}:
+  {==}
+
+# The same local time east, west and at UTC, for offsets of two digits each.
+def offsets(+base: String, +hb: {String.length(base) == 19n : Nat}, +a1: Char, +a2: Char, +h: Nat, +eh: {Nat.read(SCon{a1, SCon{a2, SNil{}}}) == Some{h} : Maybe<&2, Nat>}, +b1: Char, +b2: Char, +m: Nat, +em: {Nat.read(SCon{b1, SCon{b2, SNil{}}}) == Some{m} : Maybe<&2, Nat>}, hd: {Nat.is_le(Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)), 86400n) == True{} : Bool}) -> {[Nat.add(Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)), N.instant(base ++ ("+" ++ (SCon{a1, SCon{a2, SNil{}}} ++ (":" ++ SCon{b1, SCon{b2, SNil{}}}))))), N.instant(base ++ ("-" ++ (SCon{a1, SCon{a2, SNil{}}} ++ (":" ++ SCon{b1, SCon{b2, SNil{}}}))))] == [N.instant(base ++ "Z"), Nat.add(N.instant(base ++ "Z"), Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)))] : List<&2, Nat>}:
+  %Equal.sym(Nat, N.instant(base ++ ("+" ++ (SCon{a1, SCon{a2, SNil{}}} ++ (":" ++ SCon{b1, SCon{b2, SNil{}}})))), N.at_offset(N.local(base), "+" ++ (SCon{a1, SCon{a2, SNil{}}} ++ (":" ++ SCon{b1, SCon{b2, SNil{}}}))), inst_at(base, hb, "+" ++ (SCon{a1, SCon{a2, SNil{}}} ++ (":" ++ SCon{b1, SCon{b2, SNil{}}})))) : {[Nat.add(Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)), _), N.instant(base ++ ("-" ++ (SCon{a1, SCon{a2, SNil{}}} ++ (":" ++ SCon{b1, SCon{b2, SNil{}}}))))] == [N.instant(base ++ "Z"), Nat.add(N.instant(base ++ "Z"), Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)))] : List<&2, Nat>}
+  %Equal.sym(Nat, N.instant(base ++ ("-" ++ (SCon{a1, SCon{a2, SNil{}}} ++ (":" ++ SCon{b1, SCon{b2, SNil{}}})))), N.at_offset(N.local(base), "-" ++ (SCon{a1, SCon{a2, SNil{}}} ++ (":" ++ SCon{b1, SCon{b2, SNil{}}}))), inst_at(base, hb, "-" ++ (SCon{a1, SCon{a2, SNil{}}} ++ (":" ++ SCon{b1, SCon{b2, SNil{}}})))) : {[Nat.add(Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)), N.at_offset(N.local(base), "+" ++ (SCon{a1, SCon{a2, SNil{}}} ++ (":" ++ SCon{b1, SCon{b2, SNil{}}})))), _] == [N.instant(base ++ "Z"), Nat.add(N.instant(base ++ "Z"), Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)))] : List<&2, Nat>}
+  %Equal.sym(Nat, N.instant(base ++ "Z"), N.at_offset(N.local(base), "Z"), inst_at(base, hb, "Z")) : {[Nat.add(Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)), N.at_offset(N.local(base), "+" ++ (SCon{a1, SCon{a2, SNil{}}} ++ (":" ++ SCon{b1, SCon{b2, SNil{}}})))), N.at_offset(N.local(base), "-" ++ (SCon{a1, SCon{a2, SNil{}}} ++ (":" ++ SCon{b1, SCon{b2, SNil{}}})))] == [_, Nat.add(_, Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)))] : List<&2, Nat>}
+  %Equal.sym(Nat, N.at_offset(N.local(base), "+" ++ (SCon{a1, SCon{a2, SNil{}}} ++ (":" ++ SCon{b1, SCon{b2, SNil{}}}))), Nat.sub(Nat.add(N.local(base), 86400n), Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n))), east(N.local(base), a1, a2, b1, b2, h, m, eh, em)) : {[Nat.add(Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)), _), N.at_offset(N.local(base), "-" ++ (SCon{a1, SCon{a2, SNil{}}} ++ (":" ++ SCon{b1, SCon{b2, SNil{}}})))] == [N.at_offset(N.local(base), "Z"), Nat.add(N.at_offset(N.local(base), "Z"), Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)))] : List<&2, Nat>}
+  %Equal.sym(Nat, N.at_offset(N.local(base), "-" ++ (SCon{a1, SCon{a2, SNil{}}} ++ (":" ++ SCon{b1, SCon{b2, SNil{}}}))), Nat.add(Nat.add(N.local(base), 86400n), Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n))), west(N.local(base), a1, a2, b1, b2, h, m, eh, em)) : {[Nat.add(Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)), Nat.sub(Nat.add(N.local(base), 86400n), Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)))), _] == [N.at_offset(N.local(base), "Z"), Nat.add(N.at_offset(N.local(base), "Z"), Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)))] : List<&2, Nat>}
+  %Equal.sym(Nat, Nat.sub(Nat.add(N.local(base), 86400n), 0n), Nat.add(N.local(base), 86400n), sub_zero(Nat.add(N.local(base), 86400n))) : {[Nat.add(Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)), Nat.sub(Nat.add(N.local(base), 86400n), Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)))), Nat.add(Nat.add(N.local(base), 86400n), Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)))] == [_, Nat.add(_, Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)))] : List<&2, Nat>}
+  %Equal.sym(Nat, Nat.add(Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)), Nat.sub(Nat.add(N.local(base), 86400n), Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)))), Nat.add(N.local(base), 86400n), Comp.add_sub(Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)), Nat.add(N.local(base), 86400n), SortL.nat_le_trans(Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)), 86400n, Nat.add(N.local(base), 86400n), hd, SortL.le_c(N.local(base), 86400n)))) : {[_, Nat.add(Nat.add(N.local(base), 86400n), Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)))] == [Nat.add(N.local(base), 86400n), Nat.add(Nat.add(N.local(base), 86400n), Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)))] : List<&2, Nat>}
+  {==}
+
+def ndisc(n: Nat) -> Type:
+  match n:
+    case 0n:
+      Unit
+    case 1n+p:
+      Empty
+
+def pred(n: Nat) -> Nat:
+  match n:
+    case 0n:
+      0n
+    case 1n+p:
+      p
+
+def zero_succ(-p: Nat, e: {0n == 1n+p : Nat}) -> Empty:
+  %e : {ndisc(_) : Type}
+  Unit{}
+
+def succ_zero(-p: Nat, e: {1n+p == 0n : Nat}) -> Empty:
+  zero_succ(p, Equal.sym(Nat, 1n+p, 0n, e))
+
+# Two characters, by their length.
+def two.mm(mm: String, +hm2: {String.length(mm) == 2n : Nat}, +base: String, +hb: {String.length(base) == 19n : Nat}, +a1: Char, +a2: Char, +h: Nat, +eh: {Nat.read(SCon{a1, SCon{a2, SNil{}}}) == Some{h} : Maybe<&2, Nat>}, +m: Nat, em: {Nat.read(mm) == Some{m} : Maybe<&2, Nat>}, hd: {Nat.is_le(Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)), 86400n) == True{} : Bool}) -> {[Nat.add(Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)), N.instant(base ++ ("+" ++ (SCon{a1, SCon{a2, SNil{}}} ++ (":" ++ mm))))), N.instant(base ++ ("-" ++ (SCon{a1, SCon{a2, SNil{}}} ++ (":" ++ mm))))] == [N.instant(base ++ "Z"), Nat.add(N.instant(base ++ "Z"), Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)))] : List<&2, Nat>}:
+  match mm:
+    case SNil{}:
+      Empty.absurd({[Nat.add(Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)), N.instant(base ++ ("+" ++ (SCon{a1, SCon{a2, SNil{}}} ++ (":" ++ SNil{}))))), N.instant(base ++ ("-" ++ (SCon{a1, SCon{a2, SNil{}}} ++ (":" ++ SNil{}))))] == [N.instant(base ++ "Z"), Nat.add(N.instant(base ++ "Z"), Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)))] : List<&2, Nat>}, zero_succ(1n, hm2))
+    case SCon{b1, SNil{}}:
+      Empty.absurd({[Nat.add(Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)), N.instant(base ++ ("+" ++ (SCon{a1, SCon{a2, SNil{}}} ++ (":" ++ SCon{b1, SNil{}}))))), N.instant(base ++ ("-" ++ (SCon{a1, SCon{a2, SNil{}}} ++ (":" ++ SCon{b1, SNil{}}))))] == [N.instant(base ++ "Z"), Nat.add(N.instant(base ++ "Z"), Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)))] : List<&2, Nat>}, zero_succ(0n, Equal.cong(Nat, Nat, k => pred(k), 1n, 2n, hm2)))
+    case SCon{+b1, SCon{+b2, SNil{}}}:
+      offsets(base, hb, a1, a2, h, eh, b1, b2, m, em, hd)
+    case SCon{b1, SCon{b2, SCon{b3, t}}}:
+      Empty.absurd({[Nat.add(Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)), N.instant(base ++ ("+" ++ (SCon{a1, SCon{a2, SNil{}}} ++ (":" ++ SCon{b1, SCon{b2, SCon{b3, t}}}))))), N.instant(base ++ ("-" ++ (SCon{a1, SCon{a2, SNil{}}} ++ (":" ++ SCon{b1, SCon{b2, SCon{b3, t}}}))))] == [N.instant(base ++ "Z"), Nat.add(N.instant(base ++ "Z"), Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)))] : List<&2, Nat>}, succ_zero(String.length(t), Equal.cong(Nat, Nat, k => pred(pred(k)), 1n+1n+1n+String.length(t), 2n, hm2)))
+
+def two.hh(hh: String, +hh2: {String.length(hh) == 2n : Nat}, +base: String, +hb: {String.length(base) == 19n : Nat}, +h: Nat, eh: {Nat.read(hh) == Some{h} : Maybe<&2, Nat>}, +mm: String, +hm2: {String.length(mm) == 2n : Nat}, +m: Nat, em: {Nat.read(mm) == Some{m} : Maybe<&2, Nat>}, hd: {Nat.is_le(Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)), 86400n) == True{} : Bool}) -> {[Nat.add(Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)), N.instant(base ++ ("+" ++ (hh ++ (":" ++ mm))))), N.instant(base ++ ("-" ++ (hh ++ (":" ++ mm))))] == [N.instant(base ++ "Z"), Nat.add(N.instant(base ++ "Z"), Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)))] : List<&2, Nat>}:
+  match hh:
+    case SNil{}:
+      Empty.absurd({[Nat.add(Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)), N.instant(base ++ ("+" ++ (SNil{} ++ (":" ++ mm))))), N.instant(base ++ ("-" ++ (SNil{} ++ (":" ++ mm))))] == [N.instant(base ++ "Z"), Nat.add(N.instant(base ++ "Z"), Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)))] : List<&2, Nat>}, zero_succ(1n, hh2))
+    case SCon{a1, SNil{}}:
+      Empty.absurd({[Nat.add(Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)), N.instant(base ++ ("+" ++ (SCon{a1, SNil{}} ++ (":" ++ mm))))), N.instant(base ++ ("-" ++ (SCon{a1, SNil{}} ++ (":" ++ mm))))] == [N.instant(base ++ "Z"), Nat.add(N.instant(base ++ "Z"), Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)))] : List<&2, Nat>}, zero_succ(0n, Equal.cong(Nat, Nat, k => pred(k), 1n, 2n, hh2)))
+    case SCon{+a1, SCon{+a2, SNil{}}}:
+      two.mm(mm, hm2, base, hb, a1, a2, h, eh, m, em, hd)
+    case SCon{a1, SCon{a2, SCon{a3, t}}}:
+      Empty.absurd({[Nat.add(Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)), N.instant(base ++ ("+" ++ (SCon{a1, SCon{a2, SCon{a3, t}}} ++ (":" ++ mm))))), N.instant(base ++ ("-" ++ (SCon{a1, SCon{a2, SCon{a3, t}}} ++ (":" ++ mm))))] == [N.instant(base ++ "Z"), Nat.add(N.instant(base ++ "Z"), Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)))] : List<&2, Nat>}, succ_zero(String.length(t), Equal.cong(Nat, Nat, k => pred(pred(k)), 1n+1n+1n+String.length(t), 2n, hh2)))
 
 # A blank message
 # ---------------

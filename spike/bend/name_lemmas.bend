@@ -4,10 +4,11 @@
 # `name` takes is refused neither by `check_name` nor by the path rules it
 # reads, so it is never absolute and never climbs.
 #
-# And what `name` does: it reads its words as they say, a field at a time;
+# And what `name` does: it reads its words as list facts about them say;
 # a plan is what the words said, a deletion only of the one word beside
-# `--delete`; the bookmark it sets points at what was asked — a revision,
-# a change or a file the store holds — as private as asked or as it was;
+# `--delete`; the bookmark it sets points at what its target names as
+# `resolve` reads it — that revision, its change, or the file `show` names
+# there — as private as asked or as it was;
 # `--delete` is refused exactly where no bookmark has the name; and
 # `--fields` says its header once.
 import Base
@@ -24,6 +25,7 @@ import ./show_lemmas.bend as ShowL
 import ./bookmark.bend as Bm
 import ./revision.bend as Rev
 import ./composition_lemmas.bend as Comp
+import ./chain_lemmas.bend as ChainL
 
 def mnone(m: Maybe<&2, String>) -> Type:
   match m:
@@ -147,41 +149,259 @@ def stays(+n: String, e: {Main.name.checked.r(n) == Done{Unit{}} : Result<&2, &2
 # Its words
 # ---------
 
-# One word read: whatever it is, the fields read from the rest take it in.
-def args_step(k: Main.NWord, +w: String, rest: List<&2, String>, +p: Bool, +a: Maybe<&2, Bool>, +d: Bool, +f: Bool, +sh: List<&2, String>, +r: List<&2, String>, ih: @p2: Bool -> @a2: Maybe<&2, Bool> -> @d2: Bool -> @f2: Bool -> @sh2: List<&2, String> -> @r2: List<&2, String> -> {Main.name.args(rest, Main.NameCmd{p2, a2, d2, f2, sh2, r2}) == Main.NameCmd{Main.nargs.pin(rest, p2), Main.nargs.axis(rest, a2), Main.nargs.delete(rest, d2), Main.nargs.fields(rest, f2), List.append(&2, String, sh2, Main.nargs.shaping(rest)), List.append(&2, String, r2, Main.nargs.words(rest))} : Main.NameCmd}) -> {Main.name.args(rest, Main.name.word(Main.NameCmd{p, a, d, f, sh, r}, k, w)) == Main.NameCmd{Main.nargs.pin(rest, Main.nargs.pin.of(k, p)), Main.nargs.axis(rest, Main.nargs.axis.of(k, a)), Main.nargs.delete(rest, Main.nargs.delete.of(k, d)), Main.nargs.fields(rest, Main.nargs.fields.of(k, f)), List.append(&2, String, sh, Main.nargs.shaping.of(k, w, Main.nargs.shaping(rest))), List.append(&2, String, r, Main.nargs.words.of(k, w, Main.nargs.words(rest)))} : Main.NameCmd}:
-  match k:
-    case Main.NWord.Revision{}:
-      %SortL.app_assoc(String, sh, [w], Main.nargs.shaping(rest)) : {Main.name.args(rest, Main.NameCmd{True{}, a, d, f, List.append(&2, String, sh, [w]), r}) == Main.NameCmd{Main.nargs.pin(rest, True{}), Main.nargs.axis(rest, a), Main.nargs.delete(rest, d), Main.nargs.fields(rest, f), _, List.append(&2, String, r, Main.nargs.words(rest))} : Main.NameCmd}
-      ih(True{}, a, d, f, List.append(&2, String, sh, [w]), r)
-    case Main.NWord.Change{}:
-      %SortL.app_assoc(String, sh, [w], Main.nargs.shaping(rest)) : {Main.name.args(rest, Main.NameCmd{False{}, a, d, f, List.append(&2, String, sh, [w]), r}) == Main.NameCmd{Main.nargs.pin(rest, False{}), Main.nargs.axis(rest, a), Main.nargs.delete(rest, d), Main.nargs.fields(rest, f), _, List.append(&2, String, r, Main.nargs.words(rest))} : Main.NameCmd}
-      ih(False{}, a, d, f, List.append(&2, String, sh, [w]), r)
-    case Main.NWord.Private{}:
-      %SortL.app_assoc(String, sh, [w], Main.nargs.shaping(rest)) : {Main.name.args(rest, Main.NameCmd{p, Some{True{}}, d, f, List.append(&2, String, sh, [w]), r}) == Main.NameCmd{Main.nargs.pin(rest, p), Main.nargs.axis(rest, Some{True{}}), Main.nargs.delete(rest, d), Main.nargs.fields(rest, f), _, List.append(&2, String, r, Main.nargs.words(rest))} : Main.NameCmd}
-      ih(p, Some{True{}}, d, f, List.append(&2, String, sh, [w]), r)
-    case Main.NWord.Shared{}:
-      %SortL.app_assoc(String, sh, [w], Main.nargs.shaping(rest)) : {Main.name.args(rest, Main.NameCmd{p, Some{False{}}, d, f, List.append(&2, String, sh, [w]), r}) == Main.NameCmd{Main.nargs.pin(rest, p), Main.nargs.axis(rest, Some{False{}}), Main.nargs.delete(rest, d), Main.nargs.fields(rest, f), _, List.append(&2, String, r, Main.nargs.words(rest))} : Main.NameCmd}
-      ih(p, Some{False{}}, d, f, List.append(&2, String, sh, [w]), r)
-    case Main.NWord.Delete{}:
-      ih(p, a, True{}, f, sh, r)
-    case Main.NWord.Fields{}:
-      ih(p, a, d, True{}, sh, r)
-    case Main.NWord.Other{}:
-      %SortL.app_assoc(String, r, [w], Main.nargs.words(rest)) : {Main.name.args(rest, Main.NameCmd{p, a, d, f, sh, List.append(&2, String, r, [w])}) == Main.NameCmd{Main.nargs.pin(rest, p), Main.nargs.axis(rest, a), Main.nargs.delete(rest, d), Main.nargs.fields(rest, f), List.append(&2, String, sh, Main.nargs.shaping(rest)), _} : Main.NameCmd}
-      ih(p, a, d, f, sh, List.append(&2, String, r, [w]))
+# What `LAWS.name_reads_its_words` says of the words, a list fact at a
+# time: the `--revision` and `--change` among them, the `--private` and
+# `--shared`, the four that shape a target, and those that are none of the
+# six flags.
+def nw.rc(ws: List<&2, String>) -> List<&2, String>:
+  List.filter(~String, ~(w => Rev.member(["--revision", "--change"], w)), ws)
 
-def args_go(ws: List<&2, String>, +p: Bool, +a: Maybe<&2, Bool>, +d: Bool, +f: Bool, +sh: List<&2, String>, +r: List<&2, String>) -> {Main.name.args(ws, Main.NameCmd{p, a, d, f, sh, r}) == Main.NameCmd{Main.nargs.pin(ws, p), Main.nargs.axis(ws, a), Main.nargs.delete(ws, d), Main.nargs.fields(ws, f), List.append(&2, String, sh, Main.nargs.shaping(ws)), List.append(&2, String, r, Main.nargs.words(ws))} : Main.NameCmd}:
+def nw.ps(ws: List<&2, String>) -> List<&2, String>:
+  List.filter(~String, ~(w => Rev.member(["--private", "--shared"], w)), ws)
+
+def nw.shaping(ws: List<&2, String>) -> List<&2, String>:
+  List.filter(~String, ~(w => Rev.member(["--revision", "--change", "--private", "--shared"], w)), ws)
+
+def nw.others(ws: List<&2, String>) -> List<&2, String>:
+  List.filter(~String, ~(w => Bool.not(Rev.member(["--revision", "--change", "--private", "--shared", "--delete", "--fields"], w))), ws)
+
+# After words whose last `--revision` or `--change` is `m`, from a pin `p`;
+# and likewise for `--private` and `--shared`.
+def nw.pin(m: Maybe<&2, String>, p: Bool) -> Bool:
+  match m:
+    case None{}:
+      p
+    case Some{x}:
+      String.eq(x, "--revision")
+
+def nw.axis(m: Maybe<&2, String>, a: Maybe<&2, Bool>) -> Maybe<&2, Bool>:
+  match m:
+    case None{}:
+      a
+    case Some{x}:
+      Some{String.eq(x, "--private")}
+
+# What the words say, read on from a command already part read.
+def nw.from(+ws: List<&2, String>, +p: Bool, +a: Maybe<&2, Bool>, +d: Bool, +f: Bool, +sh: List<&2, String>, +r: List<&2, String>) -> Main.NameCmd:
+  Main.NameCmd{nw.pin(List.last(&2, String, nw.rc(ws)), p), nw.axis(List.last(&2, String, nw.ps(ws)), a), Bool.or(d, Rev.member(ws, "--delete")), Bool.or(f, Rev.member(ws, "--fields")), List.append(&2, String, sh, nw.shaping(ws)), List.append(&2, String, r, nw.others(ws))}
+
+# `nw.from` of a word and more, with the word's answer to each question
+# handed in.
+def nw.cons(+w: String, +rest: List<&2, String>, +p: Bool, +a: Maybe<&2, Bool>, +d: Bool, +f: Bool, +sh: List<&2, String>, +r: List<&2, String>, brc: Bool, bps: Bool, bdel: Bool, bfld: Bool, bsh: Bool, bot: Bool) -> Main.NameCmd:
+  Main.NameCmd{nw.pin(List.last(&2, String, List.filter.put(String, w, nw.rc(rest), brc)), p), nw.axis(List.last(&2, String, List.filter.put(String, w, nw.ps(rest), bps)), a), Bool.or(d, Bool.or(bdel, Rev.member(rest, "--delete"))), Bool.or(f, Bool.or(bfld, Rev.member(rest, "--fields"))), List.append(&2, String, sh, List.filter.put(String, w, nw.shaping(rest), bsh)), List.append(&2, String, r, List.filter.put(String, w, nw.others(rest), bot))}
+
+def nw.pin_last(xs: List<&2, String>, +h: String) -> {nw.pin(List.last(&2, String, xs), String.eq(h, "--revision")) == String.eq(List.last.go(&2, String, xs, h), "--revision") : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case y <> ys:
+      {==}
+
+def nw.axis_last(xs: List<&2, String>, +h: String) -> {nw.axis(List.last(&2, String, xs), Some{String.eq(h, "--private")}) == Some{String.eq(List.last.go(&2, String, xs, h), "--private")} : Maybe<&2, Bool>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case y <> ys:
+      {==}
+
+def nw.pin_top(m: Maybe<&2, String>) -> {nw.pin(m, False{}) == String.eq(Maybe.default(&2, String, m, ""), "--revision") : Bool}:
+  match m:
+    case None{}:
+      {==}
+    case Some{x}:
+      {==}
+
+def nw.axis_top(m: Maybe<&2, String>) -> {nw.axis(m, None{}) == Maybe.map(&2, String, Bool, x => String.eq(x, "--private"), m) : Maybe<&2, Bool>}:
+  match m:
+    case None{}:
+      {==}
+    case Some{x}:
+      {==}
+
+def nw.or_true(b: Bool) -> {Bool.or(b, True{}) == True{} : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def nw.or_false(b: Bool) -> {Bool.or(b, False{}) == b : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+# A word that is not a flag's spelling is not it either way round.
+def nw.flip_false(c: Bool, +x: String, +y: String, e: {String.eq(x, y) == False{} : Bool}, ec: {String.eq(y, x) == c : Bool}) -> {String.eq(y, x) == False{} : Bool}:
+  match c:
+    case False{}:
+      ec
+    case True{}:
+      Empty.absurd({String.eq(y, x) == False{} : Bool}, S.true_false(Equal.trans(Bool, True{}, String.eq(x, x), False{}, Equal.sym(Bool, String.eq(x, x), True{}, S.eq_refl(x)),
+        Equal.trans(Bool, String.eq(x, x), String.eq(x, y), False{}, Equal.cong(String, Bool, z => String.eq(x, z), x, y, Equal.sym(String, y, x, S.eq_true(y, x, ec))), e))))
+
+def nw.flip(+x: String, +y: String, e: {String.eq(x, y) == False{} : Bool}) -> {String.eq(y, x) == False{} : Bool}:
+  nw.flip_false(String.eq(y, x), x, y, e, {==})
+
+# A word none of the six flags is read as none of them.
+def nw.word_other(+w: String, e1: {String.eq(w, "--revision") == False{} : Bool}, e2: {String.eq(w, "--change") == False{} : Bool}, e3: {String.eq(w, "--private") == False{} : Bool}, e4: {String.eq(w, "--shared") == False{} : Bool}, e5: {String.eq(w, "--delete") == False{} : Bool}, e6: {String.eq(w, "--fields") == False{} : Bool}) -> {Main.nword(w) == Main.NWord.Other{} : Main.NWord}:
+  %Equal.sym(Bool, String.eq(w, "--revision"), False{}, e1) : {Bool.pick(Main.NWord, _, Main.NWord.Revision{}, Bool.pick(Main.NWord, String.eq(w, "--change"), Main.NWord.Change{}, Bool.pick(Main.NWord, String.eq(w, "--private"), Main.NWord.Private{}, Bool.pick(Main.NWord, String.eq(w, "--shared"), Main.NWord.Shared{}, Bool.pick(Main.NWord, String.eq(w, "--delete"), Main.NWord.Delete{}, Bool.pick(Main.NWord, String.eq(w, "--fields"), Main.NWord.Fields{}, Main.NWord.Other{})))))) == Main.NWord.Other{} : Main.NWord}
+  %Equal.sym(Bool, String.eq(w, "--change"), False{}, e2) : {Bool.pick(Main.NWord, _, Main.NWord.Change{}, Bool.pick(Main.NWord, String.eq(w, "--private"), Main.NWord.Private{}, Bool.pick(Main.NWord, String.eq(w, "--shared"), Main.NWord.Shared{}, Bool.pick(Main.NWord, String.eq(w, "--delete"), Main.NWord.Delete{}, Bool.pick(Main.NWord, String.eq(w, "--fields"), Main.NWord.Fields{}, Main.NWord.Other{}))))) == Main.NWord.Other{} : Main.NWord}
+  %Equal.sym(Bool, String.eq(w, "--private"), False{}, e3) : {Bool.pick(Main.NWord, _, Main.NWord.Private{}, Bool.pick(Main.NWord, String.eq(w, "--shared"), Main.NWord.Shared{}, Bool.pick(Main.NWord, String.eq(w, "--delete"), Main.NWord.Delete{}, Bool.pick(Main.NWord, String.eq(w, "--fields"), Main.NWord.Fields{}, Main.NWord.Other{})))) == Main.NWord.Other{} : Main.NWord}
+  %Equal.sym(Bool, String.eq(w, "--shared"), False{}, e4) : {Bool.pick(Main.NWord, _, Main.NWord.Shared{}, Bool.pick(Main.NWord, String.eq(w, "--delete"), Main.NWord.Delete{}, Bool.pick(Main.NWord, String.eq(w, "--fields"), Main.NWord.Fields{}, Main.NWord.Other{}))) == Main.NWord.Other{} : Main.NWord}
+  %Equal.sym(Bool, String.eq(w, "--delete"), False{}, e5) : {Bool.pick(Main.NWord, _, Main.NWord.Delete{}, Bool.pick(Main.NWord, String.eq(w, "--fields"), Main.NWord.Fields{}, Main.NWord.Other{})) == Main.NWord.Other{} : Main.NWord}
+  %Equal.sym(Bool, String.eq(w, "--fields"), False{}, e6) : {Bool.pick(Main.NWord, _, Main.NWord.Fields{}, Main.NWord.Other{}) == Main.NWord.Other{} : Main.NWord}
+  {==}
+
+# And it is among none of the lists of flags.
+def nw.not_rc(+w: String, s1: {String.eq("--revision", w) == False{} : Bool}, s2: {String.eq("--change", w) == False{} : Bool}) -> {Rev.member(["--revision", "--change"], w) == False{} : Bool}:
+  %Equal.sym(Bool, String.eq("--revision", w), False{}, s1) : {Bool.or(_, Bool.or(String.eq("--change", w), False{})) == False{} : Bool}
+  %Equal.sym(Bool, String.eq("--change", w), False{}, s2) : {Bool.or(_, False{}) == False{} : Bool}
+  {==}
+
+def nw.not_ps(+w: String, s3: {String.eq("--private", w) == False{} : Bool}, s4: {String.eq("--shared", w) == False{} : Bool}) -> {Rev.member(["--private", "--shared"], w) == False{} : Bool}:
+  %Equal.sym(Bool, String.eq("--private", w), False{}, s3) : {Bool.or(_, Bool.or(String.eq("--shared", w), False{})) == False{} : Bool}
+  %Equal.sym(Bool, String.eq("--shared", w), False{}, s4) : {Bool.or(_, False{}) == False{} : Bool}
+  {==}
+
+def nw.not_shaping(+w: String, s1: {String.eq("--revision", w) == False{} : Bool}, s2: {String.eq("--change", w) == False{} : Bool}, s3: {String.eq("--private", w) == False{} : Bool}, s4: {String.eq("--shared", w) == False{} : Bool}) -> {Rev.member(["--revision", "--change", "--private", "--shared"], w) == False{} : Bool}:
+  %Equal.sym(Bool, String.eq("--revision", w), False{}, s1) : {Bool.or(_, Bool.or(String.eq("--change", w), Bool.or(String.eq("--private", w), Bool.or(String.eq("--shared", w), False{})))) == False{} : Bool}
+  %Equal.sym(Bool, String.eq("--change", w), False{}, s2) : {Bool.or(_, Bool.or(String.eq("--private", w), Bool.or(String.eq("--shared", w), False{}))) == False{} : Bool}
+  %Equal.sym(Bool, String.eq("--private", w), False{}, s3) : {Bool.or(_, Bool.or(String.eq("--shared", w), False{})) == False{} : Bool}
+  %Equal.sym(Bool, String.eq("--shared", w), False{}, s4) : {Bool.or(_, False{}) == False{} : Bool}
+  {==}
+
+def nw.not_flag(+w: String, s1: {String.eq("--revision", w) == False{} : Bool}, s2: {String.eq("--change", w) == False{} : Bool}, s3: {String.eq("--private", w) == False{} : Bool}, s4: {String.eq("--shared", w) == False{} : Bool}, s5: {String.eq("--delete", w) == False{} : Bool}, s6: {String.eq("--fields", w) == False{} : Bool}) -> {Rev.member(["--revision", "--change", "--private", "--shared", "--delete", "--fields"], w) == False{} : Bool}:
+  %Equal.sym(Bool, String.eq("--revision", w), False{}, s1) : {Bool.or(_, Bool.or(String.eq("--change", w), Bool.or(String.eq("--private", w), Bool.or(String.eq("--shared", w), Bool.or(String.eq("--delete", w), Bool.or(String.eq("--fields", w), False{})))))) == False{} : Bool}
+  %Equal.sym(Bool, String.eq("--change", w), False{}, s2) : {Bool.or(_, Bool.or(String.eq("--private", w), Bool.or(String.eq("--shared", w), Bool.or(String.eq("--delete", w), Bool.or(String.eq("--fields", w), False{}))))) == False{} : Bool}
+  %Equal.sym(Bool, String.eq("--private", w), False{}, s3) : {Bool.or(_, Bool.or(String.eq("--shared", w), Bool.or(String.eq("--delete", w), Bool.or(String.eq("--fields", w), False{})))) == False{} : Bool}
+  %Equal.sym(Bool, String.eq("--shared", w), False{}, s4) : {Bool.or(_, Bool.or(String.eq("--delete", w), Bool.or(String.eq("--fields", w), False{}))) == False{} : Bool}
+  %Equal.sym(Bool, String.eq("--delete", w), False{}, s5) : {Bool.or(_, Bool.or(String.eq("--fields", w), False{})) == False{} : Bool}
+  %Equal.sym(Bool, String.eq("--fields", w), False{}, s6) : {Bool.or(_, False{}) == False{} : Bool}
+  {==}
+
+# A word none of the flags joins the other words, and changes nothing else.
+def nw.cons_other(+w: String, +rest: List<&2, String>, +p: Bool, +a: Maybe<&2, Bool>, +d: Bool, +f: Bool, +sh: List<&2, String>, +r: List<&2, String>, mrc: {Rev.member(["--revision", "--change"], w) == False{} : Bool}, mps: {Rev.member(["--private", "--shared"], w) == False{} : Bool}, e5: {String.eq(w, "--delete") == False{} : Bool}, e6: {String.eq(w, "--fields") == False{} : Bool}, msh: {Rev.member(["--revision", "--change", "--private", "--shared"], w) == False{} : Bool}, mot: {Rev.member(["--revision", "--change", "--private", "--shared", "--delete", "--fields"], w) == False{} : Bool}) -> {nw.from(rest, p, a, d, f, sh, List.append(&2, String, r, [w])) == nw.from(w <> rest, p, a, d, f, sh, r) : Main.NameCmd}:
+  %Equal.sym(Bool, Rev.member(["--revision", "--change"], w), False{}, mrc) : {nw.from(rest, p, a, d, f, sh, List.append(&2, String, r, [w])) == nw.cons(w, rest, p, a, d, f, sh, r, _, Rev.member(["--private", "--shared"], w), String.eq(w, "--delete"), String.eq(w, "--fields"), Rev.member(["--revision", "--change", "--private", "--shared"], w), Bool.not(Rev.member(["--revision", "--change", "--private", "--shared", "--delete", "--fields"], w))) : Main.NameCmd}
+  %Equal.sym(Bool, Rev.member(["--private", "--shared"], w), False{}, mps) : {nw.from(rest, p, a, d, f, sh, List.append(&2, String, r, [w])) == nw.cons(w, rest, p, a, d, f, sh, r, False{}, _, String.eq(w, "--delete"), String.eq(w, "--fields"), Rev.member(["--revision", "--change", "--private", "--shared"], w), Bool.not(Rev.member(["--revision", "--change", "--private", "--shared", "--delete", "--fields"], w))) : Main.NameCmd}
+  %Equal.sym(Bool, String.eq(w, "--delete"), False{}, e5) : {nw.from(rest, p, a, d, f, sh, List.append(&2, String, r, [w])) == nw.cons(w, rest, p, a, d, f, sh, r, False{}, False{}, _, String.eq(w, "--fields"), Rev.member(["--revision", "--change", "--private", "--shared"], w), Bool.not(Rev.member(["--revision", "--change", "--private", "--shared", "--delete", "--fields"], w))) : Main.NameCmd}
+  %Equal.sym(Bool, String.eq(w, "--fields"), False{}, e6) : {nw.from(rest, p, a, d, f, sh, List.append(&2, String, r, [w])) == nw.cons(w, rest, p, a, d, f, sh, r, False{}, False{}, False{}, _, Rev.member(["--revision", "--change", "--private", "--shared"], w), Bool.not(Rev.member(["--revision", "--change", "--private", "--shared", "--delete", "--fields"], w))) : Main.NameCmd}
+  %Equal.sym(Bool, Rev.member(["--revision", "--change", "--private", "--shared"], w), False{}, msh) : {nw.from(rest, p, a, d, f, sh, List.append(&2, String, r, [w])) == nw.cons(w, rest, p, a, d, f, sh, r, False{}, False{}, False{}, False{}, _, Bool.not(Rev.member(["--revision", "--change", "--private", "--shared", "--delete", "--fields"], w))) : Main.NameCmd}
+  %Equal.sym(Bool, Rev.member(["--revision", "--change", "--private", "--shared", "--delete", "--fields"], w), False{}, mot) : {nw.from(rest, p, a, d, f, sh, List.append(&2, String, r, [w])) == nw.cons(w, rest, p, a, d, f, sh, r, False{}, False{}, False{}, False{}, False{}, Bool.not(_)) : Main.NameCmd}
+  %SortL.app_assoc(String, r, [w], nw.others(rest)) : {nw.from(rest, p, a, d, f, sh, List.append(&2, String, r, [w])) == Main.NameCmd{nw.pin(List.last(&2, String, nw.rc(rest)), p), nw.axis(List.last(&2, String, nw.ps(rest)), a), Bool.or(d, Rev.member(rest, "--delete")), Bool.or(f, Rev.member(rest, "--fields")), List.append(&2, String, sh, nw.shaping(rest)), _} : Main.NameCmd}
+  {==}
+
+# What one more word reads as, read on from the rest.
+def nw.ih(rest: List<&2, String>) -> Type:
+  @p2: Bool -> @a2: Maybe<&2, Bool> -> @d2: Bool -> @f2: Bool -> @sh2: List<&2, String> -> @r2: List<&2, String> -> {Main.name.args(rest, Main.NameCmd{p2, a2, d2, f2, sh2, r2}) == nw.from(rest, p2, a2, d2, f2, sh2, r2) : Main.NameCmd}
+
+def nw.at_other(+w: String, +rest: List<&2, String>, +p: Bool, +a: Maybe<&2, Bool>, +d: Bool, +f: Bool, +sh: List<&2, String>, +r: List<&2, String>, +e1: {String.eq(w, "--revision") == False{} : Bool}, +e2: {String.eq(w, "--change") == False{} : Bool}, +e3: {String.eq(w, "--private") == False{} : Bool}, +e4: {String.eq(w, "--shared") == False{} : Bool}, +e5: {String.eq(w, "--delete") == False{} : Bool}, +e6: {String.eq(w, "--fields") == False{} : Bool}, ih: nw.ih(rest)) -> {Main.name.args(rest, Main.name.word(Main.NameCmd{p, a, d, f, sh, r}, Main.nword(w), w)) == nw.from(w <> rest, p, a, d, f, sh, r) : Main.NameCmd}:
+  +s1 = nw.flip(w, "--revision", e1)
+  +s2 = nw.flip(w, "--change", e2)
+  +s3 = nw.flip(w, "--private", e3)
+  +s4 = nw.flip(w, "--shared", e4)
+  +s5 = nw.flip(w, "--delete", e5)
+  +s6 = nw.flip(w, "--fields", e6)
+  %Equal.sym(Main.NWord, Main.nword(w), Main.NWord.Other{}, nw.word_other(w, e1, e2, e3, e4, e5, e6)) : {Main.name.args(rest, Main.name.word(Main.NameCmd{p, a, d, f, sh, r}, _, w)) == nw.from(w <> rest, p, a, d, f, sh, r) : Main.NameCmd}
+  Equal.trans(Main.NameCmd, Main.name.args(rest, Main.NameCmd{p, a, d, f, sh, List.append(&2, String, r, [w])}), nw.from(rest, p, a, d, f, sh, List.append(&2, String, r, [w])), nw.from(w <> rest, p, a, d, f, sh, r),
+    ih(p, a, d, f, sh, List.append(&2, String, r, [w])),
+    nw.cons_other(w, rest, p, a, d, f, sh, r, nw.not_rc(w, s1, s2), nw.not_ps(w, s3, s4), e5, e6, nw.not_shaping(w, s1, s2, s3, s4), nw.not_flag(w, s1, s2, s3, s4, s5, s6)))
+
+# Each flag, read on from the rest.
+def nw.at_revision(+rest: List<&2, String>, +p: Bool, +a: Maybe<&2, Bool>, +d: Bool, +f: Bool, +sh: List<&2, String>, +r: List<&2, String>, ih: nw.ih(rest)) -> {Main.name.args(rest, Main.name.word(Main.NameCmd{p, a, d, f, sh, r}, Main.nword("--revision"), "--revision")) == nw.from("--revision" <> rest, p, a, d, f, sh, r) : Main.NameCmd}:
+  %nw.pin_last(nw.rc(rest), "--revision") : {Main.name.args(rest, Main.NameCmd{True{}, a, d, f, List.append(&2, String, sh, ["--revision"]), r}) == Main.NameCmd{_, nw.axis(List.last(&2, String, nw.ps(rest)), a), Bool.or(d, Rev.member(rest, "--delete")), Bool.or(f, Rev.member(rest, "--fields")), List.append(&2, String, sh, "--revision" <> nw.shaping(rest)), List.append(&2, String, r, nw.others(rest))} : Main.NameCmd}
+  %SortL.app_assoc(String, sh, ["--revision"], nw.shaping(rest)) : {Main.name.args(rest, Main.NameCmd{True{}, a, d, f, List.append(&2, String, sh, ["--revision"]), r}) == Main.NameCmd{nw.pin(List.last(&2, String, nw.rc(rest)), True{}), nw.axis(List.last(&2, String, nw.ps(rest)), a), Bool.or(d, Rev.member(rest, "--delete")), Bool.or(f, Rev.member(rest, "--fields")), _, List.append(&2, String, r, nw.others(rest))} : Main.NameCmd}
+  ih(True{}, a, d, f, List.append(&2, String, sh, ["--revision"]), r)
+
+def nw.at_change(+rest: List<&2, String>, +p: Bool, +a: Maybe<&2, Bool>, +d: Bool, +f: Bool, +sh: List<&2, String>, +r: List<&2, String>, ih: nw.ih(rest)) -> {Main.name.args(rest, Main.name.word(Main.NameCmd{p, a, d, f, sh, r}, Main.nword("--change"), "--change")) == nw.from("--change" <> rest, p, a, d, f, sh, r) : Main.NameCmd}:
+  %nw.pin_last(nw.rc(rest), "--change") : {Main.name.args(rest, Main.NameCmd{False{}, a, d, f, List.append(&2, String, sh, ["--change"]), r}) == Main.NameCmd{_, nw.axis(List.last(&2, String, nw.ps(rest)), a), Bool.or(d, Rev.member(rest, "--delete")), Bool.or(f, Rev.member(rest, "--fields")), List.append(&2, String, sh, "--change" <> nw.shaping(rest)), List.append(&2, String, r, nw.others(rest))} : Main.NameCmd}
+  %SortL.app_assoc(String, sh, ["--change"], nw.shaping(rest)) : {Main.name.args(rest, Main.NameCmd{False{}, a, d, f, List.append(&2, String, sh, ["--change"]), r}) == Main.NameCmd{nw.pin(List.last(&2, String, nw.rc(rest)), False{}), nw.axis(List.last(&2, String, nw.ps(rest)), a), Bool.or(d, Rev.member(rest, "--delete")), Bool.or(f, Rev.member(rest, "--fields")), _, List.append(&2, String, r, nw.others(rest))} : Main.NameCmd}
+  ih(False{}, a, d, f, List.append(&2, String, sh, ["--change"]), r)
+
+def nw.at_private(+rest: List<&2, String>, +p: Bool, +a: Maybe<&2, Bool>, +d: Bool, +f: Bool, +sh: List<&2, String>, +r: List<&2, String>, ih: nw.ih(rest)) -> {Main.name.args(rest, Main.name.word(Main.NameCmd{p, a, d, f, sh, r}, Main.nword("--private"), "--private")) == nw.from("--private" <> rest, p, a, d, f, sh, r) : Main.NameCmd}:
+  %nw.axis_last(nw.ps(rest), "--private") : {Main.name.args(rest, Main.NameCmd{p, Some{True{}}, d, f, List.append(&2, String, sh, ["--private"]), r}) == Main.NameCmd{nw.pin(List.last(&2, String, nw.rc(rest)), p), _, Bool.or(d, Rev.member(rest, "--delete")), Bool.or(f, Rev.member(rest, "--fields")), List.append(&2, String, sh, "--private" <> nw.shaping(rest)), List.append(&2, String, r, nw.others(rest))} : Main.NameCmd}
+  %SortL.app_assoc(String, sh, ["--private"], nw.shaping(rest)) : {Main.name.args(rest, Main.NameCmd{p, Some{True{}}, d, f, List.append(&2, String, sh, ["--private"]), r}) == Main.NameCmd{nw.pin(List.last(&2, String, nw.rc(rest)), p), nw.axis(List.last(&2, String, nw.ps(rest)), Some{True{}}), Bool.or(d, Rev.member(rest, "--delete")), Bool.or(f, Rev.member(rest, "--fields")), _, List.append(&2, String, r, nw.others(rest))} : Main.NameCmd}
+  ih(p, Some{True{}}, d, f, List.append(&2, String, sh, ["--private"]), r)
+
+def nw.at_shared(+rest: List<&2, String>, +p: Bool, +a: Maybe<&2, Bool>, +d: Bool, +f: Bool, +sh: List<&2, String>, +r: List<&2, String>, ih: nw.ih(rest)) -> {Main.name.args(rest, Main.name.word(Main.NameCmd{p, a, d, f, sh, r}, Main.nword("--shared"), "--shared")) == nw.from("--shared" <> rest, p, a, d, f, sh, r) : Main.NameCmd}:
+  %nw.axis_last(nw.ps(rest), "--shared") : {Main.name.args(rest, Main.NameCmd{p, Some{False{}}, d, f, List.append(&2, String, sh, ["--shared"]), r}) == Main.NameCmd{nw.pin(List.last(&2, String, nw.rc(rest)), p), _, Bool.or(d, Rev.member(rest, "--delete")), Bool.or(f, Rev.member(rest, "--fields")), List.append(&2, String, sh, "--shared" <> nw.shaping(rest)), List.append(&2, String, r, nw.others(rest))} : Main.NameCmd}
+  %SortL.app_assoc(String, sh, ["--shared"], nw.shaping(rest)) : {Main.name.args(rest, Main.NameCmd{p, Some{False{}}, d, f, List.append(&2, String, sh, ["--shared"]), r}) == Main.NameCmd{nw.pin(List.last(&2, String, nw.rc(rest)), p), nw.axis(List.last(&2, String, nw.ps(rest)), Some{False{}}), Bool.or(d, Rev.member(rest, "--delete")), Bool.or(f, Rev.member(rest, "--fields")), _, List.append(&2, String, r, nw.others(rest))} : Main.NameCmd}
+  ih(p, Some{False{}}, d, f, List.append(&2, String, sh, ["--shared"]), r)
+
+def nw.at_delete(+rest: List<&2, String>, +p: Bool, +a: Maybe<&2, Bool>, +d: Bool, +f: Bool, +sh: List<&2, String>, +r: List<&2, String>, ih: nw.ih(rest)) -> {Main.name.args(rest, Main.name.word(Main.NameCmd{p, a, d, f, sh, r}, Main.nword("--delete"), "--delete")) == nw.from("--delete" <> rest, p, a, d, f, sh, r) : Main.NameCmd}:
+  %Equal.sym(Bool, Bool.or(d, True{}), True{}, nw.or_true(d)) : {Main.name.args(rest, Main.NameCmd{p, a, True{}, f, sh, r}) == Main.NameCmd{nw.pin(List.last(&2, String, nw.rc(rest)), p), nw.axis(List.last(&2, String, nw.ps(rest)), a), _, Bool.or(f, Rev.member(rest, "--fields")), List.append(&2, String, sh, nw.shaping(rest)), List.append(&2, String, r, nw.others(rest))} : Main.NameCmd}
+  ih(p, a, True{}, f, sh, r)
+
+def nw.at_fields(+rest: List<&2, String>, +p: Bool, +a: Maybe<&2, Bool>, +d: Bool, +f: Bool, +sh: List<&2, String>, +r: List<&2, String>, ih: nw.ih(rest)) -> {Main.name.args(rest, Main.name.word(Main.NameCmd{p, a, d, f, sh, r}, Main.nword("--fields"), "--fields")) == nw.from("--fields" <> rest, p, a, d, f, sh, r) : Main.NameCmd}:
+  %Equal.sym(Bool, Bool.or(f, True{}), True{}, nw.or_true(f)) : {Main.name.args(rest, Main.NameCmd{p, a, d, True{}, sh, r}) == Main.NameCmd{nw.pin(List.last(&2, String, nw.rc(rest)), p), nw.axis(List.last(&2, String, nw.ps(rest)), a), Bool.or(d, Rev.member(rest, "--delete")), _, List.append(&2, String, sh, nw.shaping(rest)), List.append(&2, String, r, nw.others(rest))} : Main.NameCmd}
+  ih(p, a, d, True{}, sh, r)
+
+# Which a word is: each flag in turn, or none of them.
+def nw.step6(b: Bool, +w: String, +e1: {String.eq(w, "--revision") == False{} : Bool}, +e2: {String.eq(w, "--change") == False{} : Bool}, +e3: {String.eq(w, "--private") == False{} : Bool}, +e4: {String.eq(w, "--shared") == False{} : Bool}, +e5: {String.eq(w, "--delete") == False{} : Bool}, +e6: {String.eq(w, "--fields") == b : Bool}, +rest: List<&2, String>, +p: Bool, +a: Maybe<&2, Bool>, +d: Bool, +f: Bool, +sh: List<&2, String>, +r: List<&2, String>, ih: nw.ih(rest)) -> {Main.name.args(rest, Main.name.word(Main.NameCmd{p, a, d, f, sh, r}, Main.nword(w), w)) == nw.from(w <> rest, p, a, d, f, sh, r) : Main.NameCmd}:
+  match b:
+    case True{}:
+      %Equal.sym(String, w, "--fields", S.eq_true(w, "--fields", e6)) : {Main.name.args(rest, Main.name.word(Main.NameCmd{p, a, d, f, sh, r}, Main.nword(_), _)) == nw.from(_ <> rest, p, a, d, f, sh, r) : Main.NameCmd}
+      nw.at_fields(rest, p, a, d, f, sh, r, ih)
+    case False{}:
+      nw.at_other(w, rest, p, a, d, f, sh, r, e1, e2, e3, e4, e5, e6, ih)
+
+def nw.step5(b: Bool, +w: String, +e1: {String.eq(w, "--revision") == False{} : Bool}, +e2: {String.eq(w, "--change") == False{} : Bool}, +e3: {String.eq(w, "--private") == False{} : Bool}, +e4: {String.eq(w, "--shared") == False{} : Bool}, +e5: {String.eq(w, "--delete") == b : Bool}, +rest: List<&2, String>, +p: Bool, +a: Maybe<&2, Bool>, +d: Bool, +f: Bool, +sh: List<&2, String>, +r: List<&2, String>, ih: nw.ih(rest)) -> {Main.name.args(rest, Main.name.word(Main.NameCmd{p, a, d, f, sh, r}, Main.nword(w), w)) == nw.from(w <> rest, p, a, d, f, sh, r) : Main.NameCmd}:
+  match b:
+    case True{}:
+      %Equal.sym(String, w, "--delete", S.eq_true(w, "--delete", e5)) : {Main.name.args(rest, Main.name.word(Main.NameCmd{p, a, d, f, sh, r}, Main.nword(_), _)) == nw.from(_ <> rest, p, a, d, f, sh, r) : Main.NameCmd}
+      nw.at_delete(rest, p, a, d, f, sh, r, ih)
+    case False{}:
+      nw.step6(String.eq(w, "--fields"), w, e1, e2, e3, e4, e5, {==}, rest, p, a, d, f, sh, r, ih)
+
+def nw.step4(b: Bool, +w: String, +e1: {String.eq(w, "--revision") == False{} : Bool}, +e2: {String.eq(w, "--change") == False{} : Bool}, +e3: {String.eq(w, "--private") == False{} : Bool}, +e4: {String.eq(w, "--shared") == b : Bool}, +rest: List<&2, String>, +p: Bool, +a: Maybe<&2, Bool>, +d: Bool, +f: Bool, +sh: List<&2, String>, +r: List<&2, String>, ih: nw.ih(rest)) -> {Main.name.args(rest, Main.name.word(Main.NameCmd{p, a, d, f, sh, r}, Main.nword(w), w)) == nw.from(w <> rest, p, a, d, f, sh, r) : Main.NameCmd}:
+  match b:
+    case True{}:
+      %Equal.sym(String, w, "--shared", S.eq_true(w, "--shared", e4)) : {Main.name.args(rest, Main.name.word(Main.NameCmd{p, a, d, f, sh, r}, Main.nword(_), _)) == nw.from(_ <> rest, p, a, d, f, sh, r) : Main.NameCmd}
+      nw.at_shared(rest, p, a, d, f, sh, r, ih)
+    case False{}:
+      nw.step5(String.eq(w, "--delete"), w, e1, e2, e3, e4, {==}, rest, p, a, d, f, sh, r, ih)
+
+def nw.step3(b: Bool, +w: String, +e1: {String.eq(w, "--revision") == False{} : Bool}, +e2: {String.eq(w, "--change") == False{} : Bool}, +e3: {String.eq(w, "--private") == b : Bool}, +rest: List<&2, String>, +p: Bool, +a: Maybe<&2, Bool>, +d: Bool, +f: Bool, +sh: List<&2, String>, +r: List<&2, String>, ih: nw.ih(rest)) -> {Main.name.args(rest, Main.name.word(Main.NameCmd{p, a, d, f, sh, r}, Main.nword(w), w)) == nw.from(w <> rest, p, a, d, f, sh, r) : Main.NameCmd}:
+  match b:
+    case True{}:
+      %Equal.sym(String, w, "--private", S.eq_true(w, "--private", e3)) : {Main.name.args(rest, Main.name.word(Main.NameCmd{p, a, d, f, sh, r}, Main.nword(_), _)) == nw.from(_ <> rest, p, a, d, f, sh, r) : Main.NameCmd}
+      nw.at_private(rest, p, a, d, f, sh, r, ih)
+    case False{}:
+      nw.step4(String.eq(w, "--shared"), w, e1, e2, e3, {==}, rest, p, a, d, f, sh, r, ih)
+
+def nw.step2(b: Bool, +w: String, +e1: {String.eq(w, "--revision") == False{} : Bool}, +e2: {String.eq(w, "--change") == b : Bool}, +rest: List<&2, String>, +p: Bool, +a: Maybe<&2, Bool>, +d: Bool, +f: Bool, +sh: List<&2, String>, +r: List<&2, String>, ih: nw.ih(rest)) -> {Main.name.args(rest, Main.name.word(Main.NameCmd{p, a, d, f, sh, r}, Main.nword(w), w)) == nw.from(w <> rest, p, a, d, f, sh, r) : Main.NameCmd}:
+  match b:
+    case True{}:
+      %Equal.sym(String, w, "--change", S.eq_true(w, "--change", e2)) : {Main.name.args(rest, Main.name.word(Main.NameCmd{p, a, d, f, sh, r}, Main.nword(_), _)) == nw.from(_ <> rest, p, a, d, f, sh, r) : Main.NameCmd}
+      nw.at_change(rest, p, a, d, f, sh, r, ih)
+    case False{}:
+      nw.step3(String.eq(w, "--private"), w, e1, e2, {==}, rest, p, a, d, f, sh, r, ih)
+
+def nw.step1(b: Bool, +w: String, +e1: {String.eq(w, "--revision") == b : Bool}, +rest: List<&2, String>, +p: Bool, +a: Maybe<&2, Bool>, +d: Bool, +f: Bool, +sh: List<&2, String>, +r: List<&2, String>, ih: nw.ih(rest)) -> {Main.name.args(rest, Main.name.word(Main.NameCmd{p, a, d, f, sh, r}, Main.nword(w), w)) == nw.from(w <> rest, p, a, d, f, sh, r) : Main.NameCmd}:
+  match b:
+    case True{}:
+      %Equal.sym(String, w, "--revision", S.eq_true(w, "--revision", e1)) : {Main.name.args(rest, Main.name.word(Main.NameCmd{p, a, d, f, sh, r}, Main.nword(_), _)) == nw.from(_ <> rest, p, a, d, f, sh, r) : Main.NameCmd}
+      nw.at_revision(rest, p, a, d, f, sh, r, ih)
+    case False{}:
+      nw.step2(String.eq(w, "--change"), w, e1, {==}, rest, p, a, d, f, sh, r, ih)
+
+def nw.go(ws: List<&2, String>, +p: Bool, +a: Maybe<&2, Bool>, +d: Bool, +f: Bool, +sh: List<&2, String>, +r: List<&2, String>) -> {Main.name.args(ws, Main.NameCmd{p, a, d, f, sh, r}) == nw.from(ws, p, a, d, f, sh, r) : Main.NameCmd}:
   match ws:
     case Nil{}:
+      %Equal.sym(Bool, Bool.or(d, False{}), d, nw.or_false(d)) : {Main.NameCmd{p, a, d, f, sh, r} == Main.NameCmd{p, a, _, Bool.or(f, False{}), List.append(&2, String, sh, Nil{}), List.append(&2, String, r, Nil{})} : Main.NameCmd}
+      %Equal.sym(Bool, Bool.or(f, False{}), f, nw.or_false(f)) : {Main.NameCmd{p, a, d, f, sh, r} == Main.NameCmd{p, a, d, _, List.append(&2, String, sh, Nil{}), List.append(&2, String, r, Nil{})} : Main.NameCmd}
       %Equal.sym(List<&2, String>, List.append(&2, String, sh, Nil{}), sh, SortL.lapp_nil(String, sh)) : {Main.NameCmd{p, a, d, f, sh, r} == Main.NameCmd{p, a, d, f, _, List.append(&2, String, r, Nil{})} : Main.NameCmd}
       %Equal.sym(List<&2, String>, List.append(&2, String, r, Nil{}), r, SortL.lapp_nil(String, r)) : {Main.NameCmd{p, a, d, f, sh, r} == Main.NameCmd{p, a, d, f, sh, _} : Main.NameCmd}
       {==}
     case +w <> +rest:
-      args_step(Main.nword(w), w, rest, p, a, d, f, sh, r, p2 => a2 => d2 => f2 => sh2 => r2 => args_go(rest, p2, a2, d2, f2, sh2, r2))
+      nw.step1(String.eq(w, "--revision"), w, {==}, rest, p, a, d, f, sh, r, p2 => a2 => d2 => f2 => sh2 => r2 => nw.go(rest, p2, a2, d2, f2, sh2, r2))
 
-# `name` reads its words as they say.
-def args_said(+ws: List<&2, String>) -> {Main.name.args(ws, Main.NameCmd{False{}, None{}, False{}, False{}, Nil{}, Nil{}}) == Main.nargs.said(ws) : Main.NameCmd}:
-  args_go(ws, False{}, None{}, False{}, False{}, Nil{}, Nil{})
+# `name` reads its words as their plain reading says.
+def args_said(+ws: List<&2, String>) -> {Main.name.args(ws, Main.NameCmd{False{}, None{}, False{}, False{}, Nil{}, Nil{}}) == Main.NameCmd{String.eq(Maybe.default(&2, String, List.last(&2, String, List.filter(~String, ~(w => Rev.member(["--revision", "--change"], w)), ws)), ""), "--revision"), Maybe.map(&2, String, Bool, x => String.eq(x, "--private"), List.last(&2, String, List.filter(~String, ~(w => Rev.member(["--private", "--shared"], w)), ws))), Rev.member(ws, "--delete"), Rev.member(ws, "--fields"), List.filter(~String, ~(w => Rev.member(["--revision", "--change", "--private", "--shared"], w)), ws), List.filter(~String, ~(w => Bool.not(Rev.member(["--revision", "--change", "--private", "--shared", "--delete", "--fields"], w))), ws)} : Main.NameCmd}:
+  %nw.pin_top(List.last(&2, String, nw.rc(ws))) : {Main.name.args(ws, Main.NameCmd{False{}, None{}, False{}, False{}, Nil{}, Nil{}}) == Main.NameCmd{_, Maybe.map(&2, String, Bool, x => String.eq(x, "--private"), List.last(&2, String, nw.ps(ws))), Rev.member(ws, "--delete"), Rev.member(ws, "--fields"), nw.shaping(ws), nw.others(ws)} : Main.NameCmd}
+  %nw.axis_top(List.last(&2, String, nw.ps(ws))) : {Main.name.args(ws, Main.NameCmd{False{}, None{}, False{}, False{}, Nil{}, Nil{}}) == Main.NameCmd{nw.pin(List.last(&2, String, nw.rc(ws)), False{}), _, Rev.member(ws, "--delete"), Rev.member(ws, "--fields"), nw.shaping(ws), nw.others(ws)} : Main.NameCmd}
+  nw.go(ws, False{}, None{}, False{}, False{}, Nil{}, Nil{})
 
 # What it plans
 # -------------
@@ -305,56 +525,37 @@ def kept_ok(+bs: List<&2, Bm.Bookmark>, +n: String, axis: Maybe<&2, Bool>) -> {M
     case None{}:
       kept_found(bs, n)
 
-# A change the store's revisions carry is among its changes.
-def push_has.of(b: Bool, +c: String, +rest: List<&2, String>, eb: {Rev.member(rest, c) == b : Bool}) -> {Rev.member(Rev.keep(Bool.not(b), c, rest), c) == True{} : Bool}:
-  match b:
-    case True{}:
-      eb
-    case False{}:
-      GL.member_head(c, rest)
-
-def push_keeps(b: Bool, +c: String, +rest: List<&2, String>, +x: String, m: {Rev.member(rest, x) == True{} : Bool}) -> {Rev.member(Rev.keep(b, c, rest), x) == True{} : Bool}:
-  match b:
-    case True{}:
-      GL.member_tail(c, rest, x, m)
-    case False{}:
-      m
-
-def find_change_at(b: Bool, +i: String, +change: String, +parents: List<&2, String>, +supersedes: List<&2, String>, +author: String, +when: String, +revised_by: Maybe<&2, String>, +revised: Maybe<&2, String>, +facts: List<&2, Rev.Header>, +message: String, +rest: List<&2, Main.Full>, +x: String, +g: Main.Full, e: {Bool.pick(Maybe<&2, Main.Full>, b, Some{Main.Full{i, change, parents, supersedes, author, when, revised_by, revised, facts, message}}, Main.find(rest, x)) == Some{g} : Maybe<&2, Main.Full>}, ih: {Main.find(rest, x) == Some{g} : Maybe<&2, Main.Full>} -> {Rev.member(Main.changes(rest), Main.change_of(g)) == True{} : Bool}) -> {Rev.member(Main.changes.push(change, Main.changes(rest)), Main.change_of(g)) == True{} : Bool}:
+# The revision `find` answers for a digest carries its own change.
+def carries_at(b: Bool, +i: String, +change: String, +parents: List<&2, String>, +supersedes: List<&2, String>, +author: String, +when: String, +revised_by: Maybe<&2, String>, +revised: Maybe<&2, String>, +facts: List<&2, Rev.Header>, +message: String, +rest: List<&2, Main.Full>, +x: String, +g: Main.Full, e: {Bool.pick(Maybe<&2, Main.Full>, b, Some{Main.Full{i, change, parents, supersedes, author, when, revised_by, revised, facts, message}}, Main.find(rest, x)) == Some{g} : Maybe<&2, Main.Full>}, ih: {Main.find(rest, x) == Some{g} : Maybe<&2, Main.Full>} -> {Main.name.carries(rest, Main.id_of(g), Main.change_of(g)) == True{} : Bool}) -> {Main.name.carries(Main.Full{i, change, parents, supersedes, author, when, revised_by, revised, facts, message} <> rest, Main.id_of(g), Main.change_of(g)) == True{} : Bool}:
   match b:
     case True{}:
       +d = B.some_eq_f(Main.Full{i, change, parents, supersedes, author, when, revised_by, revised, facts, message}, g, e)
-      %d : {Rev.member(Main.changes.push(change, Main.changes(rest)), Main.change_of(_)) == True{} : Bool}
-      push_has.of(Rev.member(Main.changes(rest), change), change, Main.changes(rest), {==})
+      %d : {Main.name.carries(Main.Full{i, change, parents, supersedes, author, when, revised_by, revised, facts, message} <> rest, Main.id_of(_), Main.change_of(_)) == True{} : Bool}
+      AL.or_left(Bool.and(String.eq(i, i), String.eq(change, change)), Main.name.carries(rest, i, change), AL.and_intro(String.eq(i, i), String.eq(change, change), S.eq_refl(i), S.eq_refl(change)))
     case False{}:
-      push_keeps(Bool.not(Rev.member(Main.changes(rest), change)), change, Main.changes(rest), Main.change_of(g), ih(e))
+      AL.or_right(Bool.and(String.eq(i, Main.id_of(g)), String.eq(change, Main.change_of(g))), Main.name.carries(rest, Main.id_of(g), Main.change_of(g)), ih(e))
 
-def find_change(fs: List<&2, Main.Full>, +x: String, +g: Main.Full, e: {Main.find(fs, x) == Some{g} : Maybe<&2, Main.Full>}) -> {Rev.member(Main.changes(fs), Main.change_of(g)) == True{} : Bool}:
+def find_carries(fs: List<&2, Main.Full>, +x: String, +g: Main.Full, e: {Main.find(fs, x) == Some{g} : Maybe<&2, Main.Full>}) -> {Main.name.carries(fs, Main.id_of(g), Main.change_of(g)) == True{} : Bool}:
   match fs:
     case Nil{}:
-      Empty.absurd({Rev.member(Main.changes(Nil{}), Main.change_of(g)) == True{} : Bool}, (%e : {B.mdisc_f(_) : Type} Unit{}))
+      Empty.absurd({Main.name.carries(Nil{}, Main.id_of(g), Main.change_of(g)) == True{} : Bool}, (%e : {B.mdisc_f(_) : Type} Unit{}))
     case Main.Full{+i, +change, +parents, +supersedes, +author, +when, +revised_by, +revised, +facts, +message} <> +rest:
-      find_change_at(String.eq(i, x), i, change, parents, supersedes, author, when, revised_by, revised, facts, message, rest, x, g, e, h => find_change(rest, x, g, h))
+      carries_at(String.eq(i, x), i, change, parents, supersedes, author, when, revised_by, revised, facts, message, rest, x, g, e, h => find_carries(rest, x, g, h))
 
-def found_change(+fs: List<&2, Main.Full>, +id: String, m: Maybe<&2, Main.Full>, +em: {Main.find(fs, id) == m : Maybe<&2, Main.Full>}, +f: Main.Full, e: {Main.resolved.found.r(id, m) == Done{f} : Result<&2, &2, Main.Refused, Main.Full>}) -> {Rev.member(Main.changes(fs), Main.change_of(f)) == True{} : Bool}:
+# The revision a target names is the one the store holds under the digest
+# `resolve` reads it as, which every command resolves it by.
+def found_is(+fs: List<&2, Main.Full>, +id: String, m: Maybe<&2, Main.Full>, +em: {Main.find(fs, id) == m : Maybe<&2, Main.Full>}, +f: Main.Full, e: {Main.resolved.found.r(id, m) == Done{f} : Result<&2, &2, Main.Refused, Main.Full>}) -> {Main.find(fs, id) == Some{f} : Maybe<&2, Main.Full>}:
   match m:
     case None{}:
-      Empty.absurd({Rev.member(Main.changes(fs), Main.change_of(f)) == True{} : Bool}, B.refuse(Main.Full, Main.resolved.found.r(id, None{}), f, {==}, e))
+      Empty.absurd({Main.find(fs, id) == Some{f} : Maybe<&2, Main.Full>}, B.refuse(Main.Full, Main.resolved.found.r(id, None{}), f, {==}, e))
     case Some{+g}:
-      +d = B.done_eq(Main.Full, g, f, e)
-      %d : {Rev.member(Main.changes(fs), Main.change_of(_)) == True{} : Bool}
-      find_change(fs, id, g, em)
+      Equal.trans(Maybe<&2, Main.Full>, Main.find(fs, id), Some{g}, Some{f}, em, Equal.cong(Main.Full, Maybe<&2, Main.Full>, x => Some{x}, g, f, B.done_eq(Main.Full, g, f, e)))
 
-def resolved_of_change(+fs: List<&2, Main.Full>, r: Result<&2, &2, String, String>, +f: Main.Full, e: {Main.resolved.of.r(fs, r) == Done{f} : Result<&2, &2, Main.Refused, Main.Full>}) -> {Rev.member(Main.changes(fs), Main.change_of(f)) == True{} : Bool}:
-  match r:
-    case Fail{x}:
-      Empty.absurd({Rev.member(Main.changes(fs), Main.change_of(f)) == True{} : Bool}, B.fail_done(Main.Full, Main.Refused{1, x}, f, e))
-    case Done{+id}:
-      found_change(fs, id, Main.find(fs, id), {==}, f, e)
-
-# A target resolves to a revision carrying one of the store's changes.
-def resolved_change(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +target: String, +f: Main.Full, e: {Main.resolved.r(fs, bs, target) == Done{f} : Result<&2, &2, Main.Refused, Main.Full>}) -> {Rev.member(Main.changes(fs), Main.change_of(f)) == True{} : Bool}:
-  resolved_of_change(fs, Main.resolve(fs, bs, target), f, e)
+def resolved_is(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +sp: String, +id: String, er: {Main.resolve(fs, bs, sp) == Done{id} : Result<&2, &2, String, String>}, +f: Main.Full, e: {Main.resolved.r(fs, bs, sp) == Done{f} : Result<&2, &2, Main.Refused, Main.Full>}) -> {Main.find(fs, id) == Some{f} : Maybe<&2, Main.Full>}:
+  found_is(fs, id, Main.find(fs, id), {==}, f,
+    Equal.trans(Result<&2, &2, Main.Refused, Main.Full>, Main.resolved.of.r(fs, Done{id}), Main.resolved.of.r(fs, Main.resolve(fs, bs, sp)), Done{f},
+      Equal.cong(Result<&2, &2, String, String>, Result<&2, &2, Main.Refused, Main.Full>, r => Main.resolved.of.r(fs, r), Done{id}, Main.resolve(fs, bs, sp), Equal.sym(Result<&2, &2, String, String>, Main.resolve(fs, bs, sp), Done{id}, er)),
+      e))
 
 # `name` refuses an empty target before resolving it, and otherwise
 # resolves it as every command does.
@@ -365,40 +566,31 @@ def name_resolved(b: Bool, -r: Result<&2, &2, Main.Refused, Main.Full>, -f: Main
     case False{}:
       e
 
-# A file some revision the store holds has in its tree.
-def somewhere_at(held: List<&2, String>, +fs: List<&2, Main.Full>, +x: String, +i: String, m: {Rev.member(held, i) == True{} : Bool}, +h: {Main.tree.holds.r(Main.tree.r(fs, i), x) == True{} : Bool}) -> {Main.name.somewhere(held, fs, x) == True{} : Bool}:
-  match held:
-    case Nil{}:
-      Empty.absurd({Main.name.somewhere(Nil{}, fs, x) == True{} : Bool}, S.false_true(m))
-    case +y <> +rest:
-      GL.member_cons({Main.name.somewhere(y <> rest, fs, x) == True{} : Bool}, y, rest, i, m,
-        yi => (%Equal.sym(String, y, i, yi) : {Bool.or(Main.tree.holds.r(Main.tree.r(fs, _), x), Main.name.somewhere(rest, fs, x)) == True{} : Bool}
-          AL.or_left(Main.tree.holds.r(Main.tree.r(fs, i), x), Main.name.somewhere(rest, fs, x), h)),
-        mr => AL.or_right(Main.tree.holds.r(Main.tree.r(fs, y), x), Main.name.somewhere(rest, fs, x), somewhere_at(rest, fs, x, i, mr, h)))
-
 def target_eq(-a: Bm.Target, -b: Bm.Target, h: {Done{a} == Done{b} : Result<&2, &2, Main.Refused, Bm.Target>}) -> {a == b : Bm.Target}:
   B.done_eq(Bm.Target, a, b, h)
 
-def file_aimed(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +id: String, +hf: {Rev.member(Main.ids(fs), id) == True{} : Bool}, +p: String, +pin: Bool, r: Result<&2, &2, Main.Refused, String>, +er: {Main.show.file.r(fs, bs, id, p) == r : Result<&2, &2, Main.Refused, String>}, +t: Bm.Target, e: {Result.map(&2, &2, Main.Refused, String, Bm.Target, file => Bm.Target.File{file}, r) == Done{t} : Result<&2, &2, Main.Refused, Bm.Target>}) -> {Main.name.aimed(fs, Some{p}, pin, t) == True{} : Bool}:
+# A file bookmark names the file `show` names at that revision and path.
+def file_aimed(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +id: String, +p: String, +pin: Bool, r: Result<&2, &2, Main.Refused, String>, +er: {Main.show.file.r(fs, bs, id, p) == r : Result<&2, &2, Main.Refused, String>}, +t: Bm.Target, e: {Result.map(&2, &2, Main.Refused, String, Bm.Target, file => Bm.Target.File{file}, r) == Done{t} : Result<&2, &2, Main.Refused, Bm.Target>}) -> {Main.name.aimed(fs, bs, id, Some{p}, pin, t) == True{} : Bool}:
   match r:
     case Fail{x}:
-      Empty.absurd({Main.name.aimed(fs, Some{p}, pin, t) == True{} : Bool}, B.fail_done(Bm.Target, x, t, e))
+      Empty.absurd({Main.name.aimed(fs, bs, id, Some{p}, pin, t) == True{} : Bool}, B.fail_done(Bm.Target, x, t, e))
     case Done{+x}:
-      %target_eq(Bm.Target.File{x}, t, e) : {Main.name.aimed(fs, Some{p}, pin, _) == True{} : Bool}
-      somewhere_at(Main.ids(fs), fs, x, id, hf, ShowL.file_ok(fs, bs, id, p, x, er))
+      %target_eq(Bm.Target.File{x}, t, e) : {Main.name.aimed(fs, bs, id, Some{p}, pin, _) == True{} : Bool}
+      %Equal.sym(Result<&2, &2, Main.Refused, String>, Main.show.file.r(fs, bs, id, p), Done{x}, er) : {Main.name.shown(_, x) == True{} : Bool}
+      S.eq_refl(x)
 
 # The target is what was asked for, at the revision named.
-def aimed_ok(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +f: Main.Full, path: Maybe<&2, String>, pin: Bool, +hf: {Rev.member(Main.ids(fs), Main.id_of(f)) == True{} : Bool}, +hc: {Rev.member(Main.changes(fs), Main.change_of(f)) == True{} : Bool}, +t: Bm.Target, e: {Main.name.target.r(fs, bs, f, path, pin) == Done{t} : Result<&2, &2, Main.Refused, Bm.Target>}) -> {Main.name.aimed(fs, path, pin, t) == True{} : Bool}:
+def aimed_ok(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +f: Main.Full, path: Maybe<&2, String>, pin: Bool, +hc: {Main.name.carries(fs, Main.id_of(f), Main.change_of(f)) == True{} : Bool}, +t: Bm.Target, e: {Main.name.target.r(fs, bs, f, path, pin) == Done{t} : Result<&2, &2, Main.Refused, Bm.Target>}) -> {Main.name.aimed(fs, bs, Main.id_of(f), path, pin, t) == True{} : Bool}:
   match path pin:
     case Some{+p} True{}:
-      file_aimed(fs, bs, Main.id_of(f), hf, p, True{}, Main.show.file.r(fs, bs, Main.id_of(f), p), {==}, t, e)
+      file_aimed(fs, bs, Main.id_of(f), p, True{}, Main.show.file.r(fs, bs, Main.id_of(f), p), {==}, t, e)
     case Some{+p} False{}:
-      file_aimed(fs, bs, Main.id_of(f), hf, p, False{}, Main.show.file.r(fs, bs, Main.id_of(f), p), {==}, t, e)
+      file_aimed(fs, bs, Main.id_of(f), p, False{}, Main.show.file.r(fs, bs, Main.id_of(f), p), {==}, t, e)
     case None{} True{}:
-      %target_eq(Bm.Target.Revision{Main.id_of(f)}, t, e) : {Main.name.aimed(fs, None{}, True{}, _) == True{} : Bool}
-      hf
+      %target_eq(Bm.Target.Revision{Main.id_of(f)}, t, e) : {Main.name.aimed(fs, bs, Main.id_of(f), None{}, True{}, _) == True{} : Bool}
+      S.eq_refl(Main.id_of(f))
     case None{} False{}:
-      %target_eq(Bm.Target.Change{Main.change_of(f)}, t, e) : {Main.name.aimed(fs, None{}, False{}, _) == True{} : Bool}
+      %target_eq(Bm.Target.Change{Main.change_of(f)}, t, e) : {Main.name.aimed(fs, bs, Main.id_of(f), None{}, False{}, _) == True{} : Bool}
       hc
 
 def bm_eq(-a: Bm.Bookmark, -b: Bm.Bookmark, h: {Done{a} == Done{b} : Result<&2, &2, Main.Refused, Bm.Bookmark>}) -> {a == b : Bm.Bookmark}:
@@ -409,36 +601,38 @@ def checked_unit(u: Unit, -n: String, e: {Main.name.checked.r(n) == Done{u} : Re
     case Unit{}:
       e
 
-def points3(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +n: String, path: Maybe<&2, String>, pin: Bool, +axis: Maybe<&2, Bool>, +t: Bm.Target, +ht: {Main.name.aimed(fs, path, pin, t) == True{} : Bool}, r: Result<&2, &2, Main.Refused, Unit>, +er: {Main.name.checked.r(n) == r : Result<&2, &2, Main.Refused, Unit>}, +b: Bm.Bookmark, e: {Result.bind(&2, &2, Main.Refused, Unit, Bm.Bookmark, r, u => Done{Bm.Bookmark{n, t, Maybe.default(&2, Bool, axis, Main.private_of(bs, n))}}) == Done{b} : Result<&2, &2, Main.Refused, Bm.Bookmark>}) -> {Main.name.points(fs, bs, n, path, pin, axis, b) == True{} : Bool}:
+def points3(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +n: String, +id: String, path: Maybe<&2, String>, pin: Bool, +axis: Maybe<&2, Bool>, +t: Bm.Target, +ht: {Main.name.aimed(fs, bs, id, path, pin, t) == True{} : Bool}, r: Result<&2, &2, Main.Refused, Unit>, +er: {Main.name.checked.r(n) == r : Result<&2, &2, Main.Refused, Unit>}, +b: Bm.Bookmark, e: {Result.bind(&2, &2, Main.Refused, Unit, Bm.Bookmark, r, u => Done{Bm.Bookmark{n, t, Maybe.default(&2, Bool, axis, Main.private_of(bs, n))}}) == Done{b} : Result<&2, &2, Main.Refused, Bm.Bookmark>}) -> {Main.name.points(fs, bs, n, id, path, pin, axis, b) == True{} : Bool}:
   match r:
     case Fail{x}:
-      Empty.absurd({Main.name.points(fs, bs, n, path, pin, axis, b) == True{} : Bool}, B.fail_done(Bm.Bookmark, x, b, e))
+      Empty.absurd({Main.name.points(fs, bs, n, id, path, pin, axis, b) == True{} : Bool}, B.fail_done(Bm.Bookmark, x, b, e))
     case Done{u}:
-      %bm_eq(Bm.Bookmark{n, t, Maybe.default(&2, Bool, axis, Main.private_of(bs, n))}, b, e) : {Main.name.points(fs, bs, n, path, pin, axis, _) == True{} : Bool}
-      %Equal.sym(Bool, String.eq(n, n), True{}, S.eq_refl(n)) : {Bool.and(_, Bool.and(Bool.not(Main.escapes(n)), Bool.and(Main.name.aimed(fs, path, pin, t), Main.name.kept(bs, n, axis, Maybe.default(&2, Bool, axis, Main.private_of(bs, n)))))) == True{} : Bool}
-      AL.and_intro(Bool.not(Main.escapes(n)), Bool.and(Main.name.aimed(fs, path, pin, t), Main.name.kept(bs, n, axis, Maybe.default(&2, Bool, axis, Main.private_of(bs, n)))),
+      %bm_eq(Bm.Bookmark{n, t, Maybe.default(&2, Bool, axis, Main.private_of(bs, n))}, b, e) : {Main.name.points(fs, bs, n, id, path, pin, axis, _) == True{} : Bool}
+      %Equal.sym(Bool, String.eq(n, n), True{}, S.eq_refl(n)) : {Bool.and(_, Bool.and(Bool.not(Main.escapes(n)), Bool.and(Main.name.aimed(fs, bs, id, path, pin, t), Main.name.kept(bs, n, axis, Maybe.default(&2, Bool, axis, Main.private_of(bs, n)))))) == True{} : Bool}
+      AL.and_intro(Bool.not(Main.escapes(n)), Bool.and(Main.name.aimed(fs, bs, id, path, pin, t), Main.name.kept(bs, n, axis, Maybe.default(&2, Bool, axis, Main.private_of(bs, n)))),
         AL.not_true(Main.escapes(n), stays(n, checked_unit(u, n, er))),
-        AL.and_intro(Main.name.aimed(fs, path, pin, t), Main.name.kept(bs, n, axis, Maybe.default(&2, Bool, axis, Main.private_of(bs, n))), ht, kept_ok(bs, n, axis)))
+        AL.and_intro(Main.name.aimed(fs, bs, id, path, pin, t), Main.name.kept(bs, n, axis, Maybe.default(&2, Bool, axis, Main.private_of(bs, n))), ht, kept_ok(bs, n, axis)))
 
-def points2(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +n: String, +f: Main.Full, +path: Maybe<&2, String>, +pin: Bool, +axis: Maybe<&2, Bool>, +hf: {Rev.member(Main.ids(fs), Main.id_of(f)) == True{} : Bool}, +hc: {Rev.member(Main.changes(fs), Main.change_of(f)) == True{} : Bool}, r: Result<&2, &2, Main.Refused, Bm.Target>, +er: {Main.name.target.r(fs, bs, f, path, pin) == r : Result<&2, &2, Main.Refused, Bm.Target>}, +b: Bm.Bookmark, e: {Result.bind(&2, &2, Main.Refused, Bm.Target, Bm.Bookmark, r, t => Result.bind(&2, &2, Main.Refused, Unit, Bm.Bookmark, Main.name.checked.r(n), u => Done{Bm.Bookmark{n, t, Maybe.default(&2, Bool, axis, Main.private_of(bs, n))}})) == Done{b} : Result<&2, &2, Main.Refused, Bm.Bookmark>}) -> {Main.name.points(fs, bs, n, path, pin, axis, b) == True{} : Bool}:
+def points2(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +n: String, +f: Main.Full, +path: Maybe<&2, String>, +pin: Bool, +axis: Maybe<&2, Bool>, +hc: {Main.name.carries(fs, Main.id_of(f), Main.change_of(f)) == True{} : Bool}, r: Result<&2, &2, Main.Refused, Bm.Target>, +er: {Main.name.target.r(fs, bs, f, path, pin) == r : Result<&2, &2, Main.Refused, Bm.Target>}, +b: Bm.Bookmark, e: {Result.bind(&2, &2, Main.Refused, Bm.Target, Bm.Bookmark, r, t => Result.bind(&2, &2, Main.Refused, Unit, Bm.Bookmark, Main.name.checked.r(n), u => Done{Bm.Bookmark{n, t, Maybe.default(&2, Bool, axis, Main.private_of(bs, n))}})) == Done{b} : Result<&2, &2, Main.Refused, Bm.Bookmark>}) -> {Main.name.points(fs, bs, n, Main.id_of(f), path, pin, axis, b) == True{} : Bool}:
   match r:
     case Fail{x}:
-      Empty.absurd({Main.name.points(fs, bs, n, path, pin, axis, b) == True{} : Bool}, B.fail_done(Bm.Bookmark, x, b, e))
+      Empty.absurd({Main.name.points(fs, bs, n, Main.id_of(f), path, pin, axis, b) == True{} : Bool}, B.fail_done(Bm.Bookmark, x, b, e))
     case Done{+t}:
-      points3(fs, bs, n, path, pin, axis, t, aimed_ok(fs, bs, f, path, pin, hf, hc, t, er), Main.name.checked.r(n), {==}, b, e)
+      points3(fs, bs, n, Main.id_of(f), path, pin, axis, t, aimed_ok(fs, bs, f, path, pin, hc, t, er), Main.name.checked.r(n), {==}, b, e)
 
-def points1(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +n: String, +sp: String, +path: Maybe<&2, String>, +pin: Bool, +axis: Maybe<&2, Bool>, r: Result<&2, &2, Main.Refused, Main.Full>, +er: {Main.name.resolved.r(fs, bs, sp) == r : Result<&2, &2, Main.Refused, Main.Full>}, +b: Bm.Bookmark, e: {Result.bind(&2, &2, Main.Refused, Main.Full, Bm.Bookmark, r, f => Result.bind(&2, &2, Main.Refused, Bm.Target, Bm.Bookmark, Main.name.target.r(fs, bs, f, path, pin), t => Result.bind(&2, &2, Main.Refused, Unit, Bm.Bookmark, Main.name.checked.r(n), u => Done{Bm.Bookmark{n, t, Maybe.default(&2, Bool, axis, Main.private_of(bs, n))}}))) == Done{b} : Result<&2, &2, Main.Refused, Bm.Bookmark>}) -> {Main.name.points(fs, bs, n, path, pin, axis, b) == True{} : Bool}:
+def points1(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +n: String, +sp: String, +path: Maybe<&2, String>, +pin: Bool, +axis: Maybe<&2, Bool>, +id: String, +ei: {Main.resolve(fs, bs, sp) == Done{id} : Result<&2, &2, String, String>}, r: Result<&2, &2, Main.Refused, Main.Full>, +er: {Main.name.resolved.r(fs, bs, sp) == r : Result<&2, &2, Main.Refused, Main.Full>}, +b: Bm.Bookmark, e: {Result.bind(&2, &2, Main.Refused, Main.Full, Bm.Bookmark, r, f => Result.bind(&2, &2, Main.Refused, Bm.Target, Bm.Bookmark, Main.name.target.r(fs, bs, f, path, pin), t => Result.bind(&2, &2, Main.Refused, Unit, Bm.Bookmark, Main.name.checked.r(n), u => Done{Bm.Bookmark{n, t, Maybe.default(&2, Bool, axis, Main.private_of(bs, n))}}))) == Done{b} : Result<&2, &2, Main.Refused, Bm.Bookmark>}) -> {Main.name.points(fs, bs, n, id, path, pin, axis, b) == True{} : Bool}:
   match r:
     case Fail{x}:
-      Empty.absurd({Main.name.points(fs, bs, n, path, pin, axis, b) == True{} : Bool}, B.fail_done(Bm.Bookmark, x, b, e))
+      Empty.absurd({Main.name.points(fs, bs, n, id, path, pin, axis, b) == True{} : Bool}, B.fail_done(Bm.Bookmark, x, b, e))
     case Done{+f}:
-      +held = name_resolved(String.is_empty(sp), Main.resolved.r(fs, bs, sp), f, er)
-      points2(fs, bs, n, f, path, pin, axis, B.resolved_mem(fs, bs, sp, f, held), resolved_change(fs, bs, sp, f, held), Main.name.target.r(fs, bs, f, path, pin), {==}, b, e)
+      +found = resolved_is(fs, bs, sp, id, ei, f, name_resolved(String.is_empty(sp), Main.resolved.r(fs, bs, sp), f, er))
+      %Equal.sym(String, id, Main.id_of(f), S.eq_true(id, Main.id_of(f), ChainL.find_id(fs, id, f, found))) : {Main.name.points(fs, bs, n, _, path, pin, axis, b) == True{} : Bool}
+      points2(fs, bs, n, f, path, pin, axis, find_carries(fs, id, f, found), Main.name.target.r(fs, bs, f, path, pin), {==}, b, e)
 
 # The bookmark `name` sets is named as asked, stays under `names/`, points
-# where it was asked to, and is as private as asked or as it was.
-def points_ok(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +n: String, +sp: String, +path: Maybe<&2, String>, +pin: Bool, +axis: Maybe<&2, Bool>, +b: Bm.Bookmark, e: {Main.name.stated.r(fs, bs, n, sp, path, pin, axis) == Done{b} : Result<&2, &2, Main.Refused, Bm.Bookmark>}) -> {Main.name.points(fs, bs, n, path, pin, axis, b) == True{} : Bool}:
-  points1(fs, bs, n, sp, path, pin, axis, Main.name.resolved.r(fs, bs, sp), {==}, b, e)
+# at what the target and path name as every command resolves them, and is
+# as private as asked or as it was.
+def points_ok(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +n: String, +sp: String, +path: Maybe<&2, String>, +pin: Bool, +axis: Maybe<&2, Bool>, +b: Bm.Bookmark, e: {Main.name.stated.r(fs, bs, n, sp, path, pin, axis) == Done{b} : Result<&2, &2, Main.Refused, Bm.Bookmark>}, +id: String, ei: {Main.resolve(fs, bs, sp) == Done{id} : Result<&2, &2, String, String>}) -> {Main.name.points(fs, bs, n, id, path, pin, axis, b) == True{} : Bool}:
+  points1(fs, bs, n, sp, path, pin, axis, id, ei, Main.name.resolved.r(fs, bs, sp), {==}, b, e)
 
 # What it deletes
 # ---------------

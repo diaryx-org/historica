@@ -1033,40 +1033,32 @@ law diff_colour_changes_no_character:
   for +cs: List<&2, Main.Compared>
   {T.map(~Main.Painted, ~String, ~(p => Main.painted(False{}, p)), Main.diff.rendered(True{}, cs)) == T.map(~Main.Painted, ~String, ~(p => Main.painted(False{}, p)), Main.diff.rendered(False{}, cs)) : List<&2, String>}
 
-# `diff` over the folder believes the digest a statement gives a file of
-# lines. It replays at the position exactly the files of lines whose digest
-# no statement settles — not one the folder holds, as a regular file, with
-# the digest the file's nearest statement leaves — and never a file of
-# bytes or a link.
-law diff_folder_replays_what_is_unsettled:
-  for +dg: Map<&2, String>
-  for +os: Map<&2, T.Split>
-  for +eds: List<&2, Store.Doc>
-  for +hs: List<&2, Main.Here>
-  {Main.planned.replayed(Main.plans(dg, os, eds, hs)) == Main.unsettled.files(dg, os, eds, hs) : List<&2, String>}
-
-# And it reads from the folder exactly the regular files nothing at the
-# position settles: a path the position does not hold, or holds as a file
-# of lines whose stated digest is not the folder's — never one the position
-# holds as a file of bytes or a link, whose digest or target is compared
-# instead.
-law diff_folder_reads_what_is_unsettled:
-  for +dg: Map<&2, String>
-  for +os: Map<&2, T.Split>
-  for +eds: List<&2, Store.Doc>
-  for +hs: List<&2, Main.Here>
-  {Main.planned.read(Main.plans(dg, os, eds, hs)) == Main.unsettled.paths(dg, os, eds, hs) : List<&2, String>}
-
-# `diff` gives a file of bytes the size the host stated for its payload, and
-# nothing else. Sizing what it compares changes no side but one whose size
-# was unknown, which keeps its digest and has a size only where the host's
-# line for the bytes it found names that very digest — not where those
-# bytes hash to another.
+# And it gives a file of bytes the size the host stated for its payload.
+# The host answers one stat line for each payload it located; where it
+# located a payload `d` — sixty-four characters with no space among them,
+# as a digest is — after others, and answered its stat with `d`, a space
+# and a size, a file of bytes with that payload whose size was unknown, one
+# that went or one that came, is shown with that size, and nothing else
+# about it changes.
 law diff_sizes_what_the_host_stated:
-  for +found: List<&2, T.Split>
-  for +stats: List<&2, String>
-  for +cs: List<&2, Main.Compared>
-  {Main.sizes.told(stats, cs, Main.sized(Main.sizes.read(found, stats), cs)) == True{} : Bool}
+  for +f1: List<&2, T.Split>
+  for +s1: List<&2, String>
+  for hl: {List.length(&2, T.Split, f1) == List.length(&2, String, s1) : Nat}
+  for +d: String
+  for hn: {Rev.member(T.map(~T.Split, ~String, ~(x => Main.split.head(x)), f1), d) == False{} : Bool}
+  for hd: {String.length(d) == 64n : Nat}
+  for hs: {T.all_chars(~(c => Bool.not(Char.is_eq(c, ' '))), d) == True{} : Bool}
+  for +p: String
+  for +f2: List<&2, T.Split>
+  for +size: String
+  for +n: Nat
+  for hz: {Nat.read(size) == Some{n} : Maybe<&2, Nat>}
+  for +s2: List<&2, String>
+  for +from: Maybe<&2, String>
+  for +to: Maybe<&2, String>
+  for +modes: Maybe<&2, T.Split>
+  for +targets: Maybe<&2, Main.Retarget>
+  {Main.sized(Main.sizes.read(List.append(&2, T.Split, f1, T.Split{d, p} <> f2), List.append(&2, String, s1, (d ++ (" " ++ size)) <> s2)), [Main.Compared{from, to, Some{Main.Side.Whole{d, None{}}}, None{}, modes, targets}, Main.Compared{from, to, None{}, Some{Main.Side.Whole{d, None{}}}, modes, targets}]) == [Main.Compared{from, to, Some{Main.Side.Whole{d, Some{n}}}, None{}, modes, targets}, Main.Compared{from, to, None{}, Some{Main.Side.Whole{d, Some{n}}}, modes, targets}] : List<&2, Main.Compared>}
 
 # `diff` over the folder plans each path — whether the position's file is
 # replayed, whether the folder's is read — from nothing the store holds but
@@ -1402,15 +1394,18 @@ law standins_fold_in_any_order:
   for +held: List<&2, Ops.Op>
   {Stand.ops.folded(a <> b <> rest, held) == Stand.ops.folded(b <> a <> rest, held) : List<&2, Ops.Op>}
 
-# `name` reads its words as their plain reading says: a flag counts
-# wherever it stands, the last of `--revision` and `--change` and the last
-# of `--private` and `--shared` deciding, `--delete` and `--fields` asked
-# for if they are there; the flags shaping a target are kept as typed, in
-# order, for `--delete` to refuse; and every other word is the bookmark,
-# the target and the path, in order.
+# `name` reads its words as their plain reading says, whatever order they
+# come in. `--delete` and `--fields` are asked for where they are among the
+# words. The bookmark is pinned where the last of the `--revision` and
+# `--change` among them is `--revision`; it is asked to be private or
+# shared as the last of the `--private` and `--shared` among them says, and
+# neither where there is neither. Those four flags are kept as they were
+# typed, in order, for `--delete` to refuse; and every word that is none of
+# the six — one beginning `-` too — is kept, in order, for the bookmark,
+# the target and the path.
 law name_reads_its_words:
   for +ws: List<&2, String>
-  {Main.name.args(ws, Main.NameCmd{False{}, None{}, False{}, False{}, Nil{}, Nil{}}) == Main.nargs.said(ws) : Main.NameCmd}
+  {Main.name.args(ws, Main.NameCmd{False{}, None{}, False{}, False{}, Nil{}, Nil{}}) == Main.NameCmd{String.eq(Maybe.default(&2, String, List.last(&2, String, List.filter(~String, ~(w => Rev.member(["--revision", "--change"], w)), ws)), ""), "--revision"), Maybe.map(&2, String, Bool, x => String.eq(x, "--private"), List.last(&2, String, List.filter(~String, ~(w => Rev.member(["--private", "--shared"], w)), ws))), Rev.member(ws, "--delete"), Rev.member(ws, "--fields"), List.filter(~String, ~(w => Rev.member(["--revision", "--change", "--private", "--shared"], w)), ws), List.filter(~String, ~(w => Bool.not(Rev.member(["--revision", "--change", "--private", "--shared", "--delete", "--fields"], w))), ws)} : Main.NameCmd}
 
 # What `name` sets out to do, decided before anything is opened, is what
 # its words say. A bookmark is deleted only where `--delete` was said, and
@@ -1426,11 +1421,12 @@ law name_does_what_it_reads:
   for e: {Main.name.plan.r(c) == Done{p} : Result<&2, &2, Main.Refused, Main.NamePlan>}
   {Main.name.plan.meant(c, p) == True{} : Bool}
 
-# The bookmark `name` sets is the one asked for. It has the name given,
-# which stays under `names/`; it points at a revision the store holds where
-# `--revision` pins it, at a change one of the store's revisions carries
-# where a target alone is given, and at a file one of those revisions'
-# trees holds where a path is; and it is private as `--private` or
+# The bookmark `name` sets points where it was asked to: at what its
+# target names as every command reads it — the revision `resolve` gives
+# for the spelling. Pinned with `--revision`, it points at that revision;
+# given a target alone, at the change that revision carries; given a path,
+# at the file `show` names at that revision and path. It has the name
+# given, which stays under `names/`; and it is private as `--private` or
 # `--shared` says, or else as the bookmark of that name already was — the
 # one `--delete` would find — or shared where there was none.
 law name_points_where_asked:
@@ -1443,7 +1439,9 @@ law name_points_where_asked:
   for +axis: Maybe<&2, Bool>
   for +b: Bm.Bookmark
   for e: {Main.name.stated.r(fs, bs, n, spelling, path, pin, axis) == Done{b} : Result<&2, &2, Main.Refused, Bm.Bookmark>}
-  {Main.name.points(fs, bs, n, path, pin, axis, b) == True{} : Bool}
+  for +id: String
+  for ei: {Main.resolve(fs, bs, spelling) == Done{id} : Result<&2, &2, String, String>}
+  {Main.name.points(fs, bs, n, id, path, pin, axis, b) == True{} : Bool}
 
 # `name --delete` removes the bookmark named: it is refused exactly where
 # the store has no bookmark of that name, and the bookmark it says it
@@ -1779,13 +1777,14 @@ law content_is_filed_under_a_name_a_filesystem_holds:
   {Naming.controlless(Naming.filed_as(Naming.filed(fs), held)) == True{} : Bool}
 
 # `record` compares this machine's clock with the latest work the store
-# holds. Of the timestamps it is handed, the one `newest` answers is one of
-# them, and none of the others is later, however their offsets spell them.
+# holds (decision 0010). Of the timestamps it is handed, it warns exactly
+# where one of them names a later instant than the clock reads, whichever
+# of them that is; and it says nothing otherwise, as where it is handed
+# none.
 law record_compares_with_the_latest:
+  for +now: String
   for +ws: List<&2, String>
-  for +w: String
-  for e: {Naming.newest(ws, None{}) == Some{w} : Maybe<&2, String>}
-  {Naming.latest(ws, w) == True{} : Bool}
+  {Maybe.is_some(&2, String, Main.clock.warning(now, Naming.newest(ws, None{}))) == Naming.later_than(ws, now) : Bool}
 
 # `abandon` takes a reason exactly where it says something. The reason is
 # the only thing a tombstone carries, so one that is empty or nothing but
@@ -3233,3 +3232,89 @@ law abandon_refuses_a_dry_run_with_fields:
   for c: Main.RwCmd
   for e: {Main.rw.args.r("abandon", args) == Done{c} : Result<&2, &2, Main.Refused, Main.RwCmd>}
   {Main.refused.code(Main.RwCmd, Main.abandon.words.r(List.append(&2, String, args, ["--dry-run", "--fields"]))) == 2 : U32}
+
+# `diff` over the folder compares like with like. For each path it plans,
+# what it replays at the position and what it reads from the folder follow
+# from what each side holds there. A file the position does not hold is
+# read where the folder holds a regular file, and otherwise not, and
+# nothing is replayed; a file of bytes or a link the position holds is
+# neither replayed nor read, its digest or target compared instead; a file
+# of lines the folder does not hold as a regular file is replayed and
+# nothing read; and a file of lines the folder does hold as one is
+# replayed exactly where the folder's file is read — so where one side is
+# left an empty stand-in, so is the other.
+law diff_folder_compares_like_with_like:
+  for +dg: Map<&2, String>
+  for +os: Map<&2, T.Split>
+  for +eds: List<&2, Store.Doc>
+  for +hs: List<&2, Main.Here>
+  {Main.plans.like(Main.plans(dg, os, eds, hs)) == True{} : Bool}
+
+# And it believes the digest a statement gives a file of lines. Where the
+# file's nearest statement is `text` and a digest, and the host answered,
+# for the regular file the folder holds at its path, a word with no space
+# in it, a space and more, the folder's digest is that word; and the file
+# is replayed at the position and read from the folder exactly where that
+# word is not the digest the statement gives.
+law diff_folder_believes_a_stated_digest:
+  for +dg: Map<&2, String>
+  for +os: Map<&2, T.Split>
+  for +eds: List<&2, Store.Doc>
+  for +path: String
+  for +file: String
+  for +at: String
+  for +y: Maybe<&2, String>
+  for +g: Maybe<&2, Tree.Target>
+  for +m: Tree.Mode
+  for +fp: String
+  for +runs: Bool
+  for +size: Nat
+  for +d: String
+  for +os2: Map<&2, T.Split>
+  for ho: {Map.get(T.Split, T.Split{SNil{}, SNil{}}, os, file) == (os2, T.Split{"text", d}) : Map<&2, T.Split> & T.Split}
+  for +w: String
+  for hw: {T.all_chars(~(c => Bool.not(Char.is_eq(c, ' '))), w) == True{} : Bool}
+  for +more: String
+  for +dg2: Map<&2, String>
+  for hd: {Map.get(String, SNil{}, dg, path) == (dg2, w ++ (" " ++ more)) : Map<&2, String> & String}
+  {Main.plan(dg, os, eds, Main.Here{path, Some{Tree.Entry{file, at, Tree.Lines{}, y, g, m}}, Some{Folder.Found.File{fp, runs, size}}}) == Main.Planned{Main.Here{path, Some{Tree.Entry{file, at, Tree.Lines{}, y, g, m}}, Some{Folder.Found.File{fp, runs, size}}}, w, Bool.not(String.eq(d, w)), Bool.not(String.eq(d, w))} : Main.Planned}
+
+# `diff` sizes a file of bytes only as the host stated. Sizing what it
+# compares changes neither side of any comparison but a file of bytes whose
+# size was unknown, which keeps its digest and is given a size only where a
+# line the host answered begins with that very digest — not where the bytes
+# it found at a path hash to another — and that size is the one the line
+# states.
+law diff_sizes_only_what_the_host_stated:
+  for +found: List<&2, T.Split>
+  for +stats: List<&2, String>
+  for +cs: List<&2, Main.Compared>
+  {Main.sizes.told(stats, cs, Main.sized(Main.sizes.read(found, stats), cs)) == True{} : Bool}
+
+# And the work it compares the clock with, and names in that warning, is
+# the latest it is handed: the one `newest` answers is one of them, and
+# none of the others names a later instant.
+law record_names_the_latest_work:
+  for +ws: List<&2, String>
+  for +w: String
+  for e: {Naming.newest(ws, None{}) == Some{w} : Maybe<&2, String>}
+  {Naming.latest(ws, w) == True{} : Bool}
+
+# The instant a timestamp names is read at the offset it spells. The same
+# nineteen characters of local time name, at an offset `+HH:MM` east of
+# UTC, an instant that many hours and minutes before the one they name at
+# UTC, spelled `Z`; and at `-HH:MM` west of it, that much after — for any
+# offset of up to a day.
+law a_timestamp_is_read_at_its_offset:
+  for +base: String
+  for hb: {String.length(base) == 19n : Nat}
+  for +hh: String
+  for hh2: {String.length(hh) == 2n : Nat}
+  for +h: Nat
+  for eh: {Nat.read(hh) == Some{h} : Maybe<&2, Nat>}
+  for +mm: String
+  for hm2: {String.length(mm) == 2n : Nat}
+  for +m: Nat
+  for em: {Nat.read(mm) == Some{m} : Maybe<&2, Nat>}
+  for hd: {Nat.is_le(Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)), 86400n) == True{} : Bool}
+  {[Nat.add(Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)), Naming.instant(base ++ ("+" ++ (hh ++ (":" ++ mm))))), Naming.instant(base ++ ("-" ++ (hh ++ (":" ++ mm))))] == [Naming.instant(base ++ "Z"), Nat.add(Naming.instant(base ++ "Z"), Nat.add(Nat.mul(h, 3600n), Nat.mul(m, 60n)))] : List<&2, Nat>}
