@@ -1367,8 +1367,8 @@ def Laws.init_lays_down_only_its_store(root):
 def Laws.init_writes_text(root):
   {==}
 
-def Laws.init_takes_an_absolute_dir_as_it_is(base, other, d):
-  InitL.absolute(base, other, d)
+def Laws.init_takes_an_absolute_dir_as_it_is(base, d, e, f):
+  InitL.absolute(base, d, e, f)
 
 def Laws.init_doubles_no_slash(base, d, e, f):
   InitL.slash_once(base, d, e, f)

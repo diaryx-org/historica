@@ -176,27 +176,6 @@ def only_its_store(+root: String) -> {within(root, Main.init.layout(root)) == Tr
 # Where the root is
 # -----------------
 
-# An absolute `<dir>` is where the store goes, whatever directory `init`
-# runs in.
-def absolute(+base: String, +other: String, +d: String) -> {Main.init.root(base, Some{"/" ++ d}) == Main.init.root(other, Some{"/" ++ d}) : String}:
-  match d:
-    case SNil{}:
-      {==}
-    case SCon{h, t}:
-      {==}
-
-# `path_join` by its cases: a path joined to a base that needs a `/`, and
-# to one that does not.
-def join_rel(+base: String, +p: String, ep: {String.starts_with(p, "/") == False{} : Bool}, eb: {Bool.or(String.is_empty(base), String.ends_with(base, "/")) == False{} : Bool}) -> {Main.path_join(base, p) == base ++ "/" ++ p : String}:
-  %Equal.sym(Bool, String.starts_with(p, "/"), False{}, ep) : {Bool.pick(String, _, p, Bool.pick(String, Bool.or(String.is_empty(base), String.ends_with(base, "/")), base ++ p, base ++ "/" ++ p)) == base ++ "/" ++ p : String}
-  %Equal.sym(Bool, Bool.or(String.is_empty(base), String.ends_with(base, "/")), False{}, eb) : {Bool.pick(String, False{}, p, Bool.pick(String, _, base ++ p, base ++ "/" ++ p)) == base ++ "/" ++ p : String}
-  {==}
-
-def join_slash(+base: String, +p: String, ep: {String.starts_with(p, "/") == False{} : Bool}, eb: {Bool.or(String.is_empty(base), String.ends_with(base, "/")) == True{} : Bool}) -> {Main.path_join(base, p) == base ++ p : String}:
-  %Equal.sym(Bool, String.starts_with(p, "/"), False{}, ep) : {Bool.pick(String, _, p, Bool.pick(String, Bool.or(String.is_empty(base), String.ends_with(base, "/")), base ++ p, base ++ "/" ++ p)) == base ++ p : String}
-  %Equal.sym(Bool, Bool.or(String.is_empty(base), String.ends_with(base, "/")), True{}, eb) : {Bool.pick(String, False{}, p, Bool.pick(String, _, base ++ p, base ++ "/" ++ p)) == base ++ p : String}
-  {==}
-
 def empty_app(p: String, +x: String, ne: {String.is_empty(x) == False{} : Bool}) -> {String.is_empty(p ++ x) == False{} : Bool}:
   match p:
     case SNil{}:
@@ -247,6 +226,27 @@ def or_ft(a: Bool, b: Bool, eb: {b == True{} : Bool}) -> {Bool.or(a, b) == True{
       {==}
     case False{}:
       eb
+
+# An absolute `<dir>` is where the store goes, `history` in it, whatever
+# directory `init` runs in: `path_join` keeps the absolute path whole, and
+# then joins `history` under it with one `/`.
+def absolute(+base: String, +d: String, +e: {String.is_empty(d) == False{} : Bool}, f: {String.ends_with(d, "/") == False{} : Bool}) -> {Main.init.root(base, Some{"/" ++ d}) == "/" ++ d ++ "/history" : String}:
+  +bare = Equal.trans(Bool, String.ends_with("/" ++ d, "/"), String.ends_with(d, "/"), False{}, ends_slash_app("/", d, e), f)
+  %Equal.sym(Bool, String.starts_with(d, SNil{}), True{}, B.sw_nil(d)) : {Main.path_join(Bool.pick(String, _, "/" ++ d, Bool.pick(String, Bool.or(String.is_empty(base), String.ends_with(base, "/")), base ++ ("/" ++ d), base ++ "/" ++ ("/" ++ d))), "history") == "/" ++ d ++ "/history" : String}
+  %Equal.sym(Bool, String.ends_with("/" ++ d, "/"), False{}, bare) : {Bool.pick(String, _, "/" ++ d ++ "history", "/" ++ d ++ "/history") == "/" ++ d ++ "/history" : String}
+  {==}
+
+# `path_join` by its cases: a path joined to a base that needs a `/`, and
+# to one that does not.
+def join_rel(+base: String, +p: String, ep: {String.starts_with(p, "/") == False{} : Bool}, eb: {Bool.or(String.is_empty(base), String.ends_with(base, "/")) == False{} : Bool}) -> {Main.path_join(base, p) == base ++ "/" ++ p : String}:
+  %Equal.sym(Bool, String.starts_with(p, "/"), False{}, ep) : {Bool.pick(String, _, p, Bool.pick(String, Bool.or(String.is_empty(base), String.ends_with(base, "/")), base ++ p, base ++ "/" ++ p)) == base ++ "/" ++ p : String}
+  %Equal.sym(Bool, Bool.or(String.is_empty(base), String.ends_with(base, "/")), False{}, eb) : {Bool.pick(String, False{}, p, Bool.pick(String, _, base ++ p, base ++ "/" ++ p)) == base ++ "/" ++ p : String}
+  {==}
+
+def join_slash(+base: String, +p: String, ep: {String.starts_with(p, "/") == False{} : Bool}, eb: {Bool.or(String.is_empty(base), String.ends_with(base, "/")) == True{} : Bool}) -> {Main.path_join(base, p) == base ++ p : String}:
+  %Equal.sym(Bool, String.starts_with(p, "/"), False{}, ep) : {Bool.pick(String, _, p, Bool.pick(String, Bool.or(String.is_empty(base), String.ends_with(base, "/")), base ++ p, base ++ "/" ++ p)) == base ++ p : String}
+  %Equal.sym(Bool, Bool.or(String.is_empty(base), String.ends_with(base, "/")), True{}, eb) : {Bool.pick(String, False{}, p, Bool.pick(String, _, base ++ p, base ++ "/" ++ p)) == base ++ p : String}
+  {==}
 
 # `history` joined under a path and under that path with a `/` after it is
 # one path.
