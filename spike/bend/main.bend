@@ -26,6 +26,10 @@
 #   bend main.bend -- status [--onto <target>] [--merge <target>]..
 #                                            where the folder is, and what it
 #                                            differs by
+#   bend main.bend -- update [<target>] [--dry-run]
+#                                            the folder made to hold a head
+#   bend main.bend -- merge [<target>..]     what the heads say together,
+#                                            written into the folder
 #   bend main.bend -- forget <target> <path> [--lines <first>..<last>]
 #                                            destroy some of what history
 #                                            holds of a file, keeping its shape
@@ -46,6 +50,8 @@ import ./shell.bend as Shell
 import ./identity.bend as Identity
 import ./skip.bend as Skip
 import ./check.bend as Check
+import ./update.bend as U
+import ./merging.bend as M
 import ./forget.bend as F
 
 def dispatch(+base: String, all: List<&2, String>) -> IO(Unit):
@@ -104,6 +110,10 @@ def dispatch(+base: String, all: List<&2, String>) -> IO(Unit):
       Skip.skip(args)
     case "identity" <> args:
       Identity.set(args)
+    case "update" <> args:
+      U.update(args)
+    case "merge" <> args:
+      M.merge(args)
     case "forget" <> args:
       F.forget(args)
     case "opdiff" <> parent <> child <> Nil{}:
