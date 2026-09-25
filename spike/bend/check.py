@@ -3812,6 +3812,20 @@ def check_mutations(temporary):
             "skip.bend",
         ),
         (
+            "skip writes a rule covering what history holds",
+            "      Bool.pick(Result<&2, &2, Main.Refused, Unit>, List.is_empty(&2, String, ps), Done{Unit{}},",
+            "      Bool.pick(Result<&2, &2, Main.Refused, Unit>, True{}, Done{Unit{}},",
+            "skip_lemmas.after_done",
+            "skip.bend",
+        ),
+        (
+            "skip's refusal passes over the first rule asked",
+            "      Bool.or(Folder.covers(sc, path), covering(rest, path))",
+            "      covering(rest, path)",
+            "skip_lemmas.covering_skips",
+            "skip.bend",
+        ),
+        (
             "check counts a note among the errors",
             "      Nat.add(Bool.pick(Nat, Bool.not(Bool.xor(e, errors)), 1n, 0n), count.of(rest, errors))",
             "      Nat.add(Bool.pick(Nat, e, 1n, 0n), count.of(rest, errors))",

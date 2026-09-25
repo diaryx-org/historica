@@ -14,6 +14,7 @@ import ./string_lemmas.bend as S
 import ./equality_lemmas.bend as EqL
 import ./revision.bend as Rev
 import ./text.bend as T
+import ./tree.bend as Tree
 
 # Rule equality
 # -------------
@@ -1248,3 +1249,205 @@ def writes_private(+before: List<&2, String>, +after: List<&2, String>, c: {clea
 def writes_shared(+ws: List<&2, String>, h: {Rev.member(ws, "--private") == False{} : Bool}, +ss: List<&2, Folder.Scope>) -> {Skip.wanted(Skip.Asked{ss, Skip.private.of(Skip.read(ws))}) == T.map(~Folder.Scope, ~Skip.Rule, ~(sc => Skip.Rule{sc, False{}}), ss) : List<&2, Skip.Rule>}:
   %Equal.sym(Bool, Skip.private.of(Skip.read(ws)), False{}, shared(ws, h)) : {Skip.wanted(Skip.Asked{ss, _}) == T.map(~Folder.Scope, ~Skip.Rule, ~(sc => Skip.Rule{sc, False{}}), ss) : List<&2, Skip.Rule>}
   rules_shared(ss)
+
+# What history holds
+# ------------------
+
+# The scopes of the rules asked for, as the loader of `skipped/` reads them.
+def scopes(rs: List<&2, Skip.Rule>) -> List<&2, Folder.Scope>:
+  match rs:
+    case Nil{}:
+      Nil{}
+    case Skip.Rule{sc, p} <> rest:
+      sc <> scopes(rest)
+
+# The paths a tree holds.
+def paths(t: Tree.Tree()) -> List<&2, String>:
+  T.map(~Tree.Entry, ~String, ~(e => Tree.entry_path(e)), t)
+
+def covering_skips(rs: List<&2, Skip.Rule>, +p: String) -> {Skip.covering(rs, p) == Folder.skips(scopes(rs), p) : Bool}:
+  match rs:
+    case Nil{}:
+      {==}
+    case Skip.Rule{sc, q} <> rest:
+      Equal.cong(Bool, Bool, b => Bool.or(Folder.covers(sc, p), b), Skip.covering(rest, p), Folder.skips(scopes(rest), p), covering_skips(rest, p))
+
+def or_true_l(a: Bool, -b: Bool, h: {a == True{} : Bool}) -> {Bool.or(a, b) == True{} : Bool}:
+  %Equal.sym(Bool, a, True{}, h) : {Bool.or(_, b) == True{} : Bool}
+  {==}
+
+def member_app(xs: List<&2, String>, +ys: List<&2, String>, +x: String) -> {Rev.member(List.append(&2, String, xs, ys), x) == Bool.or(Rev.member(xs, x), Rev.member(ys, x)) : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +y <> rest:
+      %Equal.sym(Bool, Rev.member(List.append(&2, String, rest, ys), x), Bool.or(Rev.member(rest, x), Rev.member(ys, x)), member_app(rest, ys, x)) : {Bool.or(String.eq(y, x), _) == Bool.or(Bool.or(String.eq(y, x), Rev.member(rest, x)), Rev.member(ys, x)) : Bool}
+      or_assoc(String.eq(y, x), Rev.member(rest, x), Rev.member(ys, x))
+
+# A list with a string added last holds what it held.
+def member_snoc(+had: List<&2, String>, +p: String, +x: String, h: {Rev.member(had, x) == True{} : Bool}) -> {Rev.member(List.append(&2, String, had, [p]), x) == True{} : Bool}:
+  %Equal.sym(Bool, Rev.member(List.append(&2, String, had, [p]), x), Bool.or(Rev.member(had, x), Rev.member([p], x)), member_app(had, [p], x)) : {_ == True{} : Bool}
+  or_true_l(Rev.member(had, x), Rev.member([p], x), h)
+
+# And the string added.
+def member_last(+had: List<&2, String>, +p: String) -> {Rev.member(List.append(&2, String, had, [p]), p) == True{} : Bool}:
+  %Equal.sym(Bool, Rev.member(List.append(&2, String, had, [p]), p), Bool.or(Rev.member(had, p), Rev.member([p], p)), member_app(had, [p], p)) : {_ == True{} : Bool}
+  %Equal.sym(Bool, String.eq(p, p), True{}, S.eq_refl(p)) : {Bool.or(Rev.member(had, p), Bool.or(_, False{})) == True{} : Bool}
+  or_true_r(Rev.member(had, p))
+
+def kept_mono(c: Bool, +had: List<&2, String>, +p: String, +x: String, h: {Rev.member(had, x) == True{} : Bool}) -> {Rev.member(Bool.pick(List<&2, String>, c, List.append(&2, String, had, [p]), had), x) == True{} : Bool}:
+  match c:
+    case True{}:
+      member_snoc(had, p, x, h)
+    case False{}:
+      h
+
+# What `covered.of` gathers holds what it had.
+def of_mono(+rs: List<&2, Skip.Rule>, es: Tree.Tree(), +had: List<&2, String>, +x: String, h: {Rev.member(had, x) == True{} : Bool}) -> {Rev.member(Skip.covered.of(rs, es, had), x) == True{} : Bool}:
+  match es:
+    case Nil{}:
+      h
+    case +e <> rest:
+      of_mono(rs, rest, Bool.pick(List<&2, String>, Bool.and(Skip.covering(rs, Tree.entry_path(e)), Bool.not(Rev.member(had, Tree.entry_path(e)))), List.append(&2, String, had, [Tree.entry_path(e)]), had), x, kept_mono(Bool.and(Skip.covering(rs, Tree.entry_path(e)), Bool.not(Rev.member(had, Tree.entry_path(e)))), had, Tree.entry_path(e), x, h))
+
+def kept_new(m: Bool, +had: List<&2, String>, +p: String, em: {Rev.member(had, p) == m : Bool}) -> {Rev.member(Bool.pick(List<&2, String>, Bool.and(True{}, Bool.not(m)), List.append(&2, String, had, [p]), had), p) == True{} : Bool}:
+  match m:
+    case True{}:
+      em
+    case False{}:
+      member_last(had, p)
+
+def of_covers.at(b: Bool, +rs: List<&2, Skip.Rule>, +e: Tree.Entry, +rest: Tree.Tree(), +had: List<&2, String>, +p: String, eb: {String.eq(Tree.entry_path(e), p) == b : Bool}, hp: {Bool.or(b, Rev.member(paths(rest), p)) == True{} : Bool}, hc: {Skip.covering(rs, p) == True{} : Bool}, ih: @h2: List<&2, String> -> {Rev.member(paths(rest), p) == True{} : Bool} -> {Rev.member(Skip.covered.of(rs, rest, h2), p) == True{} : Bool}) -> {Rev.member(Skip.covered.of(rs, e <> rest, had), p) == True{} : Bool}:
+  match b:
+    case True{}:
+      +pe : {Tree.entry_path(e) == p : String} = S.eq_true(Tree.entry_path(e), p, eb)
+      %Equal.sym(String, Tree.entry_path(e), p, pe) : {Rev.member(Skip.covered.of(rs, rest, Bool.pick(List<&2, String>, Bool.and(Skip.covering(rs, _), Bool.not(Rev.member(had, _))), List.append(&2, String, had, [_]), had)), p) == True{} : Bool}
+      %Equal.sym(Bool, Skip.covering(rs, p), True{}, hc) : {Rev.member(Skip.covered.of(rs, rest, Bool.pick(List<&2, String>, Bool.and(_, Bool.not(Rev.member(had, p))), List.append(&2, String, had, [p]), had)), p) == True{} : Bool}
+      of_mono(rs, rest, Bool.pick(List<&2, String>, Bool.and(True{}, Bool.not(Rev.member(had, p))), List.append(&2, String, had, [p]), had), p, kept_new(Rev.member(had, p), had, p, {==}))
+    case False{}:
+      ih(Bool.pick(List<&2, String>, Bool.and(Skip.covering(rs, Tree.entry_path(e)), Bool.not(Rev.member(had, Tree.entry_path(e)))), List.append(&2, String, had, [Tree.entry_path(e)]), had), hp)
+
+# Every path of the tree a wanted rule covers is gathered.
+def of_covers(+rs: List<&2, Skip.Rule>, es: Tree.Tree(), +had: List<&2, String>, +p: String, hp: {Rev.member(paths(es), p) == True{} : Bool}, +hc: {Skip.covering(rs, p) == True{} : Bool}) -> {Rev.member(Skip.covered.of(rs, es, had), p) == True{} : Bool}:
+  match es:
+    case Nil{}:
+      Empty.absurd({Rev.member(Skip.covered.of(rs, Nil{}, had), p) == True{} : Bool}, S.false_true(hp))
+    case +e <> +rest:
+      of_covers.at(String.eq(Tree.entry_path(e), p), rs, e, rest, had, p, {==}, hp, hc, h2 => hr => of_covers(rs, rest, h2, p, hr, hc))
+
+def rd(r: Result<&2, &2, Main.Refused, List<&2, String>>) -> Type:
+  match r:
+    case Fail{x}:
+      Unit
+    case Done{y}:
+      Empty
+
+def failed_done(-x: Main.Refused, -y: List<&2, String>, e: {Fail{x} == Done{y} : Result<&2, &2, Main.Refused, List<&2, String>>}) -> Empty:
+  %e : {rd(_) : Type}
+  Unit{}
+
+def done_of(r: Result<&2, &2, Main.Refused, List<&2, String>>, +d: List<&2, String>) -> List<&2, String>:
+  match r:
+    case Fail{x}:
+      d
+    case Done{y}:
+      y
+
+def done_inj(-a: List<&2, String>, +b: List<&2, String>, e: {Done{a} == Done{b} : Result<&2, &2, Main.Refused, List<&2, String>>}) -> {a == b : List<&2, String>}:
+  Equal.cong(Result<&2, &2, Main.Refused, List<&2, String>>, List<&2, String>, r => done_of(r, b), Done{a}, Done{b}, e)
+
+def td(r: Result<&2, &2, Main.Refused, Tree.Tree()>) -> Type:
+  match r:
+    case Fail{x}:
+      Unit
+    case Done{y}:
+      Empty
+
+def tree_of(r: Result<&2, &2, Main.Refused, Tree.Tree()>, +d: Tree.Tree()) -> Tree.Tree():
+  match r:
+    case Fail{x}:
+      d
+    case Done{y}:
+      y
+
+def tree_inj(-a: Tree.Tree(), +b: Tree.Tree(), e: {Done{a} == Done{b} : Result<&2, &2, Main.Refused, Tree.Tree()>}) -> {a == b : Tree.Tree()}:
+  Equal.cong(Result<&2, &2, Main.Refused, Tree.Tree()>, Tree.Tree(), r => tree_of(r, b), Done{a}, Done{b}, e)
+
+def go_mono.at(+fs: List<&2, Main.Full>, +rs: List<&2, Skip.Rule>, +rest: List<&2, String>, +had: List<&2, String>, +ps: List<&2, String>, +x: String, r: Result<&2, &2, Main.Refused, Tree.Tree()>, e: {Result.bind(&2, &2, Main.Refused, Tree.Tree(), List<&2, String>, r, t => Skip.covered.go(fs, rs, rest, Skip.covered.of(rs, t, had))) == Done{ps} : Result<&2, &2, Main.Refused, List<&2, String>>}, h: {Rev.member(had, x) == True{} : Bool}, ih: @had2: List<&2, String> -> {Skip.covered.go(fs, rs, rest, had2) == Done{ps} : Result<&2, &2, Main.Refused, List<&2, String>>} -> {Rev.member(had2, x) == True{} : Bool} -> {Rev.member(ps, x) == True{} : Bool}) -> {Rev.member(ps, x) == True{} : Bool}:
+  match r:
+    case Fail{y}:
+      Empty.absurd({Rev.member(ps, x) == True{} : Bool}, failed_done(y, ps, e))
+    case Done{+t}:
+      ih(Skip.covered.of(rs, t, had), e, of_mono(rs, t, had, x, h))
+
+# What `covered.go` gathers holds what it had.
+def go_mono(+fs: List<&2, Main.Full>, +rs: List<&2, Skip.Rule>, hs: List<&2, String>, +had: List<&2, String>, +ps: List<&2, String>, e: {Skip.covered.go(fs, rs, hs, had) == Done{ps} : Result<&2, &2, Main.Refused, List<&2, String>>}, +x: String, h: {Rev.member(had, x) == True{} : Bool}) -> {Rev.member(ps, x) == True{} : Bool}:
+  match hs:
+    case Nil{}:
+      (%done_inj(had, ps, e) : {Rev.member(_, x) == True{} : Bool} h)
+    case +h1 <> +rest:
+      go_mono.at(fs, rs, rest, had, ps, x, Main.tree.r(fs, h1), e, h, had2 => e2 => h2 => go_mono(fs, rs, rest, had2, ps, e2, x, h2))
+
+def go_covers.hit(b: Bool, +fs: List<&2, Main.Full>, +rs: List<&2, Skip.Rule>, +h1: String, +rest: List<&2, String>, +had: List<&2, String>, +ps: List<&2, String>, +h: String, +t: Tree.Tree(), +t1: Tree.Tree(), +p: String, eb: {String.eq(h1, h) == b : Bool}, hh: {Bool.or(b, Rev.member(rest, h)) == True{} : Bool}, er: {Main.tree.r(fs, h1) == Done{t1} : Result<&2, &2, Main.Refused, Tree.Tree()>}, et: {Main.tree.r(fs, h) == Done{t} : Result<&2, &2, Main.Refused, Tree.Tree()>}, hp: {Rev.member(paths(t), p) == True{} : Bool}, +hc: {Skip.covering(rs, p) == True{} : Bool}, e: {Skip.covered.go(fs, rs, rest, Skip.covered.of(rs, t1, had)) == Done{ps} : Result<&2, &2, Main.Refused, List<&2, String>>}, ih: @had2: List<&2, String> -> {Skip.covered.go(fs, rs, rest, had2) == Done{ps} : Result<&2, &2, Main.Refused, List<&2, String>>} -> {Rev.member(rest, h) == True{} : Bool} -> {Rev.member(ps, p) == True{} : Bool}) -> {Rev.member(ps, p) == True{} : Bool}:
+  match b:
+    case True{}:
+      +he : {h1 == h : String} = S.eq_true(h1, h, eb)
+      +et1 : {Main.tree.r(fs, h1) == Done{t} : Result<&2, &2, Main.Refused, Tree.Tree()>} = (%Equal.sym(String, h1, h, he) : {Main.tree.r(fs, _) == Done{t} : Result<&2, &2, Main.Refused, Tree.Tree()>} et)
+      +te : {t1 == t : Tree.Tree()} = tree_inj(t1, t, Equal.trans(Result<&2, &2, Main.Refused, Tree.Tree()>, Done{t1}, Main.tree.r(fs, h1), Done{t}, Equal.sym(Result<&2, &2, Main.Refused, Tree.Tree()>, Main.tree.r(fs, h1), Done{t1}, er), et1))
+      +hp1 : {Rev.member(paths(t1), p) == True{} : Bool} = (%Equal.sym(Tree.Tree(), t1, t, te) : {Rev.member(paths(_), p) == True{} : Bool} hp)
+      go_mono(fs, rs, rest, Skip.covered.of(rs, t1, had), ps, e, p, of_covers(rs, t1, had, p, hp1, hc))
+    case False{}:
+      ih(Skip.covered.of(rs, t1, had), e, hh)
+
+def go_covers.at(+fs: List<&2, Main.Full>, +rs: List<&2, Skip.Rule>, +h1: String, +rest: List<&2, String>, +had: List<&2, String>, +ps: List<&2, String>, +h: String, +t: Tree.Tree(), +p: String, r: Result<&2, &2, Main.Refused, Tree.Tree()>, er: {Main.tree.r(fs, h1) == r : Result<&2, &2, Main.Refused, Tree.Tree()>}, e: {Result.bind(&2, &2, Main.Refused, Tree.Tree(), List<&2, String>, r, t => Skip.covered.go(fs, rs, rest, Skip.covered.of(rs, t, had))) == Done{ps} : Result<&2, &2, Main.Refused, List<&2, String>>}, hh: {Bool.or(String.eq(h1, h), Rev.member(rest, h)) == True{} : Bool}, et: {Main.tree.r(fs, h) == Done{t} : Result<&2, &2, Main.Refused, Tree.Tree()>}, hp: {Rev.member(paths(t), p) == True{} : Bool}, +hc: {Skip.covering(rs, p) == True{} : Bool}, ih: @had2: List<&2, String> -> {Skip.covered.go(fs, rs, rest, had2) == Done{ps} : Result<&2, &2, Main.Refused, List<&2, String>>} -> {Rev.member(rest, h) == True{} : Bool} -> {Rev.member(ps, p) == True{} : Bool}) -> {Rev.member(ps, p) == True{} : Bool}:
+  match r:
+    case Fail{y}:
+      Empty.absurd({Rev.member(ps, p) == True{} : Bool}, failed_done(y, ps, e))
+    case Done{+t1}:
+      go_covers.hit(String.eq(h1, h), fs, rs, h1, rest, had, ps, h, t, t1, p, {==}, hh, er, et, hp, hc, e, ih)
+
+# Every path a head's tree holds that a wanted rule covers is gathered,
+# for every head whose tree reads.
+def go_covers(+fs: List<&2, Main.Full>, +rs: List<&2, Skip.Rule>, hs: List<&2, String>, +had: List<&2, String>, +ps: List<&2, String>, e: {Skip.covered.go(fs, rs, hs, had) == Done{ps} : Result<&2, &2, Main.Refused, List<&2, String>>}, +h: String, hh: {Rev.member(hs, h) == True{} : Bool}, +t: Tree.Tree(), +et: {Main.tree.r(fs, h) == Done{t} : Result<&2, &2, Main.Refused, Tree.Tree()>}, +p: String, +hp: {Rev.member(paths(t), p) == True{} : Bool}, +hc: {Skip.covering(rs, p) == True{} : Bool}) -> {Rev.member(ps, p) == True{} : Bool}:
+  match hs:
+    case Nil{}:
+      Empty.absurd({Rev.member(ps, p) == True{} : Bool}, S.false_true(hh))
+    case +h1 <> +rest:
+      go_covers.at(fs, rs, h1, rest, had, ps, h, t, p, Main.tree.r(fs, h1), {==}, e, hh, et, hp, hc, had2 => e2 => hh2 => go_covers(fs, rs, rest, had2, ps, e2, h, hh2, t, et, p, hp, hc))
+
+def ud(r: Result<&2, &2, Main.Refused, Unit>) -> Type:
+  match r:
+    case Fail{x}:
+      Unit
+    case Done{y}:
+      Empty
+
+def fail_unit(-x: Main.Refused, e: {Fail{x} == Done{Unit{}} : Result<&2, &2, Main.Refused, Unit>}) -> Empty:
+  %e : {ud(_) : Type}
+  Unit{}
+
+# `skip` goes on to write only where it gathered nothing.
+def after_done(r: Result<&2, &2, Main.Refused, List<&2, String>>, e: {Skip.covered.after(r) == Done{Unit{}} : Result<&2, &2, Main.Refused, Unit>}) -> {r == Done{Nil{}} : Result<&2, &2, Main.Refused, List<&2, String>>}:
+  match r:
+    case Fail{x}:
+      Empty.absurd({Fail{x} == Done{Nil{}} : Result<&2, &2, Main.Refused, List<&2, String>>}, fail_unit(x, e))
+    case Done{ps}:
+      match ps:
+        case Nil{}:
+          {==}
+        case y <> ys:
+          Empty.absurd({Done{y <> ys} == Done{Nil{}} : Result<&2, &2, Main.Refused, List<&2, String>>}, fail_unit(Main.Refused{1, "history already holds " ++ Bool.pick(String, Nat.is_eq(List.length(&2, String, List.sort(~String, ~(a => b => String.is_le(a, b)), y <> ys)), 1n), "a file this would skip", Nat.show(List.length(&2, String, List.sort(~String, ~(a => b => String.is_le(a, b)), y <> ys))) ++ " files this would skip") ++ ", and a rule cannot take back what is recorded; delete the " ++ Bool.pick(String, Nat.is_eq(List.length(&2, String, List.sort(~String, ~(a => b => String.is_le(a, b)), y <> ys)), 1n), "file", "files") ++ " and record that, which is what removing a file from the tree means, and `forget` is what removes recorded content:" ++ Skip.covered.said(List.sort(~String, ~(a => b => String.is_le(a, b)), y <> ys))}, e))
+
+def held_none(c: Bool, +fs: List<&2, Main.Full>, +rs: List<&2, Skip.Rule>, +p: String, ec: {Skip.covering(rs, p) == c : Bool}, +hs: List<&2, String>, eg: {Skip.covered.go(fs, rs, hs, Nil{}) == Done{Nil{}} : Result<&2, &2, Main.Refused, List<&2, String>>}, +h: String, hh: {Rev.member(hs, h) == True{} : Bool}, +t: Tree.Tree(), +et: {Main.tree.r(fs, h) == Done{t} : Result<&2, &2, Main.Refused, Tree.Tree()>}, +hp: {Rev.member(paths(t), p) == True{} : Bool}) -> {c == False{} : Bool}:
+  match c:
+    case False{}:
+      {==}
+    case True{}:
+      Empty.absurd({True{} == False{} : Bool}, S.false_true(go_covers(fs, rs, hs, Nil{}, Nil{}, eg, h, hh, t, et, p, hp, ec)))
+
+# Where `skip` goes on to write, no rule it writes skips a file some head
+# holds: decision 0011, read with the loader's own `skips`.
+def covers_nothing_held(+fs: List<&2, Main.Full>, +rs: List<&2, Skip.Rule>, e: {Skip.covered.r(fs, rs) == Done{Unit{}} : Result<&2, &2, Main.Refused, Unit>}, +h: String, hh: {Rev.member(Rev.heads(Main.history(fs)), h) == True{} : Bool}, +t: Tree.Tree(), +et: {Main.tree.r(fs, h) == Done{t} : Result<&2, &2, Main.Refused, Tree.Tree()>}, +p: String, +hp: {Rev.member(paths(t), p) == True{} : Bool}) -> {Folder.skips(scopes(rs), p) == False{} : Bool}:
+  +eg : {Skip.covered.go(fs, rs, Rev.heads(Main.history(fs)), Nil{}) == Done{Nil{}} : Result<&2, &2, Main.Refused, List<&2, String>>} = after_done(Skip.covered.go(fs, rs, Rev.heads(Main.history(fs)), Nil{}), e)
+  %covering_skips(rs, p) : {_ == False{} : Bool}
+  held_none(Skip.covering(rs, p), fs, rs, p, {==}, Rev.heads(Main.history(fs)), eg, h, hh, t, et, hp)

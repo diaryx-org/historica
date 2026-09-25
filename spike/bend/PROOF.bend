@@ -973,6 +973,9 @@ def Laws.skip_private_wherever_it_stands(before, after, c, ss):
 def Laws.skip_shares_without_private(ws, h, ss):
   SkipL.writes_shared(ws, h, ss)
 
+def Laws.skip_covers_nothing_history_holds(fs, rs, e, h, hh, t, et, p, hp):
+  SkipL.covers_nothing_held(fs, rs, e, h, hh, t, et, p, hp)
+
 def Laws.check_reports_errors_then_notes(fs, shown, complete):
   FindL.report_is(fs, shown, complete)
 
