@@ -940,6 +940,36 @@ def Laws.identity_file_is_where_the_rust_tool_looks(xdg, home, profile):
 def Laws.identity_makes_the_files_directory(xdg, home, profile, file, e):
   IdentityL.makes_its_directory(xdg, home, profile, file, e)
 
+def Laws.identity_reads_its_blocks(d, us, hf):
+  IdentityL.reads_blocks(d, us, hf)
+
+def Laws.identity_refuses_a_second_author(d, us, a, b, hf, ha, hb):
+  IdentityL.refuses_two_authors(d, us, a, b, hf, ha, hb)
+
+def Laws.identity_refuses_under_after_an_author(d, us, a, dir, hf, ha, hd):
+  IdentityL.refuses_under_after_author(d, us, a, dir, hf, ha, hd)
+
+def Laws.identity_refuses_a_second_directory(d, us, d1, d2, hf, h1, h2):
+  IdentityL.refuses_two_directories(d, us, d1, d2, hf, h1, h2)
+
+def Laws.identity_refuses_a_directory_with_no_author(d, us, dir, hf, hd):
+  IdentityL.refuses_directory_alone(d, us, dir, hf, hd)
+
+def Laws.identity_refuses_a_second_default(a0, us, b, hf, hb):
+  IdentityL.refuses_second_default(a0, us, b, hf, hb)
+
+def Laws.identity_refuses_a_directory_claimed_twice(d, us, i, dir, x, b, hf, e, hd, hs, hb):
+  IdentityL.refuses_directory_again(d, us, i, dir, x, b, hf, e, hd, hs, hb)
+
+def Laws.identity_refuses_an_unknown_key(d, us, k, v, hf, hs, hc, hu, ha, hv):
+  IdentityL.refuses_unknown_key(d, us, k, v, hf, hs, hc, hu, ha, hv)
+
+def Laws.identity_refuses_an_unusable_value(d, us, k, v, hf, hs, hc, hv, hq):
+  IdentityL.refuses_unusable_value(d, us, k, v, hf, hs, hc, hv, hq)
+
+def Laws.identity_refuses_a_line_with_no_space(d, us, w, hf, he, hs, hc):
+  IdentityL.refuses_unsplit(d, us, w, hf, he, hs, hc)
+
 def Laws.editor_is_the_one_chosen(visual, editor):
   EditorL.chooses(visual, editor)
 
