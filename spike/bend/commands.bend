@@ -353,6 +353,17 @@ def bookmarks.read(+root: String, ns: List<&2, Named>) -> IO(List<&2, Bm.Bookmar
 def bookmarks.order(ps: List<&2, String>) -> List<&2, Named>:
   List.sort(~Named, ~(a => b => named.le(a, b)), named(ps))
 
+# What `LAWS.bookmarks_read_each_once` reads the store's listing as holding
+# under one name, from the listing itself rather than from `named`: each
+# path it lists, in the order listed, that `Bm.name` reads as that name,
+# paired with it.
+def bookmark_files(ps: List<&2, String>, +k: String) -> List<&2, Named>:
+  match ps:
+    case Nil{}:
+      Nil{}
+    case +p <> +rest:
+      Bool.pick(List<&2, Named>, Rev.maybe_eq(Bm.name(p), k), Named{k, p} <> bookmark_files(rest, k), bookmark_files(rest, k))
+
 # What opening the store reads besides its documents: the bookmarks, then
 # the rules of `skipped/` — each refusing the store, as the Rust tool's
 # `Store::open` does, where a file is not what it should be.
@@ -907,16 +918,48 @@ def fact.show(what: String, n: Nat, rest: List<&2, String>) -> List<&2, String>:
     case 1n+p:
       (what ++ " " ++ Nat.show(1n+p)) <> rest
 
-def tree_facts(+facts: List<&2, Rev.Header>) -> String:
+# Each figure under the word `log` says it with, in the order it says them:
+# the mode, link and bytes of a file the revision also added are part of
+# adding it, and not counted again.
+type Figure is Data:
+  Figure{what: String, n: Nat}
+
+def tree_facts.figures(+facts: List<&2, Rev.Header>) -> List<&2, Figure>:
   +added : Set() = Set.from_list(Rev.files_of(facts, "add"))
-  String.join(
-    fact.show("added", count_facts(facts, "add", added, False{}),
-    fact.show("moved", count_facts(facts, "move", added, False{}),
-    fact.show("mode", count_facts(facts, "mode", added, True{}),
-    fact.show("link", count_facts(facts, "link", added, True{}),
-    fact.show("dropped", count_facts(facts, "drop", added, False{}),
-    fact.show("edited", count_facts(facts, "edit", added, False{}),
-    fact.show("stored", count_facts(facts, "bytes", added, True{}), Nil{}))))))), "  ")
+  [Figure{"added", count_facts(facts, "add", added, False{})},
+   Figure{"moved", count_facts(facts, "move", added, False{})},
+   Figure{"mode", count_facts(facts, "mode", added, True{})},
+   Figure{"link", count_facts(facts, "link", added, True{})},
+   Figure{"dropped", count_facts(facts, "drop", added, False{})},
+   Figure{"edited", count_facts(facts, "edit", added, False{})},
+   Figure{"stored", count_facts(facts, "bytes", added, True{})}]
+
+def fact.shown(fs: List<&2, Figure>) -> List<&2, String>:
+  match fs:
+    case Nil{}:
+      Nil{}
+    case Figure{what, n} <> rest:
+      fact.show(what, n, fact.shown(rest))
+
+def tree_facts(+facts: List<&2, Rev.Header>) -> String:
+  String.join(fact.shown(tree_facts.figures(facts)), "  ")
+
+# What `LAWS.log_counts_each_fact` reads a revision's facts as saying,
+# from the facts themselves: how many it states under a key, and how many
+# of those are about a file — a fact's first word — that no `add` fact
+# names.
+def facts.stated(facts: List<&2, Rev.Header>, +key: String) -> Nat:
+  List.length(&2, String, Rev.values_of(facts, key))
+
+def facts.unadded.of(+added: List<&2, String>, vs: List<&2, String>) -> List<&2, String>:
+  match vs:
+    case Nil{}:
+      Nil{}
+    case +v <> rest:
+      Rev.keep(Bool.not(Rev.member(added, T.word(v))), v, facts.unadded.of(added, rest))
+
+def facts.unadded(+facts: List<&2, Rev.Header>, +key: String) -> Nat:
+  List.length(&2, String, facts.unadded.of(Rev.files_of(facts, "add"), Rev.values_of(facts, key)))
 
 def mark(b: Bool, m: String, rest: List<&2, String>) -> List<&2, String>:
   Rev.keep(b, m, rest)
@@ -1734,23 +1777,43 @@ def log.shown.lines(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +sp: Span, 
     log.listed.lines(fs, limited(kept(fl, presentation(shown)), limit), fields, selects(fl)))
 
 # What `LAWS.log_fields_lists_what_it_keeps` reads in `--fields`: the
-# header, and a line for each revision listed, in order, beginning with its
-# digest and a space.
-def log.fields.each(ls: List<&2, String>, fs: List<&2, Full>) -> Bool:
-  match ls fs:
-    case Nil{} Nil{}:
-      True{}
-    case l <> lr f <> fr:
-      Bool.and(String.starts_with(l, id_of(f) ++ " "), log.fields.each(lr, fr))
-    case _ _:
+# header, and then lines each beginning with one of these digests and a
+# space, no more of them than the limit; and the digests of the revisions
+# every filter admits.
+def log.fields.from(ids: List<&2, String>, +l: String) -> Bool:
+  match ids:
+    case Nil{}:
       False{}
+    case +i <> rest:
+      Bool.or(String.starts_with(l, i ++ " "), log.fields.from(rest, l))
 
-def log.fields.ok(ls: List<&2, String>, fs: List<&2, Full>) -> Bool:
+def log.fields.each(ls: List<&2, String>, +ids: List<&2, String>) -> Bool:
+  match ls:
+    case Nil{}:
+      True{}
+    case +l <> rest:
+      Bool.and(log.fields.from(ids, l), log.fields.each(rest, ids))
+
+def log.fields.within(ls: List<&2, String>, limit: Maybe<&2, Nat>) -> Bool:
+  match limit:
+    case None{}:
+      True{}
+    case Some{n}:
+      Nat.is_le(List.length(&2, String, ls), n)
+
+def log.fields.ok(ls: List<&2, String>, +ids: List<&2, String>, +limit: Maybe<&2, Nat>) -> Bool:
   match ls:
     case Nil{}:
       False{}
-    case l <> rest:
-      Bool.and(String.eq(l, "historica-log-1"), log.fields.each(rest, fs))
+    case l <> +rest:
+      Bool.and(String.eq(l, "historica-log-1"), Bool.and(log.fields.each(rest, ids), log.fields.within(rest, limit)))
+
+def log.admitted(+fl: Filter, fs: List<&2, Full>) -> List<&2, String>:
+  match fs:
+    case Nil{}:
+      Nil{}
+    case +f <> rest:
+      Rev.keep(keeps(fl, f), id_of(f), log.admitted(fl, rest))
 
 def log.of(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, a: Asked) -> IO(Unit):
   match a:
@@ -1901,40 +1964,80 @@ def names.said(+fs: List<&2, Full>, bs: List<&2, Bm.Bookmark>) -> List<&2, Strin
       +h = history(fs)
       names.lines(some, h, ids(fs), names.here(Tree.merge(events_of(picked(reached.all(fs, current_heads(h)), Pick{waiting(fs), Nil{}})))), names.widest(some))
 
-# What `LAWS.names_lists_each_bookmark` and `LAWS.names_resolves_to_held`
-# read in it: a line for each bookmark, in the order they were read, each
-# beginning with its name; and a revision pin or a change said as an
-# abbreviation of a revision the store holds, or in parentheses why there
-# is none.
-def names.begin(ls: List<&2, String>, bs: List<&2, Bm.Bookmark>) -> Bool:
+# What `LAWS.names_lists_each_bookmark` reads in it: with no bookmark, the
+# one line `no bookmarks here yet`; otherwise a line for each bookmark, in
+# the order they were read, each beginning with its name and two spaces —
+# so no name reads as the start of a longer one — and, for a revision pin
+# or a change, ending with `  ->  ` and where it resolves.
+def names.ends(+fs: List<&2, Full>, +l: String, t: Bm.Target) -> Bool:
+  match t:
+    case Bm.Target.File{f}:
+      True{}
+    case Bm.Target.Revision{+id}:
+      String.ends_with(l, "  ->  " ++ names.resolution(history(fs), ids(fs), None{}, Bm.Target.Revision{id}))
+    case Bm.Target.Change{+c}:
+      String.ends_with(l, "  ->  " ++ names.resolution(history(fs), ids(fs), None{}, Bm.Target.Change{c}))
+
+def names.line(+fs: List<&2, Full>, +l: String, b: Bm.Bookmark) -> Bool:
+  match b:
+    case Bm.Bookmark{+n, t, p}:
+      Bool.and(String.starts_with(l, n ++ "  "), names.ends(fs, l, t))
+
+def names.begin(+fs: List<&2, Full>, ls: List<&2, String>, bs: List<&2, Bm.Bookmark>) -> Bool:
   match ls bs:
     case Nil{} Nil{}:
       True{}
     case l <> lr b <> br:
-      Bool.and(String.starts_with(l, Bm.name_of(b)), names.begin(lr, br))
+      Bool.and(names.line(fs, l, b), names.begin(fs, lr, br))
     case _ _:
       False{}
 
-def names.begun(bs: List<&2, Bm.Bookmark>, ls: List<&2, String>) -> Bool:
+def names.none(ls: List<&2, String>) -> Bool:
+  match ls:
+    case l <> Nil{}:
+      String.eq(l, "no bookmarks here yet")
+    case _:
+      False{}
+
+def names.begun(+fs: List<&2, Full>, bs: List<&2, Bm.Bookmark>, ls: List<&2, String>) -> Bool:
   match bs:
     case Nil{}:
-      True{}
+      names.none(ls)
     case +some:
-      names.begin(ls, some)
+      names.begin(fs, ls, some)
 
-def names.prefix(held: List<&2, String>, +s: String) -> Bool:
+# What `LAWS.names_resolves_to_held` reads in where it says a pin or a
+# change resolves. An abbreviation of a digest is a prefix of it, its first
+# eight characters at least, that no other digest the store holds of the
+# same length begins with; a reason is said in parentheses.
+def names.alone(held: List<&2, String>, +id: String, +s: String) -> Bool:
   match held:
     case Nil{}:
-      False{}
-    case +i <> rest:
-      Bool.or(String.starts_with(i, s), names.prefix(rest, s))
+      True{}
+    case +o <> rest:
+      Bool.and(Bool.or(String.eq(o, id), Bool.or(Bool.not(Nat.is_eq(String.length(o), String.length(id))), Bool.not(String.starts_with(o, s)))), names.alone(rest, id, s))
+
+def names.abbreviates(+held: List<&2, String>, +id: String, +s: String) -> Bool:
+  Bool.and(Bool.and(String.starts_with(id, s), String.starts_with(s, String.take(id, 8n))), names.alone(held, id, s))
+
+def names.parenthesised(+s: String) -> Bool:
+  Bool.and(String.starts_with(s, "("), String.ends_with(s, ")"))
+
+def names.change_said(+held: List<&2, String>, state: Rev.ChangeState, +s: String) -> Bool:
+  match state:
+    case Rev.Resolved{+r}:
+      Bool.and(Rev.member(held, r), names.abbreviates(held, r, s))
+    case _:
+      names.parenthesised(s)
 
 def names.held(+fs: List<&2, Full>, t: Bm.Target, +s: String) -> Bool:
   match t:
     case Bm.Target.File{f}:
       True{}
-    case _:
-      Bool.or(String.starts_with(s, "("), names.prefix(ids(fs), s))
+    case Bm.Target.Revision{+id}:
+      Bool.pick(Bool, Rev.member(ids(fs), id), names.abbreviates(ids(fs), id, s), String.eq(s, "(not here yet)"))
+    case Bm.Target.Change{c}:
+      names.change_said(ids(fs), Rev.change_state(history(fs), c), s)
 
 def names.of(+fs: List<&2, Full>, bs: List<&2, Bm.Bookmark>) -> IO(Unit):
   print_lines(names.said(fs, bs))

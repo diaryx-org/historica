@@ -1465,49 +1465,76 @@ law files_lists_the_tree:
   for +k: String
   {SortL.keyed(~Tree.Entry, ~(e => Main.files.key(e)), k, Main.files.listed(t)) == SortL.keyed(~Tree.Entry, ~(e => Main.files.key(e)), k, t) : Tree.Tree()}
 
-# `names` lists every bookmark once, in name order: the store's bookmarks
-# are read sorted by name, and `names` prints a line for each, in the
-# order read, beginning with its name — or says there are none.
+# A bookmark's file is `names/`, its name and `.txt` — where `name` writes
+# it — and that path reads back as the bookmark it is: for any name
+# `Bm.name_ok` accepts, `Bm.name` cuts off the directory and the suffix and
+# nothing of the name.
+law bookmark_file_reads_back:
+  for +n: String
+  for ok: {Bm.name_ok(n) == True{} : Bool}
+  {Bm.name("names/" ++ n ++ ".txt") == Some{n} : Maybe<&2, String>}
+
+# `names` lists every bookmark once, in name order. The store's bookmarks
+# are read sorted by name, each no smaller than the one before it.
 law bookmarks_read_in_name_order:
   for +ps: List<&2, String>
   {SortL.sorted(~Main.Named, ~(n => Main.named.name(n)), Main.bookmarks.order(ps)) == True{} : Bool}
 
+# And none is dropped, repeated or made up on the way: under each name are
+# exactly the paths the store lists under `names/` that `Bm.name` reads as
+# that name, each paired with its own path, as many and in the order the
+# store lists them — any other path it lists is passed over.
+law bookmarks_read_each_once:
+  for +ps: List<&2, String>
+  for +k: String
+  {SortL.keyed(~Main.Named, ~(n => Main.named.name(n)), k, Main.bookmarks.order(ps)) == Main.bookmark_files(ps, k) : List<&2, Main.Named>}
+
+# `names` prints a line for each bookmark it read, in the order read, each
+# beginning with the bookmark's name and two spaces, and, for a revision
+# pin or a change, ending with `  ->  ` and where it resolves; with no
+# bookmark, it says `no bookmarks here yet`.
 law names_lists_each_bookmark:
   for +fs: List<&2, Main.Full>
   for bs: List<&2, Bm.Bookmark>
-  {Main.names.begun(bs, Main.names.said(fs, bs)) == True{} : Bool}
+  {Main.names.begun(fs, bs, Main.names.said(fs, bs)) == True{} : Bool}
 
-# Where `names` says a revision pin or a change resolves is a revision the
-# store holds: an abbreviation of its digest — for a change, of its one
-# current revision — or else, in parentheses, why there is none.
+# Where `names` says a revision pin resolves, where the store holds the
+# revision, is an abbreviation of that revision's digest: a prefix of it,
+# its first eight characters at least, that no other digest the store holds
+# of the same length begins with. A pin the store lacks is `(not here
+# yet)`. A change with one current revision is the same abbreviation of
+# that revision, which the store holds; any other, a reason in parentheses.
 law names_resolves_to_held:
   for +fs: List<&2, Main.Full>
   for +here: Maybe<&2, Tree.Tree()>
   for t: Bm.Target
   {Main.names.held(fs, t, Main.names.resolution(Main.history(fs), Main.ids(fs), here, t)) == True{} : Bool}
 
-# `log --fields` names exactly what it lists: its header, and then a line
-# for each revision it keeps — those every filter admits, as
-# `log_lists_what_it_asks` says, in the order the walk presents them and
-# as far as the limit — beginning with that revision's digest, whole.
+# `log --fields` lists only what it was asked for: its first line is its
+# header, `historica-log-1`, and each line after it begins with the whole
+# digest, and a space, of a revision the span shows that every filter
+# admits — never more of them than `--limit` allows. The walk that orders
+# them never lists a revision it was not shown.
 law log_fields_lists_what_it_keeps:
   for +fs: List<&2, Main.Full>
   for +bs: List<&2, Bm.Bookmark>
   for +sp: Main.Span
   for +shown: List<&2, Main.Full>
   for +fl: Main.Filter
-  for limit: Maybe<&2, Nat>
-  {Main.log.fields.ok(Main.log.shown.lines(fs, bs, sp, shown, fl, True{}, limit), Main.limited(Main.kept(fl, Main.presentation(shown)), limit)) == True{} : Bool}
+  for +limit: Maybe<&2, Nat>
+  {Main.log.fields.ok(Main.log.shown.lines(fs, bs, sp, shown, fl, True{}, limit), Main.log.admitted(fl, shown), limit) == True{} : Bool}
 
 # A log entry counts what its revision did to the file set as the revision
 # states it: the files added, moved, dropped and edited are how many `add`,
-# `move`, `drop` and `edit` facts it states, each counted once and none set
-# aside for the files it added — only modes, links and bytes are.
+# `move`, `drop` and `edit` facts it states, and the modes, links and bytes
+# stored are how many `mode`, `link` and `bytes` facts it states about a
+# file no `add` fact names — each under its own word, in that order. The
+# files it added are asked of a `Set` built from them, which this takes, as
+# its one assumption, to hold exactly the strings it was built from.
 law log_counts_each_fact:
-  for facts: List<&2, Rev.Header>
-  for +key: String
-  for +added: Set()
-  {Main.count_facts(facts, key, added, False{}) == List.length(&2, String, Rev.values_of(facts, key)) : Nat}
+  for ~sets: @xs: List<&2, String> -> @x: String -> {Main.was_added(Set.from_list(xs), x) == Rev.member(xs, x) : Bool}
+  for +facts: List<&2, Rev.Header>
+  {Main.tree_facts.figures(facts) == [Main.Figure{"added", Main.facts.stated(facts, "add")}, Main.Figure{"moved", Main.facts.stated(facts, "move")}, Main.Figure{"mode", Main.facts.unadded(facts, "mode")}, Main.Figure{"link", Main.facts.unadded(facts, "link")}, Main.Figure{"dropped", Main.facts.stated(facts, "drop")}, Main.Figure{"edited", Main.facts.stated(facts, "edit")}, Main.Figure{"stored", Main.facts.unadded(facts, "bytes")}] : List<&2, Main.Figure>}
 
 # The file `log --path` follows is one the tree holds at the revision the
 # path is read at — the far end of the span named, or the one head — so
