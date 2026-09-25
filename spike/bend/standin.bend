@@ -334,6 +334,12 @@ def held.fold(+t: String, os: List<&2, Ops.Doc>, resolution: Bool) -> String:
     case +o <> rest False{}:
       Ops.write(ops.fold(o <> rest, held.base(t, Ops.parse(t))))
 
+# A document the store holds, as a reader of an `edit` or a `keep` reads
+# it: with every item a stand-in beside it forgets forgotten, a resolution
+# as it is held.
+def held.text(+ds: List<&2, Store.Doc>, +d: String, +t: String) -> String:
+  held.fold(t, ops.beside(ds, d), Res.is_resolution(t))
+
 # A `text` payload the store holds, as lines: its own, with every line a
 # stand-in beside it forgets forgotten.
 def created.of(+t: String, os: List<&2, Ops.Doc>) -> Result<&2, &2, String, List<&2, Ops.Item>>:
@@ -363,7 +369,7 @@ def text.of(f: Found) -> Maybe<&2, String>:
 def text.held(+ds: List<&2, Store.Doc>, +d: String, h: Maybe<&2, String>) -> Maybe<&2, String>:
   match h:
     case Some{+t}:
-      Some{held.fold(t, ops.beside(ds, d), Res.is_resolution(t))}
+      Some{held.text(ds, d, t)}
     case None{}:
       text.of(found.ops(ds, d, ops.standing(ds, d)))
 
