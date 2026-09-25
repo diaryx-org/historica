@@ -2461,6 +2461,20 @@ law check_reports_errors_then_notes:
   for +complete: Bool
   {Check.report(fs, shown, complete) == FindL.reported(fs, shown, complete) : String}
 
+# `check` reads a bookmark file `name` wrote for a well-formed target as
+# that bookmark: it finds nothing wrong where what it points at is here —
+# the revision by its digest, a revision of the change, or a revision
+# stating a fact about the file (decision 0024) — and otherwise notes, and
+# only notes, that it is not here yet.
+law check_follows_the_bookmarks_name_writes:
+  for +docs: List<&2, Main.Full>
+  for +path: String
+  for +n: String
+  for +t: Bm.Target
+  for +p: Bool
+  for +h: {Bm.target_ok(t) == True{} : Bool}
+  {Check.name.text(docs, path, n, Done{Bm.write(Bm.Stated{t, p})}) == Bool.pick(List<&2, Check.Finding>, FindL.here(docs, t), Nil{}, [Check.note("`" ++ n ++ "` points at `" ++ Bm.show_target(t) ++ "`, which is not here yet")]) : List<&2, Check.Finding>}
+
 # `check` fails exactly where it found an error, `check --complete` also
 # where it found a head it cannot produce, and a note alone fails neither.
 law check_fails_on_an_error:

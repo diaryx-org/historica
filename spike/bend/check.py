@@ -3826,6 +3826,20 @@ def check_mutations(temporary):
             "check.bend",
         ),
         (
+            "check does not follow a bookmark to a file only a bytes header names",
+            'Bool.or(Bool.or(String.eq(k, "drop"), String.eq(k, "edit")), Bool.or(String.eq(k, "text"), String.eq(k, "bytes")))),',
+            'Bool.or(Bool.or(String.eq(k, "drop"), String.eq(k, "edit")), String.eq(k, "text"))),',
+            "finding_lemmas.files_speak",
+            "check.bend",
+        ),
+        (
+            "check does not follow a bookmark to a revision here",
+            "    case Bm.Target.Revision{r}:\n      String.eq(Main.id_of(d), r)",
+            "    case Bm.Target.Revision{r}:\n      False{}",
+            "finding_lemmas.pointed_revision",
+            "check.bend",
+        ),
+        (
             "show finds a document whose digest the named one starts",
             '      Bool.pick(Maybe<&2, String>, String.starts_with(i, id), Some{text}, held(rest, id))',
             '      Bool.pick(Maybe<&2, String>, String.starts_with(id, i), Some{text}, held(rest, id))',

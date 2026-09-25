@@ -976,6 +976,9 @@ def Laws.skip_shares_without_private(ws, h, ss):
 def Laws.check_reports_errors_then_notes(fs, shown, complete):
   FindL.report_is(fs, shown, complete)
 
+def Laws.check_follows_the_bookmarks_name_writes(docs, path, n, t, p, h):
+  FindL.name_read(docs, path, n, t, p, h)
+
 def Laws.check_fails_on_an_error(fs, complete):
   FindL.fails_is(fs, complete)
 
