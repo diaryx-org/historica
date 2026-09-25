@@ -649,6 +649,15 @@ def arrives_once(+arriving: Set(), fs: List<&2, T.Split>) -> Bool:
     case T.Split{+k, +p} <> rest:
       Bool.and(Bool.or(String.eq(k, "added"), Bool.or(String.eq(k, "dropped"), Bool.not(has(arriving, p)))), arrives_once(arriving, rest))
 
+# `arrives_once` with the arriving paths as a list, read by membership:
+# what `LAWS.status_says_an_arrival_once` states.
+def arrives_once.list(+arriving: List<&2, String>, fs: List<&2, T.Split>) -> Bool:
+  match fs:
+    case Nil{}:
+      True{}
+    case T.Split{+k, +p} <> rest:
+      Bool.and(Bool.or(String.eq(k, "added"), Bool.or(String.eq(k, "dropped"), Bool.not(List.contains(~String, ~(a => b => String.eq(a, b)), arriving, p)))), arrives_once.list(arriving, rest))
+
 def of(+t: Tree.Tree(), +cs: List<&2, T.Split>, walked: List<&2, T.Split>, +os: List<&2, Obs>) -> Survey:
   +gone = Set.from_list(dropped_files(os))
   +arriving = Set.from_list(added(os))

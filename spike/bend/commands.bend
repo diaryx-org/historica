@@ -6722,20 +6722,39 @@ def status.seens(+t: Tree.Tree(), +dg: Map<&2, String>, +bf: Map<&2, String>, +r
     case h <> rest:
       status.seen(t, dg, bf, reads, props, h) <> status.seens(t, dg, bf, reads, props, rest)
 
-# What `LAWS.status_surveys_each_path` reads in what the survey is told:
-# each path compared, once and in order, and where the parents being
-# joined leave a file of lines differently, no digest to compare it with.
-def status.surveys.one(h: Here, s: Sv.Seen) -> Bool:
-  match h s:
-    case Here{p, e, f} Sv.Seen{q, e2, f2, d, before, text, shown, proposed, marked}:
-      Bool.and(String.eq(p, q), Bool.or(Bool.not(proposed), Maybe.is_none(&2, String, before)))
+# The host's answer for a path, among the paths `ps` it was asked for and
+# the answers `xs` it gave beside them: the one beside the last time the
+# path was asked, or none where it never was.
+def status.answer.or(r: Maybe<&2, String>, hit: Bool, +x: String) -> Maybe<&2, String>:
+  match r:
+    case None{}:
+      Bool.pick(Maybe<&2, String>, hit, Some{x}, None{})
+    case Some{a}:
+      Some{a}
 
-def status.surveys(hs: List<&2, Here>, ss: List<&2, Sv.Seen>) -> Bool:
+def status.answer(ps: List<&2, String>, xs: List<&2, String>, +p: String) -> Maybe<&2, String>:
+  match ps xs:
+    case q <> rest x <> more:
+      status.answer.or(status.answer(rest, more, p), String.eq(q, p), x)
+    case _ _:
+      None{}
+
+# What `LAWS.status_surveys_each_path` reads in what the survey is told:
+# each path compared, once and in order; where the parents being joined
+# leave a file of lines differently, no digest to compare it with; and as
+# the folder's digest of each path, the first word of the host's answer
+# for it, among the paths `ps` it was asked for and the answers `xs`.
+def status.surveys.one(+ps: List<&2, String>, +xs: List<&2, String>, h: Here, s: Sv.Seen) -> Bool:
+  match h s:
+    case Here{+p, e, f} Sv.Seen{q, e2, f2, d, before, text, shown, proposed, marked}:
+      Bool.and(String.eq(p, q), Bool.and(Bool.or(Bool.not(proposed), Maybe.is_none(&2, String, before)), String.eq(d, T.word(Maybe.default(&2, String, status.answer(ps, xs, p), SNil{})))))
+
+def status.surveys(+ps: List<&2, String>, +xs: List<&2, String>, hs: List<&2, Here>, ss: List<&2, Sv.Seen>) -> Bool:
   match hs ss:
     case Nil{} Nil{}:
       True{}
     case h <> hr s <> sr:
-      Bool.and(status.surveys.one(h, s), status.surveys(hr, sr))
+      Bool.and(status.surveys.one(ps, xs, h, s), status.surveys(ps, xs, hr, sr))
     case _ _:
       False{}
 
@@ -8795,6 +8814,15 @@ def recorded.once(+arriving: Set(), fs: List<&2, T.Split>) -> Bool:
       True{}
     case T.Split{+k, +p} <> rest:
       Bool.and(Bool.or(String.eq(k, "added"), Bool.or(String.eq(k, "moved"), Bool.or(String.eq(k, "dropped"), Bool.not(Sv.has(arriving, p))))), recorded.once(arriving, rest))
+
+# `recorded.once` with the arriving paths as a list, read by membership:
+# what `LAWS.record_says_an_arrival_once` states.
+def recorded.once.list(+arriving: List<&2, String>, fs: List<&2, T.Split>) -> Bool:
+  match fs:
+    case Nil{}:
+      True{}
+    case T.Split{+k, +p} <> rest:
+      Bool.and(Bool.or(String.eq(k, "added"), Bool.or(String.eq(k, "moved"), Bool.or(String.eq(k, "dropped"), Bool.not(Rev.member(arriving, p))))), recorded.once.list(arriving, rest))
 
 # Rewrites
 # --------

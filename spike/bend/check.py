@@ -4386,6 +4386,20 @@ def check_mutations(temporary):
             "commands.bend",
         ),
         (
+            "status says an arriving path on another line too",
+            "  facts.with(Set.from_list(added(os)), os, links)",
+            "  facts.with(Set.new(), os, links)",
+            "Laws.status_says_an_arrival_once",
+            "survey.bend",
+        ),
+        (
+            "status gives no path the host's digest for it",
+            "      stats.map(rest, more, Map.set(&2, String, m, p, s))",
+            "      stats.map(rest, more, m)",
+            "status_lemmas.stats_map_answer",
+            "commands.bend",
+        ),
+        (
             "status replays a file a statement settles",
             "    case Some{d}:\n      Done{d}\n    case None{}:\n      Result.map(&2, &2, String, List<&2, Ops.Item>, String, items => Ops.state_digest(items), content.in(older, ds, left, file))",
             "    case Some{d}:\n      Result.map(&2, &2, String, List<&2, Ops.Item>, String, items => d, content.in(older, ds, left, file))\n    case None{}:\n      Result.map(&2, &2, String, List<&2, Ops.Item>, String, items => Ops.state_digest(items), content.in(older, ds, left, file))",
