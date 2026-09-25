@@ -1008,6 +1008,30 @@ law diff_colour_changes_no_character:
   for +cs: List<&2, Main.Compared>
   {T.map(~Main.Painted, ~String, ~(p => Main.painted(False{}, p)), Main.diff.rendered(True{}, cs)) == T.map(~Main.Painted, ~String, ~(p => Main.painted(False{}, p)), Main.diff.rendered(False{}, cs)) : List<&2, String>}
 
+# `diff` over the folder believes the digest a statement gives a file of
+# lines. It replays at the position exactly the files of lines whose digest
+# no statement settles — not one the folder holds, as a regular file, with
+# the digest the file's nearest statement leaves — and never a file of
+# bytes or a link.
+law diff_folder_replays_what_is_unsettled:
+  for +dg: Map<&2, String>
+  for +os: Map<&2, T.Split>
+  for +eds: List<&2, Store.Doc>
+  for +hs: List<&2, Main.Here>
+  {Main.planned.replayed(Main.plans(dg, os, eds, hs)) == Main.unsettled.files(dg, os, eds, hs) : List<&2, String>}
+
+# And it reads from the folder exactly the regular files nothing at the
+# position settles: a path the position does not hold, or holds as a file
+# of lines whose stated digest is not the folder's — never one the position
+# holds as a file of bytes or a link, whose digest or target is compared
+# instead.
+law diff_folder_reads_what_is_unsettled:
+  for +dg: Map<&2, String>
+  for +os: Map<&2, T.Split>
+  for +eds: List<&2, Store.Doc>
+  for +hs: List<&2, Main.Here>
+  {Main.planned.read(Main.plans(dg, os, eds, hs)) == Main.unsettled.paths(dg, os, eds, hs) : List<&2, String>}
+
 # `log` reads its arguments as their plain reading says: the word after a
 # flag that takes a value is that flag's value, the last counting, and
 # `--limit`, `--since` and `--until` are read as a count and as bounds;

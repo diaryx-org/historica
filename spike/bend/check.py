@@ -2168,6 +2168,20 @@ def check_mutations(temporary):
             "colour_lemmas.marked_some",
             "commands.bend",
         ),
+        (
+            "diff replays a file of lines its stated digest settles",
+            "Planned{h, digest, Bool.and(lines, Bool.not(Bool.and(regular, same))), ",
+            "Planned{h, digest, lines, ",
+            "plan_lemmas.replayed_unsettled",
+            "commands.bend",
+        ),
+        (
+            "diff reads a folder file the position holds as bytes",
+            "Bool.and(regular, Bool.or(Bool.not(here.held(h)), Bool.and(lines, Bool.not(same))))}",
+            "regular}",
+            "plan_lemmas.read_unsettled",
+            "commands.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

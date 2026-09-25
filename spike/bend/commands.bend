@@ -4548,14 +4548,31 @@ def stat_of(+file: String, r: Map<&2, String> & String) -> String:
 type Planned is Data:
   Planned{here: Here, digest: String, replay: Bool, read: Bool}
 
+# The digest the host gave the folder's file at a path: the first word of
+# the line it answered for the path.
+def here.digest(+dg: Map<&2, String>, h: Here) -> String:
+  +path = here.path(h)
+  T.word(stat_of(path, Map.get(String, SNil{}, dg, path)))
+
+# Whether a file's nearest statement leaves it with this digest.
+def here.same(+eds: List<&2, Store.Doc>, +os: Map<&2, T.Split>, h: Here, +digest: String) -> Bool:
+  maybe_eq(stated_digest(eds, origin(os, here.file(h))), Some{digest})
+
+# Whether the position holds a file at a path.
+def here.held(h: Here) -> Bool:
+  match h:
+    case Here{p, Some{e}, found}:
+      True{}
+    case Here{p, None{}, found}:
+      False{}
+
 def plan.of(+h: Here, +digest: String, +lines: Bool, +regular: Bool, +same: Bool) -> Planned:
-  Planned{h, digest, Bool.and(lines, Bool.not(Bool.and(regular, same))), Bool.and(regular, Bool.or(String.is_empty(here.file(h)), Bool.and(lines, Bool.not(same))))}
+  Planned{h, digest, Bool.and(lines, Bool.not(Bool.and(regular, same))), Bool.and(regular, Bool.or(Bool.not(here.held(h)), Bool.and(lines, Bool.not(same))))}
 
 def plan(+dg: Map<&2, String>, +os: Map<&2, T.Split>, +eds: List<&2, Store.Doc>, h: Here) -> Planned:
   +h2 = h
-  +digest = T.word(stat_of(here.path(h2), Map.get(String, SNil{}, dg, here.path(h2))))
-  plan.of(h2, digest, here.lines(h2), here.regular(h2),
-    maybe_eq(stated_digest(eds, origin(os, here.file(h2))), Some{digest}))
+  +digest = here.digest(dg, h2)
+  plan.of(h2, digest, here.lines(h2), here.regular(h2), here.same(eds, os, h2, digest))
 
 def plans(+dg: Map<&2, String>, +os: Map<&2, T.Split>, +eds: List<&2, Store.Doc>, hs: List<&2, Here>) -> List<&2, Planned>:
   match hs:
@@ -4577,6 +4594,36 @@ def planned.read(ps: List<&2, Planned>) -> List<&2, String>:
       Nil{}
     case Planned{+h, d, p, +read} <> rest:
       Rev.keep(read, here.path(h), planned.read(rest))
+
+# What the digests stated leave open. A file of lines is settled where the
+# folder holds a regular file at its path with the digest the file's nearest
+# statement leaves; a file of bytes or a link the position holds is settled
+# by its digest or its target, whatever the folder holds there.
+# `LAWS.diff_folder_replays_what_is_unsettled` and
+# `LAWS.diff_folder_reads_what_is_unsettled` hold `plans` to it.
+def here.settled(+dg: Map<&2, String>, +os: Map<&2, T.Split>, +eds: List<&2, Store.Doc>, h: Here) -> Bool:
+  +h2 = h
+  Bool.and(Bool.and(here.lines(h2), here.regular(h2)), here.same(eds, os, h2, here.digest(dg, h2)))
+
+def here.kept(h: Here) -> Bool:
+  +h2 = h
+  Bool.and(here.held(h2), Bool.not(here.lines(h2)))
+
+# The files of lines no statement settles, by file; and the folder's regular
+# files nothing the position holds settles, by path.
+def unsettled.files(+dg: Map<&2, String>, +os: Map<&2, T.Split>, +eds: List<&2, Store.Doc>, hs: List<&2, Here>) -> List<&2, String>:
+  match hs:
+    case Nil{}:
+      Nil{}
+    case +h <> rest:
+      Rev.keep(Bool.and(here.lines(h), Bool.not(here.settled(dg, os, eds, h))), here.file(h), unsettled.files(dg, os, eds, rest))
+
+def unsettled.paths(+dg: Map<&2, String>, +os: Map<&2, T.Split>, +eds: List<&2, Store.Doc>, hs: List<&2, Here>) -> List<&2, String>:
+  match hs:
+    case Nil{}:
+      Nil{}
+    case +h <> rest:
+      Rev.keep(Bool.and(here.regular(h), Bool.not(Bool.or(here.kept(h), here.settled(dg, os, eds, h)))), here.path(h), unsettled.paths(dg, os, eds, rest))
 
 def wanted_all(+fs: List<&2, Full>, files: List<&2, String>) -> List<&2, String>:
   match files:
