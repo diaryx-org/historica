@@ -9157,6 +9157,32 @@ def amend.mint(arriving: List<&2, String>, found: List<&2, Maybe<&2, String>>, i
     case _ _ _:
       Nil{}
 
+# The identifiers an amendment gives the files arriving, `kept` being what
+# the amended revision added, by path, and `hex` what was drawn for the
+# rest.
+def amend.minted(+arriving: List<&2, String>, +kept: List<&2, T.Split>, +hex: String) -> List<&2, T.Split>:
+  amend.mint(arriving, lookups(arriving, kept), ids.minted(List.length(&2, String, minus(arriving, heads_of(kept))), hex))
+
+# An amendment gives every file arriving an identifier, in path order,
+# and each file the amended revision added keeps the identifier it was
+# added under. `LAWS.amend_keeps_what_it_added`.
+def keeps.one(m: Maybe<&2, String>, +f: String) -> Bool:
+  match m:
+    case Some{g}:
+      String.eq(f, g)
+    case None{}:
+      True{}
+
+def minted.keeps(+kept: List<&2, T.Split>, mint: List<&2, T.Split>) -> Bool:
+  match mint:
+    case Nil{}:
+      True{}
+    case T.Split{+p, +f} <> rest:
+      Bool.and(keeps.one(lookup(kept, p), f), minted.keeps(kept, rest))
+
+def amend.minted.ok(+arriving: List<&2, String>, +kept: List<&2, T.Split>, +mint: List<&2, T.Split>) -> Bool:
+  Bool.and(strings.same(T.map(~T.Split, ~String, ~(s => split.head(s)), mint), arriving), minted.keeps(kept, mint))
+
 def amend.draw(+st: Bool, +n: Nat, none: Bool) -> IO(String):
   match none:
     case True{}:
@@ -9221,7 +9247,7 @@ def amend.write(+st: Bool, +root: String, +repo: String, +fs: List<&2, Full>, +p
       +pid = id_of(prev)
       do IO<Unit>:
         hex : String <- amend.draw(st, n, Bool.or(dry, Nat.is_eq(n, 0n)))
-        +mint : List<&2, T.Split> = amend.mint(arriving, lookups(arriving, kept), ids.minted(n, hex))
+        +mint : List<&2, T.Split> = amend.minted(arriving, kept, hex)
         dr : Drafted <- drafted(st, root, fs, ps, t, hs, dg, reads, ks, moves, obs, ls, mint)
         +dr2 : Drafted = dr
         +doc : Rev.Rev = Rev.Rev{change_of(prev), sorted(ps), [pid], author_of(prev), when_of(prev), revised_by(reviser, author_of(prev)), Some{revised}, drafted.facts(dr2), Maybe.default(&2, String, m, message_of(prev))}

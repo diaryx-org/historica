@@ -707,3 +707,6 @@ def Laws.record_reads_lines_as_text(ks, reads, hs, e):
 
 def Laws.record_reads_the_position(older, ds, left, files, bs, e):
   RecordL.befores_read(older, ds, left, files, bs, e)
+
+def Laws.amend_keeps_what_it_added(arriving, kept, hex):
+  RewriteL.amend_minted_ok(arriving, kept, hex)

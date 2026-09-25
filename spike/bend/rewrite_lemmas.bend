@@ -533,3 +533,76 @@ def writes_fields(+a: String, +when: String, +m: String, +facts: List<&2, T.Spli
         abandon_fields(id <> Main.carried.ids(steps), names),
         revs_fields(Main.carried.ids(steps)))))
 
+
+# An amendment keeps what it added
+# --------------------------------
+
+def lk_pick(b: Bool, +v: String, -l: Maybe<&2, String>, -m: Bool, h: {Maybe.is_some(&2, String, l) == m : Bool}) -> {Maybe.is_some(&2, String, Bool.pick(Maybe<&2, String>, b, Some{v}, l)) == Bool.or(b, m) : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      h
+
+# `lookup` finds a path exactly where it is among the heads.
+def lk_member(kept: List<&2, T.Split>, +p: String) -> {Maybe.is_some(&2, String, Main.lookup(kept, p)) == Rev.member(T.map(~T.Split, ~String, ~(s => Main.split.head(s)), kept), p) : Bool}:
+  match kept:
+    case Nil{}:
+      {==}
+    case T.Split{+k, +v} <> +rest:
+      lk_pick(String.eq(k, p), v, Main.lookup(rest, p), Rev.member(T.map(~T.Split, ~String, ~(s => Main.split.head(s)), rest), p), lk_member(rest, p))
+
+def bool_disc(b: Bool) -> Type:
+  match b:
+    case True{}:
+      Unit
+    case False{}:
+      Empty
+
+def tf(h: {True{} == False{} : Bool}) -> Empty:
+  S.true_false(h)
+
+def am_case(l: Maybe<&2, String>, b: Bool, +kept: List<&2, T.Split>, +p: String, +rest: List<&2, String>, +hex: String, rel: {Maybe.is_some(&2, String, l) == b : Bool}, ih: @hex2: String -> {Main.strings.same(T.map(~T.Split, ~String, ~(s => Main.split.head(s)), Main.amend.mint(rest, Main.lookups(rest, kept), Main.ids.minted(List.length(&2, String, Main.minus(rest, T.map(~T.Split, ~String, ~(s => Main.split.head(s)), kept))), hex2))), rest) == True{} : Bool}) -> {Main.strings.same(T.map(~T.Split, ~String, ~(s => Main.split.head(s)), Main.amend.mint(p <> rest, l <> Main.lookups(rest, kept), Main.ids.minted(List.length(&2, String, Rev.keep(Bool.not(b), p, Main.minus(rest, T.map(~T.Split, ~String, ~(s => Main.split.head(s)), kept)))), hex))), p <> rest) == True{} : Bool}:
+  match l b:
+    case Some{g} True{}:
+      B.and_tt(String.eq(p, p), Main.strings.same(T.map(~T.Split, ~String, ~(s => Main.split.head(s)), Main.amend.mint(rest, Main.lookups(rest, kept), Main.ids.minted(List.length(&2, String, Main.minus(rest, T.map(~T.Split, ~String, ~(s => Main.split.head(s)), kept))), hex))), rest), S.eq_refl(p), ih(hex))
+    case Some{g} False{}:
+      Empty.absurd({Main.strings.same(T.map(~T.Split, ~String, ~(s => Main.split.head(s)), Main.amend.mint(p <> rest, Some{g} <> Main.lookups(rest, kept), Main.ids.minted(List.length(&2, String, Rev.keep(Bool.not(False{}), p, Main.minus(rest, T.map(~T.Split, ~String, ~(s => Main.split.head(s)), kept)))), hex))), p <> rest) == True{} : Bool}, tf(rel))
+    case None{} True{}:
+      Empty.absurd({Main.strings.same(T.map(~T.Split, ~String, ~(s => Main.split.head(s)), Main.amend.mint(p <> rest, None{} <> Main.lookups(rest, kept), Main.ids.minted(List.length(&2, String, Rev.keep(Bool.not(True{}), p, Main.minus(rest, T.map(~T.Split, ~String, ~(s => Main.split.head(s)), kept)))), hex))), p <> rest) == True{} : Bool}, S.false_true(rel))
+    case None{} False{}:
+      B.and_tt(String.eq(p, p), Main.strings.same(T.map(~T.Split, ~String, ~(s => Main.split.head(s)), Main.amend.mint(rest, Main.lookups(rest, kept), Main.ids.minted(List.length(&2, String, Main.minus(rest, T.map(~T.Split, ~String, ~(s => Main.split.head(s)), kept))), String.drop(hex, 24n)))), rest), S.eq_refl(p), ih(String.drop(hex, 24n)))
+
+# Every file arriving is given an identifier, in path order.
+def am_heads(arr: List<&2, String>, +kept: List<&2, T.Split>, +hex: String) -> {Main.strings.same(T.map(~T.Split, ~String, ~(s => Main.split.head(s)), Main.amend.mint(arr, Main.lookups(arr, kept), Main.ids.minted(List.length(&2, String, Main.minus(arr, T.map(~T.Split, ~String, ~(s => Main.split.head(s)), kept))), hex))), arr) == True{} : Bool}:
+  match arr:
+    case Nil{}:
+      {==}
+    case +p <> +rest:
+      am_case(Main.lookup(kept, p), Rev.member(T.map(~T.Split, ~String, ~(s => Main.split.head(s)), kept), p), kept, p, rest, hex, lk_member(kept, p), hex2 => am_heads(rest, kept, hex2))
+
+def kp_case(l: Maybe<&2, String>, ids: List<&2, String>, +kept: List<&2, T.Split>, +p: String, +rest: List<&2, String>, el: {Main.lookup(kept, p) == l : Maybe<&2, String>}, ih: @ids2: List<&2, String> -> {Main.minted.keeps(kept, Main.amend.mint(rest, Main.lookups(rest, kept), ids2)) == True{} : Bool}) -> {Main.minted.keeps(kept, Main.amend.mint(p <> rest, l <> Main.lookups(rest, kept), ids)) == True{} : Bool}:
+  match l ids:
+    case Some{+g} _:
+      %Equal.sym(Maybe<&2, String>, Main.lookup(kept, p), Some{g}, el) : {Bool.and(Main.keeps.one(_, g), Main.minted.keeps(kept, Main.amend.mint(rest, Main.lookups(rest, kept), ids))) == True{} : Bool}
+      B.and_tt(String.eq(g, g), Main.minted.keeps(kept, Main.amend.mint(rest, Main.lookups(rest, kept), ids)), S.eq_refl(g), ih(ids))
+    case None{} Nil{}:
+      {==}
+    case None{} +i <> others:
+      %Equal.sym(Maybe<&2, String>, Main.lookup(kept, p), None{}, el) : {Bool.and(Main.keeps.one(_, i), Main.minted.keeps(kept, Main.amend.mint(rest, Main.lookups(rest, kept), others))) == True{} : Bool}
+      ih(others)
+
+# Each file the amended revision added keeps the identifier it was added
+# under.
+def am_keeps(arr: List<&2, String>, +kept: List<&2, T.Split>, ids: List<&2, String>) -> {Main.minted.keeps(kept, Main.amend.mint(arr, Main.lookups(arr, kept), ids)) == True{} : Bool}:
+  match arr:
+    case Nil{}:
+      {==}
+    case +p <> +rest:
+      kp_case(Main.lookup(kept, p), ids, kept, p, rest, {==}, ids2 => am_keeps(rest, kept, ids2))
+
+# What an amendment mints keeps what it added, and names every arrival.
+def amend_minted_ok(+arriving: List<&2, String>, +kept: List<&2, T.Split>, +hex: String) -> {Main.amend.minted.ok(arriving, kept, Main.amend.minted(arriving, kept, hex)) == True{} : Bool}:
+  +ids = Main.ids.minted(List.length(&2, String, Main.minus(arriving, T.map(~T.Split, ~String, ~(s => Main.split.head(s)), kept))), hex)
+  +m = Main.amend.mint(arriving, Main.lookups(arriving, kept), ids)
+  B.and_tt(Main.strings.same(T.map(~T.Split, ~String, ~(s => Main.split.head(s)), m), arriving), Main.minted.keeps(kept, m), am_heads(arriving, kept, hex), am_keeps(arriving, kept, ids))
