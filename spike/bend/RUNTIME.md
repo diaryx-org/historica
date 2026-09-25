@@ -10,7 +10,7 @@ providing the filesystem and process services it needs.
 Checked against `bend version` **2.0.25**, `bend guide`, and
 `bend guide effects`. The adapter below is built: `store.bend` declares
 `Store.locate`, `Store.list`, `Store.at`, `Store.digests`,
-`Store.folder`, `Store.tty`, `Store.move`, `Store.write`, `Store.remove`, `Store.real`, `Store.mkdirs`, `Store.now`, `Store.fill`, `Store.once`, `Store.copy`, `Store.put`, `Store.through`, `Store.lay`, `Store.tidy`, `Store.sweep`, `Store.link`, `Store.runs`, `Store.chmod`, `Store.run` and `Store.exit`, `ffi/store_*.c` marshal them, and `ffi/src/lib.rs` is the Rust static
+`Store.folder`, `Store.tty`, `Store.move`, `Store.write`, `Store.remove`, `Store.real`, `Store.mkdirs`, `Store.now`, `Store.fill`, `Store.once`, `Store.copy`, `Store.put`, `Store.through`, `Store.lay`, `Store.tidy`, `Store.sweep`, `Store.link`, `Store.runs`, `Store.chmod`, `Store.get`, `Store.pull`, `Store.run` and `Store.exit`, `ffi/store_*.c` marshal them, and `ffi/src/lib.rs` is the Rust static
 library. `check.py` builds the archive, emits `main.bend` to C, links the
 two, and holds the result — and the `.js` build, which runs the twins in
 `ffi/store_*.js` — to the Rust tool.
@@ -332,6 +332,25 @@ renamed, and over a payload by `Store.remove` then `Store.copy`; it
 removes through `Store.remove`, tidying up to the folder, and withdraws
 from the copy the same way, then `Store.sweep`. What is kept, written,
 withdrawn, destroyed or refused is decided in Bend.
+
+`fetch` reads this store as `receive` does, and a published copy through
+two effects of its own, each a request the Rust tool's `fetch` makes the
+way it makes it — through `nyquest`, the host's own HTTP (decision 0057),
+with no cookies and no cache. `Store.get` asks for a document and answers
+its text, or, for a body that is not UTF-8, the digest it hashes to; the
+text is hashed here, against the digest the manifest gave. `Store.pull`
+asks for a payload or another tool's file and writes the body, a piece at
+a time and hashed as it passes, into a file Bend names beside where the
+file goes, answering the digest and the size and never the bytes — as
+`Store.copy` does. Either answers `status` and the code for a response
+that is not a success, having written nothing. Which code means a file
+is gone, whether what arrived is what was offered, and so whether the
+staged file is renamed into place through `Store.move` or removed through
+`Store.remove`, which paths are asked for and in what order, and when the
+manifest is read again, are all decided in Bend. The native program links
+`libcurl`, built into the archive, over the system's TLS and zlib
+(`-lssl -lcrypto -lz`); the JS twins make each request in a child of the
+runtime, since the runtime's effects are synchronous and `fetch` is not.
 
 A refusal an effect reports is in the Rust tool's words on both builds:
 the native side's are `std::io::Error`'s, and the JS twins of

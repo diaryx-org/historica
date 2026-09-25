@@ -25,6 +25,11 @@ sha2 = "0.11.0"
 # What time it is, in the offset the platform reports: the Rust tool's own
 # clock, so an unpinned `record` spells a moment the way it does.
 jiff = "0.2"
+# `fetch`'s transport: what the Rust tool asks the host's HTTP through
+# (decision 0057), pinned where the workspace pins it. The blocking API,
+# with its body as a stream, so a payload goes from the wire to a file.
+nyquest = { version = "=0.4.0", features = ["blocking", "blocking-stream"] }
+nyquest-preset = { version = "=0.4.0", features = ["blocking", "blocking-stream"] }
 
 [profile.release]
 panic = "unwind"

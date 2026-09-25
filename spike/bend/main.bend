@@ -69,6 +69,7 @@ import ./prune.bend as Prune
 import ./receive.bend as Receive
 import ./offer.bend as Offer
 import ./export.bend as Export
+import ./fetch.bend as Fetch
 import ./update.bend as U
 import ./merging.bend as M
 import ./forget.bend as F
@@ -143,6 +144,8 @@ def dispatch(+base: String, all: List<&2, String>) -> IO(Unit):
       Offer.offer(args)
     case "export" <> args:
       Export.export(args)
+    case "fetch" <> args:
+      Fetch.fetch(args)
     case "forget" <> args:
       F.forget(args)
     case "opdiff" <> parent <> child <> Nil{}:

@@ -279,7 +279,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `survey.bend` | what `status` says of the folder against the position: facts, refusals, claimed paths, bytes to accept, links resolved against the tree the revision would state, and renames noticed; and what `record --dry-run` adds — the paths named, `--at` and `--move` placing files, a `moved` line, and what recording refuses that `status` describes | `record::survey`, `record::plan` |
 | `revision.bend` | the revision document: parse, write; and `History` — heads, superseded, missing parents, change state | `format`, `core` |
 | `tree.bend` | the file set at a revision: `apply`/`replay` along a chain, `merge` over the graph with decision 0008's contests, and the seven faults a store can contradict itself with | `tree.rs` |
-| `store.bend`, `ffi/` | where the store is, what it holds — `cache/` included, when asked — where a digest's bytes are and which documents the catalogue says forget it, what a file weighs, what one directory of the folder holds, and whether output is a terminal; where a path really is; what time it is and random bytes, each pinnable; and the writes — a rename `record --move` states, a bookmark written, a bookmark, what `forget` destroys or a directory it leaves empty removed, `init`'s directories, a document or a payload filed once, and the directories a rename or a removal leaves empty, tidied; and the folder laid out — a file of lines written staged or in place, a payload laid, a link made, a bit set, a file made runnable; and a program run and an exit code: twenty-five effects, a C adapter, a Rust static library |
+| `store.bend`, `ffi/` | where the store is, what it holds — `cache/` included, when asked — where a digest's bytes are and which documents the catalogue says forget it, what a file weighs, what one directory of the folder holds, and whether output is a terminal; where a path really is; what time it is and random bytes, each pinnable; and the writes — a rename `record --move` states, a bookmark written, a bookmark, what `forget` destroys or a directory it leaves empty removed, `init`'s directories, a document or a payload filed once, and the directories a rename or a removal leaves empty, tidied; and the folder laid out — a file of lines written staged or in place, a payload laid, a link made, a bit set, a file made runnable; a document or a file asked for over HTTP; and a program run and an exit code: twenty-seven effects, a C adapter, a Rust static library |
 | `naming.bend` | what a record's files are called: a revision under its month and day and its message's first line, cut where a filesystem would balk, and made distinct where another revision has the name; each file of content under that at the path it had; and a timestamp as an instant, for the clock warning | `naming` |
 | `notes.bend`, `notes.py` | the four texts `init` writes — `historica.txt`'s note, `skipped/README.txt`, `format.txt` and `cache/README.txt` — taken from what the Rust tool's `init` lays down | `HEADER_NOTE`, `SKIPPED_NOTE`, `FORMAT_NOTE`, `CACHE_NOTE` | `Store::discover`, `store::catalogue`, `std::fs` |
 | `bookmark.bend` | a bookmark file's grammar, and which files under `names/` are bookmarks | `store::{Bookmark, Name}`, `check_name` |
@@ -306,8 +306,10 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `offer_lemmas.bend` | `offer_names_no_private_bookmark`: the manifest is the one a store with no private bookmark would have; `offer_names_no_private_rule`: and the one a store with no private rule would have; `offer_names_each_file_by_its_digest`: every line names a file by the digest the store's listing gives it | `offer` |
 | `export.bend` | `export`: a fresh copy — `init`'s layout, the target's ancestry closed over parent edges, every document and payload it names followed through a resolution's `keep` lines, every forgetting document standing in for any of it, the shared rules, the shared bookmarks whose target the copy holds, the files of `claims/`, each file named as `arrange` names it over what travels — and the folder the target has, laid out path by path; or `--files-only`, the folder and nothing beside it | `store::export`, `update::plan_at`, `update::apply`, decisions 0042, 0051, 0053, 0062 |
 | `export_lemmas.bend` | `export_lays_out_every_path`: every path the tree places gets one outcome, at that path, in order; `export_names_only_what_travels`: every bookmark a copy is given is shared and finds what it names; `export_states_no_private_rule`: every rule file a copy is given states a shared rule; `export_writes_over_no_unrecorded_work`: catching a copy's folder up writes over a file only where some revision's record of that path holds its bytes, or the folder is the export's own output; `export_removes_only_recorded_files`: and removes only what such a record holds; `export_writes_only_where_a_copy_may_go`: a fresh copy only where nothing is held, an update only into a store; `export_lays_each_file_as_the_tree_has_it`: lines as `cat` prints them, bytes as the entry names them from a file holding them, links as materialised, each running where the tree says; `export_lays_out_only_what_the_walk_offers_back`: every path outside the store, no other file's directory, and none a rule covers; `export_carries_only_this_stores_files`: every document, forgetting document and payload a copy carries is one of this store's; `export_renames_nothing_a_copy_holds`: each revision a copy holds keeps its stem; `export_destroys_only_what_is_forgotten`: an update destroys only what a forgetting document of this store or the copy names in its header | `export` |
-| `words_lemmas.bend` | what each command reads its words as, said as plain facts about the words rather than through the command's own reading: `arrange_reads_its_words`, `prune_reads_its_words`, `receive_reads_its_words`, `offer_reads_its_words` and `export_reads_its_words` — a command line is accepted exactly where every word starting `-` is one of the command's flags and the other words are as many as it takes, a flag counts where it is among the words, wherever it stands, and the other words, in the order typed, are what the command holds; `receive`'s single pass over its words included | `arrange`, `prune`, `receive`, `offer`, `export` |
-| `LAWS.bend` / `PROOF.bend` | two hundred and fifty-two claims about the code, each proven | the test suite and Verus replay helpers |
+| `words_lemmas.bend` | what each command reads its words as, said as plain facts about the words rather than through the command's own reading: `arrange_reads_its_words`, `prune_reads_its_words`, `receive_reads_its_words`, `offer_reads_its_words`, `export_reads_its_words` and `fetch_reads_its_words` — a command line is accepted exactly where every word starting `-` is one of the command's flags and the other words are as many as it takes, a flag counts where it is among the words, wherever it stands, and the other words, in the order typed, are what the command holds; `receive`'s and `fetch`'s single passes over their words included | `arrange`, `prune`, `receive`, `offer`, `export`, `fetch` |
+| `fetch.bend` | `fetch`: the URL cut at the manifest's directory, and refused in the Rust tool's words where it names no manifest or carries a query; the manifest read as `Offer::parse` reads it; the plan worked out against this store — what it lacks and neither side forgets, each digest once, the bookmarks it does not hold, the reserved directories it carries and the ones it declines, relatedness from the listing — and carried out in `receive`'s order, every file hashed against its line before it is filed under its digest, the manifest read again where a path has gone, three times at most | `store::fetch`, `cli`'s `fetch`, decisions 0048, 0052, 0056, 0057 |
+| `fetching_lemmas.bend` | `fetch_asks_under_the_manifests_directory`: a URL it accepts is the manifest's directory, ending with `/`, and a name with no `/` in it, put back together; `fetch_asks_only_for_what_the_manifest_names`: every path a pass asks the host for is a path of the manifest; `fetch_files_only_text_that_hashes_to_its_line`: a document is filed only where the text that arrived hashes to the digest its line gave; `fetch_lands_a_file_only_where_it_hashes_to_its_line`: a file that arrives whole is moved in from where it was staged only where the host found its bytes to hash to that digest; `fetch_files_a_payload_under_what_it_hashes_to`: and a payload is filed under the digest its bytes have | `fetch` |
+| `LAWS.bend` / `PROOF.bend` | two hundred and fifty-eight claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
@@ -1079,6 +1081,49 @@ store's head, whose ancestry leaves a `supersedes` edge dangling; and the
 `merge` store refused as broken, and the nineteen of the `updating` store,
 `check.py` holds forty-one `export`s to the Rust tool, every file written
 compared after.
+
+`fetch <url> [--join-unrelated] [--fields]` is decision 0048's other half:
+it reads the manifest `offer` wrote and takes what this store lacks. The
+URL is cut at its last `/` — every path in a manifest resolves against
+the directory the manifest sits in (decision 0052) — and one with no
+scheme, no manifest named, a directory named, or a query or a fragment is
+refused before anything is opened; what it keeps is the URL up to its last
+`/`, that included, and a manifest's name with no `/` in it
+(`fetch_asks_under_the_manifests_directory`). A command line is read as
+its words plainly say, the flags wherever they stand and the one other word
+the URL (`fetch_reads_its_words`). The store is opened and held to the
+whole of `check`, before anything is asked for and again once everything
+has arrived; the manifest is read as `Offer::parse`
+reads it, an unknown kind a discarded line and an unknown header a
+refused manifest. The plan is worked out before a byte is asked for: the
+payloads and documents this store has nothing under the digest of and
+neither side forgets, the revisions it lacks, the rules whose bytes no
+file of `skipped/` holds, another tool's files of `claims/` it does not
+have, and the bookmarks it does not hold — one it holds is kept, and said
+so (decision 0062) — each digest once; a store with revisions, fetching
+from a copy with revisions, must share one or name one as a parent, or be
+asked to join. The files are asked for in `receive`'s order, content first,
+then compliance with forgetting, then revisions, then the rest, and each
+is hashed against the digest its line gave before it is filed under that
+digest, here: nothing whose bytes are not its digest is written
+(`fetch_files_only_text_that_hashes_to_its_line`,
+`fetch_lands_a_file_only_where_it_hashes_to_its_line`,
+`fetch_files_a_payload_under_what_it_hashes_to`), and nothing is asked
+for that the manifest does not name
+(`fetch_asks_only_for_what_the_manifest_names`). A path
+the server says is gone (404, 410) is the publisher having moved on, and
+the manifest is read again, three times at most. The host's part is two
+effects that decide nothing (`RUNTIME.md`): the text at a URL, and a file
+at a URL written into the store under a name Bend chose, answered by its
+digest. `check.py` serves `export`ed copies with their `offer.txt` over
+HTTP from a thread of its own and holds thirty-six `fetch`es to the Rust
+tool, the whole store compared after: into an empty store and into one
+holding the first revision, a copy with nothing new, a stranger refused
+and joined, a copy that forgot a line and a payload, a manifest naming a
+digest a payload's bytes do not have, a revision gone every time, a copy
+being rewritten while it is read, a reserved directory declined and a kind
+discarded, manifests misspelled, malformed and not text, none at all, and
+every usage error, with `--fields` beside each kind of ending.
 
 `update [<target>] [--dry-run]` makes the folder hold a head, decision
 0030: the one head there is, or the one named, and a revision that is not
@@ -1941,7 +1986,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-Two hundred and sixty-three mutations cover the primitive helpers, lost inserts, a lost trailing
+Two hundred and seventy mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -2097,7 +2142,12 @@ of; and seven more word breaks: a word `arrange` does not know taken,
 first word, `export`'s target read as its directory, a second source
 taken by `receive` over the first, `--fields` read by `receive` as
 joining unrelated histories, and the first of two directories taken by
-`offer`; and seven update breaks:
+`offer`; and seven fetch breaks: a document filed whose text is not the
+digest offered, a payload landed whatever it hashes to, a payload filed
+under the name it was staged at, a path asked for beside the one the
+manifest names, a URL's last slash cut off its directory, a second URL
+taken over the first, and `--fields` read as joining unrelated histories;
+and seven update breaks:
 bytes no revision records written over, a file kept whose mode is not the
 one recorded, a file nobody recorded taken away, a file of lines written
 without its tree's mode, a link pointed at the path it names rather than
@@ -2238,8 +2288,7 @@ is under 5k. Not ported:
   it. A directory under `operations/` whose name is not UTF-8, which no
   writer makes, is never swept: the host lists it as a name that cannot be
   spelled, not as a directory, where the Rust sweep removes it if empty.
-- **Writing the store**: `fetch`. It writes no `cache/`, which any
-  reader rebuilds.
+- **`cache/`** is never written, which any reader rebuilds.
 - **A file the filesystem will not hand over** is not `check`'s
   `Unreadable`: the port's host reads what it is asked for or stops, and
   run as root, as `check.py` is, nothing refuses a read. A file of names
@@ -2256,6 +2305,10 @@ is under 5k. Not ported:
 - **Two directories that are one path** in normal form C are walked as
   the last of them, where the Rust walk walks both and keeps, file by
   file, the last it met.
+- **`fetch`'s edges**: a file that arrives whole and does not parse is
+  refused in the port's parsers' words. A path with `..` in it is asked
+  for as the Rust tool asks for it, escaped byte by byte with `/` kept,
+  and what the host makes of it is the host's.
 - **`export`'s edges**: the folder a copy is caught up to is read from
   this store's documents rather than the copy's, which differ only where
   the copy lacks bytes this store holds; and a path the tree places under a

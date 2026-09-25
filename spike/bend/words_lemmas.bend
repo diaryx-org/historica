@@ -14,6 +14,7 @@ import ./prune.bend as Prune
 import ./receive.bend as Receive
 import ./offer.bend as Offer
 import ./export.bend as Export
+import ./fetch.bend as Fetch
 import ./string_lemmas.bend as S
 import ./survey_lemmas.bend as SurveyL
 
@@ -600,3 +601,164 @@ def receive_words(+ws: List<&2, String>) -> {Receive.args.read(Receive.args.r(ws
   %recv.d(ws) : {Receive.args.read(Receive.args.r(ws)) == Bool.pick(Maybe<&2, Receive.Said>, Bool.and(List.all(~&2, ~String, ~(w => Rev.member(["-n", "--dry-run", "--fields", "--join-unrelated"], w)), List.filter(~String, ~(w => String.starts_with(w, "-")), ws)), Bool.and(Nat.is_eq(List.length(&2, String, List.filter(~String, ~(w => Bool.not(String.starts_with(w, "-"))), ws)), 1n), Bool.not(Bool.and(_, Rev.member(ws, "--fields"))))), Some{Receive.Said{_, Rev.member(ws, "--fields"), Rev.member(ws, "--join-unrelated"), List.filter(~String, ~(w => Bool.not(String.starts_with(w, "-"))), ws)}}, None{}) : Maybe<&2, Receive.Said>}
   %recv.a(ws) : {Receive.args.read(Receive.args.r(ws)) == Bool.pick(Maybe<&2, Receive.Said>, Bool.and(_, Bool.and(Nat.is_eq(List.length(&2, String, List.filter(~String, ~(w => Bool.not(String.starts_with(w, "-"))), ws)), 1n), Bool.not(Bool.and(recv.dq(ws), Rev.member(ws, "--fields"))))), Some{Receive.Said{recv.dq(ws), Rev.member(ws, "--fields"), Rev.member(ws, "--join-unrelated"), List.filter(~String, ~(w => Bool.not(String.starts_with(w, "-"))), ws)}}, None{}) : Maybe<&2, Receive.Said>}
   recv.go(ws, False{}, False{}, False{}, None{})
+
+# `fetch`
+# -------
+
+# `fetch` reads its words in one pass too, each flag setting what it asks
+# for and the first other word the URL.
+
+def fch.known(+v: String) -> Bool:
+  Bool.or(String.eq(v, "--join-unrelated"), Bool.or(String.eq(v, "--fields"), False{}))
+
+def fch.aq(ws: List<&2, String>) -> Bool:
+  match ws:
+    case Nil{}:
+      True{}
+    case +w <> rest:
+      Bool.and(Bool.or(Bool.not(String.starts_with(w, "-")), fch.known(w)), fch.aq(rest))
+
+def fch.goal(+ws: List<&2, String>, +j: Bool, +f: Bool, +src: Maybe<&2, String>) -> Type:
+  {Fetch.args.read(Fetch.args.go(ws, Fetch.fword.of(ws), j, f, src)) == Bool.pick(Maybe<&2, Fetch.Said>, Bool.and(fch.aq(ws), Nat.is_eq(List.length(&2, String, List.append(&2, String, recv.src(src), List.filter(~String, ~(u => Bool.not(String.starts_with(u, "-"))), ws))), 1n)), Some{Fetch.Said{Bool.or(j, Rev.member(ws, "--join-unrelated")), Bool.or(f, Rev.member(ws, "--fields")), List.append(&2, String, recv.src(src), List.filter(~String, ~(u => Bool.not(String.starts_with(u, "-"))), ws))}}, None{}) : Maybe<&2, Fetch.Said>}
+
+def fch.step.goal(+e1: Bool, +e2: Bool, +s: Bool, +w: String, +rest: List<&2, String>, +j: Bool, +f: Bool, +src: Maybe<&2, String>) -> Type:
+  {Fetch.args.read(Fetch.args.go(w <> rest, Bool.pick(Fetch.FWord, e1, Fetch.FWord.Join{}, Bool.pick(Fetch.FWord, e2, Fetch.FWord.Fields{}, Bool.pick(Fetch.FWord, s, Fetch.FWord.Flag{}, Fetch.FWord.Plain{}))), j, f, src)) == Bool.pick(Maybe<&2, Fetch.Said>, Bool.and(Bool.and(Bool.or(Bool.not(s), Bool.or(e1, Bool.or(e2, False{}))), fch.aq(rest)), Nat.is_eq(List.length(&2, String, List.append(&2, String, recv.src(src), List.filter.put(String, w, List.filter(~String, ~(u => Bool.not(String.starts_with(u, "-"))), rest), Bool.not(s)))), 1n)), Some{Fetch.Said{Bool.or(j, Bool.or(e1, Rev.member(rest, "--join-unrelated"))), Bool.or(f, Bool.or(e2, Rev.member(rest, "--fields"))), List.append(&2, String, recv.src(src), List.filter.put(String, w, List.filter(~String, ~(u => Bool.not(String.starts_with(u, "-"))), rest), Bool.not(s)))}}, None{}) : Maybe<&2, Fetch.Said>}
+
+def fch.none(a: Bool, -x: Maybe<&2, Fetch.Said>) -> {None{} == Bool.pick(Maybe<&2, Fetch.Said>, Bool.and(a, False{}), x, None{}) : Maybe<&2, Fetch.Said>}:
+  match a:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+def fch.nil(j: Bool, f: Bool, src: Maybe<&2, String>) -> fch.goal(Nil{}, j, f, src):
+  match j:
+    case True{}:
+      match f:
+        case True{}:
+          match src:
+            case None{}:
+              {==}
+            case Some{u}:
+              {==}
+        case False{}:
+          match src:
+            case None{}:
+              {==}
+            case Some{u}:
+              {==}
+    case False{}:
+      match f:
+        case True{}:
+          match src:
+            case None{}:
+              {==}
+            case Some{u}:
+              {==}
+        case False{}:
+          match src:
+            case None{}:
+              {==}
+            case Some{u}:
+              {==}
+
+def fch.join.b(j: Bool, +w: String, +rest: List<&2, String>, +f: Bool, +src: Maybe<&2, String>, ih: @j2: Bool -> @f2: Bool -> @s2: Maybe<&2, String> -> fch.goal(rest, j2, f2, s2)) -> fch.step.goal(True{}, False{}, True{}, w, rest, j, f, src):
+  match j:
+    case True{}:
+      ih(True{}, f, src)
+    case False{}:
+      ih(True{}, f, src)
+
+def fch.join.a(e2: Bool, +w: String, +rest: List<&2, String>, +j: Bool, +f: Bool, +src: Maybe<&2, String>, h1: {String.eq(w, "--join-unrelated") == True{} : Bool}, h2: {String.eq(w, "--fields") == e2 : Bool}, ih: @j2: Bool -> @f2: Bool -> @s2: Maybe<&2, String> -> fch.goal(rest, j2, f2, s2)) -> fch.step.goal(True{}, e2, True{}, w, rest, j, f, src):
+  match e2:
+    case True{}:
+      Empty.absurd(fch.step.goal(True{}, True{}, True{}, w, rest, j, f, src), clash(w, "--join-unrelated", "--fields", h1, h2, {==}))
+    case False{}:
+      fch.join.b(j, w, rest, f, src, ih)
+
+def fch.join(+e2: Bool, s: Bool, +w: String, +rest: List<&2, String>, +j: Bool, +f: Bool, +src: Maybe<&2, String>, h1: {String.eq(w, "--join-unrelated") == True{} : Bool}, h2: {String.eq(w, "--fields") == e2 : Bool}, hs: {String.starts_with(w, "-") == s : Bool}, ih: @j2: Bool -> @f2: Bool -> @s2: Maybe<&2, String> -> fch.goal(rest, j2, f2, s2)) -> fch.step.goal(True{}, e2, s, w, rest, j, f, src):
+  match s:
+    case False{}:
+      Empty.absurd(fch.step.goal(True{}, e2, False{}, w, rest, j, f, src), clash_s(w, "--join-unrelated", h1, hs, {==}))
+    case True{}:
+      fch.join.a(e2, w, rest, j, f, src, h1, h2, ih)
+
+def fch.fields.a(f: Bool, +w: String, +rest: List<&2, String>, +j: Bool, +src: Maybe<&2, String>, ih: @j2: Bool -> @f2: Bool -> @s2: Maybe<&2, String> -> fch.goal(rest, j2, f2, s2)) -> fch.step.goal(False{}, True{}, True{}, w, rest, j, f, src):
+  match f:
+    case True{}:
+      ih(j, True{}, src)
+    case False{}:
+      ih(j, True{}, src)
+
+def fch.fields(s: Bool, +w: String, +rest: List<&2, String>, +j: Bool, +f: Bool, +src: Maybe<&2, String>, h2: {String.eq(w, "--fields") == True{} : Bool}, hs: {String.starts_with(w, "-") == s : Bool}, ih: @j2: Bool -> @f2: Bool -> @s2: Maybe<&2, String> -> fch.goal(rest, j2, f2, s2)) -> fch.step.goal(False{}, True{}, s, w, rest, j, f, src):
+  match s:
+    case False{}:
+      Empty.absurd(fch.step.goal(False{}, True{}, False{}, w, rest, j, f, src), clash_s(w, "--fields", h2, hs, {==}))
+    case True{}:
+      fch.fields.a(f, w, rest, j, src, ih)
+
+def fch.other.a(src: Maybe<&2, String>, +w: String, +rest: List<&2, String>, +j: Bool, +f: Bool, ih: @j2: Bool -> @f2: Bool -> @s2: Maybe<&2, String> -> fch.goal(rest, j2, f2, s2)) -> fch.step.goal(False{}, False{}, False{}, w, rest, j, f, src):
+  match src:
+    case None{}:
+      ih(j, f, Some{w})
+    case Some{s0}:
+      fch.none(fch.aq(rest), Some{Fetch.Said{Bool.or(j, Rev.member(rest, "--join-unrelated")), Bool.or(f, Rev.member(rest, "--fields")), s0 <> w <> List.filter(~String, ~(u => Bool.not(String.starts_with(u, "-"))), rest)}})
+
+def fch.other(s: Bool, +w: String, +rest: List<&2, String>, +j: Bool, +f: Bool, +src: Maybe<&2, String>, ih: @j2: Bool -> @f2: Bool -> @s2: Maybe<&2, String> -> fch.goal(rest, j2, f2, s2)) -> fch.step.goal(False{}, False{}, s, w, rest, j, f, src):
+  match s:
+    case True{}:
+      {==}
+    case False{}:
+      fch.other.a(src, w, rest, j, f, ih)
+
+def fch.step.b(e2: Bool, +s: Bool, +w: String, +rest: List<&2, String>, +j: Bool, +f: Bool, +src: Maybe<&2, String>, h2: {String.eq(w, "--fields") == e2 : Bool}, hs: {String.starts_with(w, "-") == s : Bool}, ih: @j2: Bool -> @f2: Bool -> @s2: Maybe<&2, String> -> fch.goal(rest, j2, f2, s2)) -> fch.step.goal(False{}, e2, s, w, rest, j, f, src):
+  match e2:
+    case True{}:
+      fch.fields(s, w, rest, j, f, src, h2, hs, ih)
+    case False{}:
+      fch.other(s, w, rest, j, f, src, ih)
+
+def fch.step(e1: Bool, +e2: Bool, +s: Bool, +w: String, +rest: List<&2, String>, +j: Bool, +f: Bool, +src: Maybe<&2, String>, h1: {String.eq(w, "--join-unrelated") == e1 : Bool}, h2: {String.eq(w, "--fields") == e2 : Bool}, hs: {String.starts_with(w, "-") == s : Bool}, ih: @j2: Bool -> @f2: Bool -> @s2: Maybe<&2, String> -> fch.goal(rest, j2, f2, s2)) -> fch.step.goal(e1, e2, s, w, rest, j, f, src):
+  match e1:
+    case True{}:
+      fch.join(e2, s, w, rest, j, f, src, h1, h2, hs, ih)
+    case False{}:
+      fch.step.b(e2, s, w, rest, j, f, src, h2, hs, ih)
+
+def fch.go(ws: List<&2, String>, +j: Bool, +f: Bool, +src: Maybe<&2, String>) -> fch.goal(ws, j, f, src):
+  match ws:
+    case Nil{}:
+      fch.nil(j, f, src)
+    case +w <> +rest:
+      fch.step(String.eq(w, "--join-unrelated"), String.eq(w, "--fields"), String.starts_with(w, "-"), w, rest, j, f, src, {==}, {==}, {==}, j2 => f2 => s2 => fch.go(rest, j2, f2, s2))
+
+# Two flags: a word is one of them exactly where it is among them.
+def among2(+w: String, +a: String, +b: String) -> {Bool.or(String.eq(w, a), Bool.or(String.eq(w, b), False{})) == Rev.member([a, b], w) : Bool}:
+  %SurveyL.eq_sym(w, a) : {Bool.or(String.eq(w, a), Bool.or(String.eq(w, b), False{})) == Bool.or(_, Bool.or(String.eq(b, w), False{})) : Bool}
+  %SurveyL.eq_sym(w, b) : {Bool.or(String.eq(w, a), Bool.or(String.eq(w, b), False{})) == Bool.or(String.eq(w, a), Bool.or(_, False{})) : Bool}
+  {==}
+
+def fch.a.step(s: Bool, +w: String, -rest: List<&2, String>, ek: {fch.known(w) == Rev.member(["--join-unrelated", "--fields"], w) : Bool}, ih: {fch.aq(rest) == List.all(~&2, ~String, ~(v => Rev.member(["--join-unrelated", "--fields"], v)), List.filter(~String, ~(u => String.starts_with(u, "-")), rest)) : Bool}) -> {Bool.and(Bool.or(Bool.not(s), fch.known(w)), fch.aq(rest)) == List.all(~&2, ~String, ~(v => Rev.member(["--join-unrelated", "--fields"], v)), List.filter.put(String, w, List.filter(~String, ~(u => String.starts_with(u, "-")), rest), s)) : Bool}:
+  match s:
+    case False{}:
+      ih
+    case True{}:
+      %ek : {Bool.and(fch.known(w), fch.aq(rest)) == Bool.and(_, List.all(~&2, ~String, ~(v => Rev.member(["--join-unrelated", "--fields"], v)), List.filter(~String, ~(u => String.starts_with(u, "-")), rest))) : Bool}
+      %ih : {Bool.and(fch.known(w), fch.aq(rest)) == Bool.and(fch.known(w), _) : Bool}
+      {==}
+
+def fch.a(ws: List<&2, String>) -> {fch.aq(ws) == List.all(~&2, ~String, ~(v => Rev.member(["--join-unrelated", "--fields"], v)), List.filter(~String, ~(u => String.starts_with(u, "-")), ws)) : Bool}:
+  match ws:
+    case Nil{}:
+      {==}
+    case +w <> +rest:
+      fch.a.step(String.starts_with(w, "-"), w, rest, among2(w, "--join-unrelated", "--fields"), fch.a(rest))
+
+# `fetch` accepts a command line exactly where the words starting `-` are
+# all `--join-unrelated` or `--fields`, and one word does not start `-`;
+# and then it joins unrelated histories only where `--join-unrelated` is
+# among them, states what it wrote only where `--fields` is, and the URL is
+# that one other word.
+def fetch_words(+ws: List<&2, String>) -> {Fetch.args.read(Fetch.args.r(ws)) == Bool.pick(Maybe<&2, Fetch.Said>, Bool.and(List.all(~&2, ~String, ~(w => Rev.member(["--join-unrelated", "--fields"], w)), List.filter(~String, ~(w => String.starts_with(w, "-")), ws)), Nat.is_eq(List.length(&2, String, List.filter(~String, ~(w => Bool.not(String.starts_with(w, "-"))), ws)), 1n)), Some{Fetch.Said{Rev.member(ws, "--join-unrelated"), Rev.member(ws, "--fields"), List.filter(~String, ~(w => Bool.not(String.starts_with(w, "-"))), ws)}}, None{}) : Maybe<&2, Fetch.Said>}:
+  %fch.a(ws) : {Fetch.args.read(Fetch.args.r(ws)) == Bool.pick(Maybe<&2, Fetch.Said>, Bool.and(_, Nat.is_eq(List.length(&2, String, List.filter(~String, ~(w => Bool.not(String.starts_with(w, "-"))), ws)), 1n)), Some{Fetch.Said{Rev.member(ws, "--join-unrelated"), Rev.member(ws, "--fields"), List.filter(~String, ~(w => Bool.not(String.starts_with(w, "-"))), ws)}}, None{}) : Maybe<&2, Fetch.Said>}
+  fch.go(ws, False{}, False{}, None{})
