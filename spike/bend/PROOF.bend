@@ -51,6 +51,7 @@ import ./survey_lemmas.bend as SurveyL
 import ./status_lemmas.bend as StatusL
 import ./name_lemmas.bend as NameL
 import ./listing_lemmas.bend as ListL
+import ./colour_lemmas.bend as Colour
 import ./survey.bend as Sv
 import ./store.bend as Store
 import ./commands.bend as Main
@@ -537,6 +538,9 @@ def Laws.diff_folder_keeps_what_the_limit_wants(t, found, l):
 
 def Laws.diff_folder_shows_what_differs(t, older, ds, left, reads, ps, cs, e):
   DiffCmd.wc_compare_ok(t, older, ds, left, reads, ps, cs, e)
+
+def Laws.diff_colour_changes_no_character(cs):
+  Colour.colour_fit(cs)
 
 def Laws.log_reads_its_words(args, a, e):
   LogArgs.args_said(args, a, e)

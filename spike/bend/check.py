@@ -2161,6 +2161,13 @@ def check_mutations(temporary):
             "status_lemmas.each_fails",
             "commands.bend",
         ),
+        (
+            "a marked line drawn without its sign",
+            "Piece{sign, False{}} <> ps}]",
+            "ps}]",
+            "colour_lemmas.marked_some",
+            "commands.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"
