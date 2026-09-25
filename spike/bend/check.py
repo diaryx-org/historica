@@ -4309,6 +4309,20 @@ def check_mutations(temporary):
             "update.bend",
         ),
         (
+            "update takes a path the target holds for one it does not",
+            "Rev.keep(Bool.not(has(Set.has(placed, Folder.found.path(f)))), Folder.found.path(f), gone.paths(rest, placed))",
+            "Rev.keep(True{}, Folder.found.path(f), gone.paths(rest, placed))",
+            "update_lemmas.gone_out",
+            "update.bend",
+        ),
+        (
+            "update reads a file the walk took by another path's digest",
+            "found.map(rest, dg, Map.set(&2, Maybe<&2, Held>, m, p, Some{Held.File{Main.status.folder_digest(dg, p), r}}))",
+            "found.map(rest, dg, Map.set(&2, Maybe<&2, Held>, m, p, Some{Held.File{Main.status.folder_digest(dg, Main.directory_of(p)), r}}))",
+            "update_lemmas.found_last",
+            "update.bend",
+        ),
+        (
             "update's dry run names no mode it would set",
             'said.paths("remove", removes(ws)), said.modes("mode", modes(ds)), said.links("link", links(ds))',
             'said.paths("remove", removes(ws)), said.links("link", links(ds))',

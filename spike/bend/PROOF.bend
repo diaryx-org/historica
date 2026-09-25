@@ -966,6 +966,9 @@ def Laws.update_again_keeps(w, h, rs, rs2, e):
 def Laws.update_settles_exactly_what_stays(fs, id, t, rs, walked, found, dg, ls, located, ds, more, p, e):
   UpdL.plan_settled(fs, id, t, rs, walked, found, dg, ls, located, ds, more, p, e)
 
+def Laws.update_touches_only_the_target(fs, id, t, rs, walked, found, dg, ls, located, ds, more, p, e):
+  UpdL.plan_confined(fs, id, t, rs, walked, found, dg, ls, located, ds, more, p, e)
+
 def Laws.update_dry_run_names_what_it_does(p, s):
   UpdL.dry_names(p, s)
 

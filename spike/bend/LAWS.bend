@@ -2433,6 +2433,30 @@ law update_settles_exactly_what_stays:
   for +e: {Upd.plan.from(fs, id, t, rs, walked, found, dg, ls, located, ds, more) == Done{p} : Result<&2, &2, List<&2, T.Split>, Upd.Plan>}
   {Upd.settled(p) == Upd.unchanged(p) : Bool}
 
+# `update` reaches nowhere in the folder the target does not say to.
+# Every file it writes, every mode it sets and every link it makes is at
+# a path the target's tree holds; and every path it takes anything away
+# from is one that tree does not hold, where the walk found a file whose
+# bytes some revision records for a file history put at that path — `cat`
+# of that revision reads them for it, or its tree names them as its
+# payload — or found a link. A stray nobody recorded, at a path the target
+# does not hold, is never touched.
+law update_touches_only_the_target:
+  for +fs: List<&2, Main.Full>
+  for +id: String
+  for +t: Tree.Tree()
+  for +rs: List<&2, Folder.Scope>
+  for +walked: List<&2, T.Split>
+  for +found: List<&2, Folder.Found>
+  for +dg: Map<&2, String>
+  for +ls: Map<&2, String>
+  for +located: Map<&2, String>
+  for +ds: List<&2, Store.Doc>
+  for +more: List<&2, Store.Doc>
+  for -p: Upd.Plan
+  for +e: {Upd.plan.from(fs, id, t, rs, walked, found, dg, ls, located, ds, more) == Done{p} : Result<&2, &2, List<&2, T.Split>, Upd.Plan>}
+  {Upd.confined(fs, List.append(&2, Store.Doc, ds, more), t, found, dg, Upd.effects(p)) == True{} : Bool}
+
 # `update --dry-run` plans exactly what `update` does. Its lines, read back
 # by the verb each begins with, name each file `update` writes, each it
 # removes, each whose mode it sets and to what, and each link it makes and
