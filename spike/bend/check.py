@@ -5240,7 +5240,7 @@ def check_mutations(temporary):
             "record diffs an edited file against nothing",
             "edited.content(f, p, Ops.diff(before_of(befores, f), after))",
             "edited.content(f, p, Ops.diff(Nil{}, after))",
-            "record_lemmas.lines_state",
+            "record_lemmas.lines_pick",
             "commands.bend",
         ),
         (
