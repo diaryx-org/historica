@@ -1569,6 +1569,18 @@ STORES = {
     "unreadable": [["log"], ["cat", "head", "notes.md"], ["cat", "head", "other.md"], ["show", "head", "notes.md"], ["show", "head", "other.md"],
                    ["diff", "head"], ["blame", "head", "notes.md"], ["blame", "head", "other.md"], ["files", "head"], ["status"],
                    ["diff"], ["blame", "notes.md"], ["record", "-n"]],
+    # Merges of six parents, three deep, and one more joining `a` with a
+    # parent of its own ancestry: the walk out from a target is given a step
+    # for each parent the store names, and lists the whole of `a`, and
+    # nothing of it under `a..b`.
+    "wide": [
+        ["log", "a"],
+        ["log", "b"],
+        ["log", "a..b"],
+        ["log", "b..a"],
+        ["log", "l1a..b"],
+        ["log", "--fields", "a..b"],
+    ],
 }
 
 
@@ -1908,6 +1920,23 @@ def record(temporary, rust, corpus, pinned=None):
             if payload.is_file() and hashlib.sha256(payload.read_bytes()).hexdigest() == missing:
                 payload.unlink()
         (store / "history" / "cache" / "operations.txt").unlink(missing_ok=True)
+    elif corpus == "wide":
+        def rec(name, *command):
+            done = subprocess.run([rust, "record", *command], cwd=store, env=env, check=True, capture_output=True, text=True, timeout=120)
+            digest = re.search(r"^recorded [a-z]+ as ([0-9a-f]+)", done.stdout, re.M).group(1)
+            historica("name", name, digest, "--revision")
+
+        (store / "f.md").write_text("base\n")
+        rec("base", "-m", "base")
+        for c in "abcdef":
+            (store / "f.md").write_text(f"base\n{c}\n")
+            rec(f"l3{c}", "--onto", "base", "-m", f"l3 {c}")
+        changes = iter("klmnopqrstuvwxyz")
+        for layer, below in (("l2", "l3"), ("l1", "l2")):
+            for c in "abcdef":
+                join(store / "history", f"{layer}{c}", tuple(f"{below}{x}" for x in "abcdef"), next(changes) * 24)
+        join(store / "history", "a", tuple(f"l1{x}" for x in "abcdef"), next(changes) * 24)
+        join(store / "history", "b", ("l3a", "a"), next(changes) * 24)
     elif corpus == "log":
         (store / "notes.md").write_text("one\n")
         historica("record", "-m", "first: notes")
@@ -3074,7 +3103,7 @@ def check_store(temporary):
         return env
 
     def compare(corpus, commands):
-        recorded = corpus in ("normal", "renormal", "unspelled", "unnormal", "unicode", "names", "badname", "log", "merge", "walked", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "shell", "headless", "identity", "editing", "skipping",
+        recorded = corpus in ("normal", "renormal", "unspelled", "unnormal", "unicode", "names", "badname", "log", "merge", "walked", "wide", "folder", "badskip", "fresh", "notext", "surveyed", "skipheld", "joining", "claimed", "bare", "recording", "rewriting", "stranded", "shell", "headless", "identity", "editing", "skipping",
                                "damaged", "gutted", "tampered", "unreadable", "quoting", "requoted", "unnamed", "unruled", "forgotten", "forgetting",
                                "updating", "caught", "blocked", "meeting", "marked", "marked1", "resolved", "through", "resurrected",
                                "arranging", "pruning", "lying", "unparsed", "receiving", "exporting", "fetching", "fetched")
@@ -4667,10 +4696,17 @@ def check_mutations(temporary):
             "commands.bend",
         ),
         (
-            "a contest line names the lower digest first",
+            "a contest line leaves out the file it contests",
             '      Some{String.take(f, 8n) ++ lower_of(" is ", cs)}',
-            '      Some{lower_of(" is ", cs) ++ String.take(f, 8n)}',
-            "status_lemmas.push_open",
+            '      Some{lower_of(" is ", cs)}',
+            "status_lemmas.lines_named",
+            "commands.bend",
+        ),
+        (
+            "status says a claimed path among the contests",
+            "    case Tree.Path{p, fs}:\n      None{}",
+            "    case Tree.Path{p, fs}:\n      Some{p}",
+            "status_lemmas.lines_named",
             "commands.bend",
         ),
         (
@@ -4698,7 +4734,7 @@ def check_mutations(temporary):
             "status compares a file the parents dispute with a digest",
             "Bool.pick(Maybe<&2, String>, proposed, None{}, status.before(bf, e))",
             "status.before(bf, e)",
-            "status_lemmas.seens_ok",
+            "status_lemmas.disputed",
             "commands.bend",
         ),
         (
@@ -4716,6 +4752,34 @@ def check_mutations(temporary):
             "commands.bend",
         ),
         (
+            "status reads a file the parents dispute as one they agree on",
+            'String.eq(stat_of(f, Map.get(String, SNil{}, bf, f)), "-")',
+            'String.eq(stat_of(f, Map.get(String, SNil{}, bf, f)), "+")',
+            "status_lemmas.disputed",
+            "commands.bend",
+        ),
+        (
+            "status forgets that the parents dispute a file",
+            "status.shown(t, e), proposed, Bool.pick(Nat, proposed,",
+            "status.shown(t, e), False{}, Bool.pick(Nat, proposed,",
+            "status_lemmas.disputed",
+            "commands.bend",
+        ),
+        (
+            "a disputed file emptied in the folder said as edited",
+            "Bool.pick(List<&2, Obs>, empty, List.append(&2, Obs, mode(path, e, runs), [Obs.Emptied{path}]), lines.changed(path, e, runs, text))",
+            "Bool.pick(List<&2, Obs>, empty, List.append(&2, Obs, mode(path, e, runs), [Obs.Edited{path}]), lines.changed(path, e, runs, text))",
+            "status_lemmas.disputed_file",
+            "survey.bend",
+        ),
+        (
+            "a disputed file emptied in the folder said as nothing",
+            "List.append(&2, Obs, mode(path, e, runs), [Obs.Emptied{path}])",
+            "mode(path, e, runs)",
+            "status_lemmas.disputed_file",
+            "survey.bend",
+        ),
+        (
             "status replays a file a statement settles",
             "    case Some{d}:\n      Done{d}\n    case None{}:\n      Result.map(&2, &2, String, List<&2, Ops.Item>, String, items => Ops.state_digest(items), content.in(older, ds, left, file))",
             "    case Some{d}:\n      Result.map(&2, &2, String, List<&2, Ops.Item>, String, items => d, content.in(older, ds, left, file))\n    case None{}:\n      Result.map(&2, &2, String, List<&2, Ops.Item>, String, items => Ops.state_digest(items), content.in(older, ds, left, file))",
@@ -4723,10 +4787,24 @@ def check_mutations(temporary):
             "commands.bend",
         ),
         (
-            "joining refuses where no parent was read",
-            "    case Nil{}:\n      Done{Nil{}}\n    case +p <> rest:\n      do Result<&2, &2, String, List<&2, Maybe<&2, String>>>:",
-            "    case Nil{}:\n      Fail{\"no parent\"}\n    case +p <> rest:\n      do Result<&2, &2, String, List<&2, Maybe<&2, String>>>:",
-            "status_lemmas.each_fails",
+            "joining takes the first parent's digest where the parents differ",
+            'Bool.pick(String, all_eq(rest, d), d, "-")',
+            "d",
+            "status_lemmas.joins_s",
+            "commands.bend",
+        ),
+        (
+            "joining reads a file at the first parent only",
+            "        xs : List<&2, Maybe<&2, String>> <- status.joined.each(fs, ds, file, rest)",
+            "        xs : List<&2, Maybe<&2, String>> <- Done{Nil{}}",
+            "status_lemmas.each_readings",
+            "commands.bend",
+        ),
+        (
+            "joining a file no parent mentions as disputed",
+            "    case Nil{}:\n      Sv.EMPTY()",
+            '    case Nil{}:\n      "-"',
+            "status_lemmas.joins_s",
             "commands.bend",
         ),
         (
@@ -4915,6 +4993,16 @@ def check_mutations(temporary):
             "commands.bend",
         ),
         (
+            "a chain that stops after the revision it began at",
+            "f <> chain.go(q, fs, first_parent(fs, parents_of(f)))",
+            "f <> chain.go(q, fs, None{})",
+            # `chain_lemmas.stops_at` rejects it too; the checker meets the
+            # lemma that the line is followed, which unfolds the same step,
+            # first.
+            "chain_lemmas.line_at",
+            "commands.bend",
+        ),
+        (
             "a document outside revisions/ read as a revision",
             "push_full(Bool.pick(Maybe<&2, Full>, Store.in_revisions(root, path), full.read(id, path, text, Rev.parse(text)), None{}), fulls(root, rest))",
             "push_full(full.read(id, path, text, Rev.parse(text)), fulls(root, rest))",
@@ -4946,7 +5034,49 @@ def check_mutations(temporary):
             "a span a..b read as b..a",
             "      among(fs, Rev.without(reached(fs, to), reached(fs, from)))",
             "      among(fs, Rev.without(reached(fs, from), reached(fs, to)))",
-            "span_lemmas.span_listed",
+            "span_lemmas.range_ok",
+            "commands.bend",
+        ),
+        (
+            "a span a..b takes away only a itself",
+            "      among(fs, Rev.without(reached(fs, to), reached(fs, from)))",
+            "      among(fs, Rev.without(reached(fs, to), [from]))",
+            "span_lemmas.range_ok",
+            "commands.bend",
+        ),
+        (
+            "log with a target lists the target alone",
+            "      ancestry(fs, id)\n    case Span.Between",
+            "      among(fs, [id])\n    case Span.Between",
+            "span_lemmas.from_ok",
+            "commands.bend",
+        ),
+        (
+            "log's walk is given twice the store's length in steps",
+            "  Nat.add(List.length(&2, String, starts), parent_count(fs))",
+            "  Nat.mul(2n, 1n+List.length(&2, Full, fs))",
+            "span_lemmas.start_work",
+            "commands.bend",
+        ),
+        (
+            "log's walk is given a step for each revision, not each parent",
+            "      Nat.add(List.length(&2, String, parents_of(f)), parent_count(rest))",
+            "      Nat.add(1n, parent_count(rest))",
+            "span_lemmas.owed_nil",
+            "commands.bend",
+        ),
+        (
+            "log's walk from a target takes nothing in",
+            "      Reach{List.append(&2, String, rest, parents), id <> seen}",
+            "      Reach{List.append(&2, String, rest, parents), seen}",
+            "span_lemmas.reach_inv",
+            "commands.bend",
+        ),
+        (
+            "log's walk from a target follows a revision's change, not its parents",
+            "ancestry.reach(id, rest, seen, parents_of(f), Rev.member(seen, id))",
+            "ancestry.reach(id, rest, seen, [change_of(f)], Rev.member(seen, id))",
+            "span_lemmas.next_inv",
             "commands.bend",
         ),
         (

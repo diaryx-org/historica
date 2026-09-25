@@ -6,11 +6,12 @@
 #
 # And what it says: everything the survey found, in order, each fact,
 # refusal, claim and accept on a line of its own naming it; and where work
-# is joined, each contest the merge found, once, opening with its file;
-# against one revision, the tree `files` reads there; it reads and replays
-# only files of lines, tells its survey of each path once, and believes a
-# digest a statement gives, so that only a replay can refuse it — or,
-# joining, a parent's reading of a file it compares.
+# is joined, each contest the merge found but a claimed path, once, naming
+# its file; against one revision, the tree `files` reads there; it reads
+# and replays only files of lines, and believes a digest a statement gives,
+# so that only a replay can refuse it; and joining, it compares each file
+# with what the parents' readings of it join to, and leaves a file they
+# read differently unsettled, whatever the folder holds.
 import Base
 import ./commands.bend as Main
 import ./sort_lemmas.bend as SortL
@@ -29,6 +30,7 @@ import ./graph_lemmas.bend as GL
 import ./folder.bend as Folder
 import ./store.bend as Store
 import ./ops.bend as Ops
+import ./utf8.bend as Utf8
 
 # Its words
 # ---------
@@ -399,57 +401,67 @@ def report_says(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +ps: List<
 # The contests
 # ------------
 
-def push_open(c: Tree.Contest, +ls: List<&2, String>, +os: List<&2, String>, h: {Main.contests.open(ls, os) == True{} : Bool}) -> {Main.contests.open(Main.contest.push(Main.contest.line(c), ls), Main.contest.push(Main.contest.opens(c), os)) == True{} : Bool}:
-  match c:
-    case Tree.Dropped{+f, +by}:
-      B.and_tt(String.starts_with("kept " ++ String.take(f, 8n) ++ " : " ++ String.join(Main.ab8(by), ", ") ++ " dropped it, and concurrent work did not", "kept " ++ String.take(f, 8n)), Main.contests.open(ls, os), ListL.sw_prefix("kept ", String.take(f, 8n) ++ (" : " ++ String.join(Main.ab8(by), ", ") ++ " dropped it, and concurrent work did not"), String.take(f, 8n), B.sw_ext(String.take(f, 8n), String.take(f, 8n), (" : " ++ String.join(Main.ab8(by), ", ") ++ " dropped it, and concurrent work did not"), B.sw_refl(String.take(f, 8n)))), h)
-    case Tree.Moved{+f, +cs}:
-      B.and_tt(String.starts_with("moved " ++ String.take(f, 8n) ++ Main.lower_of(" to ", cs), "moved " ++ String.take(f, 8n)), Main.contests.open(ls, os), ListL.sw_prefix("moved ", String.take(f, 8n) ++ Main.lower_of(" to ", cs), String.take(f, 8n), B.sw_ext(String.take(f, 8n), String.take(f, 8n), Main.lower_of(" to ", cs), B.sw_refl(String.take(f, 8n)))), h)
-    case Tree.Content{+f, +cs}:
-      B.and_tt(String.starts_with(String.take(f, 8n) ++ " was stated whole by " ++ Nat.show(List.length(&2, Tree.Claim, cs)) ++ " concurrent revisions, and bytes do not merge; put the version you mean in the folder", String.take(f, 8n)), Main.contests.open(ls, os), B.sw_ext(String.take(f, 8n), String.take(f, 8n), (" was stated whole by " ++ Nat.show(List.length(&2, Tree.Claim, cs)) ++ " concurrent revisions, and bytes do not merge; put the version you mean in the folder"), B.sw_refl(String.take(f, 8n))), h)
-    case Tree.ModeOf{+f, +cs}:
-      B.and_tt(String.starts_with(String.take(f, 8n) ++ Main.lower_of(" is ", cs), String.take(f, 8n)), Main.contests.open(ls, os), B.sw_ext(String.take(f, 8n), String.take(f, 8n), Main.lower_of(" is ", cs), B.sw_refl(String.take(f, 8n))), h)
-    case Tree.TargetOf{+f, +cs}:
-      B.and_tt(String.starts_with(String.take(f, 8n) ++ Main.lower_of(" points at ", cs), String.take(f, 8n)), Main.contests.open(ls, os), B.sw_ext(String.take(f, 8n), String.take(f, 8n), Main.lower_of(" points at ", cs), B.sw_refl(String.take(f, 8n))), h)
-    case Tree.Referenced{+f, +by, +links}:
-      B.and_tt(String.starts_with("kept " ++ String.take(f, 8n) ++ " : " ++ String.join(Main.ab8(by), ", ") ++ " dropped it, and " ++ String.join(Main.ab8(links), ", ") ++ " still " ++ Bool.pick(String, Nat.is_eq(List.length(&2, String, links), 1n), "points", "point") ++ " at it", "kept " ++ String.take(f, 8n)), Main.contests.open(ls, os), ListL.sw_prefix("kept ", String.take(f, 8n) ++ (" : " ++ String.join(Main.ab8(by), ", ") ++ " dropped it, and " ++ String.join(Main.ab8(links), ", ") ++ " still " ++ Bool.pick(String, Nat.is_eq(List.length(&2, String, links), 1n), "points", "point") ++ " at it"), String.take(f, 8n), B.sw_ext(String.take(f, 8n), String.take(f, 8n), (" : " ++ String.join(Main.ab8(by), ", ") ++ " dropped it, and " ++ String.join(Main.ab8(links), ", ") ++ " still " ++ Bool.pick(String, Nat.is_eq(List.length(&2, String, links), 1n), "points", "point") ++ " at it"), B.sw_refl(String.take(f, 8n)))), h)
-    case Tree.Path{p, fs}:
-      h
+# A string holds what a string it ends with begins with.
+def contains_sw(s: String, p: String, h: {String.starts_with(s, p) == True{} : Bool}) -> {String.contains(s, p) == True{} : Bool}:
+  match s p:
+    case SNil{} SNil{}:
+      {==}
+    case SNil{} SCon{x, xt}:
+      Empty.absurd({String.contains(SNil{}, SCon{x, xt}) == True{} : Bool}, S.false_true(h))
+    case SCon{c, t} _:
+      %Equal.sym(Bool, String.starts_with(SCon{c, t}, p), True{}, h) : {String.contains.if(t, p, _) == True{} : Bool}
+      {==}
 
-def lines_open(cs: List<&2, Tree.Contest>) -> {Main.contests.open(Main.contest.lines(cs), Main.contests.opens(cs)) == True{} : Bool}:
+def contains_if(b: Bool, -t: String, -p: String, ih: {String.contains(t, p) == True{} : Bool}) -> {String.contains.if(t, p, b) == True{} : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      ih
+
+# What a string holds, anything in front of it holds too.
+def contains_after(+a: String, +s: String, +p: String, h: {String.contains(s, p) == True{} : Bool}) -> {String.contains(String.append(a, s), p) == True{} : Bool}:
+  match a:
+    case SNil{}:
+      h
+    case SCon{c, t}:
+      contains_if(String.starts_with(SCon{c, String.append(t, s)}, p), String.append(t, s), p, contains_after(t, s, p, h))
+
+# A line with the file's abbreviation in it, after `pre`, names it.
+def names_at(+pre: String, +k: String, +rest: String) -> {String.contains(String.append(pre, String.append(String.take(k, 8n), rest)), String.take(k, 8n)) == True{} : Bool}:
+  contains_after(pre, String.append(String.take(k, 8n), rest), String.take(k, 8n), contains_sw(String.append(String.take(k, 8n), rest), String.take(k, 8n), B.sw_ext(String.take(k, 8n), String.take(k, 8n), rest, B.sw_refl(String.take(k, 8n)))))
+
+# Each contest but a claimed path has a line, in order, naming its file.
+def lines_named(cs: List<&2, Tree.Contest>) -> {Main.contests.named(Main.contest.lines(cs), Main.contests.unclaimed(cs)) == True{} : Bool}:
   match cs:
     case Nil{}:
       {==}
-    case +c <> +rest:
-      push_open(c, Main.contest.lines(rest), Main.contests.opens(rest), lines_open(rest))
+    case Tree.Dropped{+f, +by} <> +rest:
+      B.and_tt(String.contains("kept " ++ String.take(f, 8n) ++ " : " ++ String.join(Main.ab8(by), ", ") ++ " dropped it, and concurrent work did not", String.take(f, 8n)), Main.contests.named(Main.contest.lines(rest), Main.contests.unclaimed(rest)), names_at("kept ", f, " : " ++ String.join(Main.ab8(by), ", ") ++ " dropped it, and concurrent work did not"), lines_named(rest))
+    case Tree.Moved{+f, +cl} <> +rest:
+      B.and_tt(String.contains("moved " ++ String.take(f, 8n) ++ Main.lower_of(" to ", cl), String.take(f, 8n)), Main.contests.named(Main.contest.lines(rest), Main.contests.unclaimed(rest)), names_at("moved ", f, Main.lower_of(" to ", cl)), lines_named(rest))
+    case Tree.Content{+f, +cl} <> +rest:
+      B.and_tt(String.contains(String.take(f, 8n) ++ " was stated whole by " ++ Nat.show(List.length(&2, Tree.Claim, cl)) ++ " concurrent revisions, and bytes do not merge; put the version you mean in the folder", String.take(f, 8n)), Main.contests.named(Main.contest.lines(rest), Main.contests.unclaimed(rest)), names_at("", f, " was stated whole by " ++ Nat.show(List.length(&2, Tree.Claim, cl)) ++ " concurrent revisions, and bytes do not merge; put the version you mean in the folder"), lines_named(rest))
+    case Tree.ModeOf{+f, +cl} <> +rest:
+      B.and_tt(String.contains(String.take(f, 8n) ++ Main.lower_of(" is ", cl), String.take(f, 8n)), Main.contests.named(Main.contest.lines(rest), Main.contests.unclaimed(rest)), names_at("", f, Main.lower_of(" is ", cl)), lines_named(rest))
+    case Tree.TargetOf{+f, +cl} <> +rest:
+      B.and_tt(String.contains(String.take(f, 8n) ++ Main.lower_of(" points at ", cl), String.take(f, 8n)), Main.contests.named(Main.contest.lines(rest), Main.contests.unclaimed(rest)), names_at("", f, Main.lower_of(" points at ", cl)), lines_named(rest))
+    case Tree.Referenced{+f, +by, +links} <> +rest:
+      B.and_tt(String.contains("kept " ++ String.take(f, 8n) ++ " : " ++ String.join(Main.ab8(by), ", ") ++ " dropped it, and " ++ String.join(Main.ab8(links), ", ") ++ " still " ++ Bool.pick(String, Nat.is_eq(List.length(&2, String, links), 1n), "points", "point") ++ " at it", String.take(f, 8n)), Main.contests.named(Main.contest.lines(rest), Main.contests.unclaimed(rest)), names_at("kept ", f, " : " ++ String.join(Main.ab8(by), ", ") ++ " dropped it, and " ++ String.join(Main.ab8(links), ", ") ++ " still " ++ Bool.pick(String, Nat.is_eq(List.length(&2, String, links), 1n), "points", "point") ++ " at it"), lines_named(rest))
+    case Tree.Path{p, fs} <> +rest:
+      lines_named(rest)
 
-def open_nil(os: List<&2, String>, h: {Main.contests.open(Nil{}, os) == True{} : Bool}) -> {List.is_empty(&2, String, os) == True{} : Bool}:
-  match os:
+# Where work is joined, `status` says each contest the merge found but a
+# claimed path once, in its order, naming the file contested; where one
+# revision or none is the position, none.
+def contests_said(ps: List<&2, String>, +cs: List<&2, Tree.Contest>) -> {Main.contests.shown(ps, cs, Main.contests.said(ps, cs)) == True{} : Bool}:
+  match ps:
     case Nil{}:
       {==}
-    case o <> rest:
-      Empty.absurd({List.is_empty(&2, String, o <> rest) == True{} : Bool}, S.false_true(h))
-
-def joined_shown(+ps: List<&2, String>, +cs: List<&2, Tree.Contest>, ls: List<&2, String>, j: {Nat.is_gt(List.length(&2, String, ps), 1n) == True{} : Bool}, h: {Main.contests.open(ls, Main.contests.opens(cs)) == True{} : Bool}) -> {Main.contests.shown(ps, cs, ls) == True{} : Bool}:
-  match ls:
-    case Nil{}:
-      %Equal.sym(Bool, Nat.is_gt(List.length(&2, String, ps), 1n), True{}, j) : {Bool.or(Bool.not(_), List.is_empty(&2, String, Main.contests.opens(cs))) == True{} : Bool}
-      open_nil(Main.contests.opens(cs), h)
-    case +l <> +lr:
-      B.and_tt(Nat.is_gt(List.length(&2, String, ps), 1n), Main.contests.open(l <> lr, Main.contests.opens(cs)), j, h)
-
-def said_shown(b: Bool, +ps: List<&2, String>, +cs: List<&2, Tree.Contest>, eb: {Nat.is_gt(List.length(&2, String, ps), 1n) == b : Bool}) -> {Main.contests.shown(ps, cs, Bool.pick(List<&2, String>, b, Main.contest.lines(cs), Nil{})) == True{} : Bool}:
-  match b:
-    case True{}:
-      joined_shown(ps, cs, Main.contest.lines(cs), eb, lines_open(cs))
-    case False{}:
-      %Equal.sym(Bool, Nat.is_gt(List.length(&2, String, ps), 1n), False{}, eb) : {Bool.or(Bool.not(_), List.is_empty(&2, String, Main.contests.opens(cs))) == True{} : Bool}
+    case p <> Nil{}:
       {==}
-
-# Where work is joined, `status` says each contest the merge found once, in
-# its order, opening with the file contested; where it is not, none.
-def contests_said(+ps: List<&2, String>, +cs: List<&2, Tree.Contest>) -> {Main.contests.shown(ps, cs, Main.contests.said(ps, cs)) == True{} : Bool}:
-  said_shown(Nat.is_gt(List.length(&2, String, ps), 1n), ps, cs, {==})
+    case p <> q <> rest:
+      lines_named(cs)
 
 # The tree it compares with
 # -------------------------
@@ -557,12 +569,12 @@ def reads_only_lines(+dg: Map<&2, String>, +bf: Map<&2, String>, +eds: List<&2, 
 # What the survey is told
 # -----------------------
 
-def proposed_none(b: Bool, -x: Maybe<&2, String>) -> {Bool.or(Bool.not(b), Maybe.is_none(&2, String, Bool.pick(Maybe<&2, String>, b, None{}, x))) == True{} : Bool}:
-  match b:
+def or_l(a: Bool, -b: Bool, e: {a == True{} : Bool}) -> {Bool.or(a, b) == True{} : Bool}:
+  match a:
     case True{}:
       {==}
     case False{}:
-      {==}
+      Empty.absurd({Bool.or(False{}, b) == True{} : Bool}, S.false_true(e))
 
 # What the host answered for a path is what the digest map built from its
 # answers gives it: the answer beside the last time the path was asked, and
@@ -605,9 +617,8 @@ def digest_ok(+ps: List<&2, String>, +xs: List<&2, String>, +path: String) -> {S
   %Equal.sym(String, ML.gv(String, Map.get(String, SNil{}, Main.stats.map(ps, xs, Map.new(&2, String)), path)), Maybe.default(&2, String, Main.status.answer(ps, xs, path), SNil{}), stats_map_answer(ps, xs, Map.new(&2, String), ML.wf_new(String), path)) : {String.eq(T.word(_), T.word(Maybe.default(&2, String, Main.status.answer(ps, xs, path), SNil{}))) == True{} : Bool}
   S.eq_refl(T.word(Maybe.default(&2, String, Main.status.answer(ps, xs, path), SNil{})))
 
-# The survey is told of each path compared once, in order; of a file the
-# parents being joined leave differently, no digest to compare it with; and
-# of every path, the host's answer for it as the folder's digest.
+# The survey is told of each path compared once, in order, and of every
+# path, the host's answer for it as the folder's digest.
 def seens_ok(+t: Tree.Tree(), +ps: List<&2, String>, +xs: List<&2, String>, +bf: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +props: List<&2, Main.Proposal>, hs: List<&2, Main.Here>) -> {Main.status.surveys(ps, xs, hs, Main.status.seens(t, Main.stats.map(ps, xs, Map.new(&2, String)), bf, reads, props, hs)) == True{} : Bool}:
   match hs:
     case Nil{}:
@@ -615,11 +626,108 @@ def seens_ok(+t: Tree.Tree(), +ps: List<&2, String>, +xs: List<&2, String>, +bf:
     case Main.Here{+path, +e, +found} <> +rest:
       +dg = Main.stats.map(ps, xs, Map.new(&2, String))
       AL.and_intro(Main.status.surveys.one(ps, xs, Main.Here{path, e, found}, Main.status.seen(t, dg, bf, reads, props, Main.Here{path, e, found})), Main.status.surveys(ps, xs, rest, Main.status.seens(t, dg, bf, reads, props, rest)),
-        AL.and_intro(String.eq(path, path), Bool.and(Bool.or(Bool.not(Main.status.proposed(bf, e)), Maybe.is_none(&2, String, Bool.pick(Maybe<&2, String>, Main.status.proposed(bf, e), None{}, Main.status.before(bf, e)))), String.eq(Main.status.folder_digest(dg, path), T.word(Maybe.default(&2, String, Main.status.answer(ps, xs, path), SNil{})))),
-          S.eq_refl(path),
-          AL.and_intro(Bool.or(Bool.not(Main.status.proposed(bf, e)), Maybe.is_none(&2, String, Bool.pick(Maybe<&2, String>, Main.status.proposed(bf, e), None{}, Main.status.before(bf, e)))), String.eq(Main.status.folder_digest(dg, path), T.word(Maybe.default(&2, String, Main.status.answer(ps, xs, path), SNil{}))),
-            proposed_none(Main.status.proposed(bf, e), Main.status.before(bf, e)), digest_ok(ps, xs, path))),
+        AL.and_intro(String.eq(path, path), String.eq(Main.status.folder_digest(dg, path), T.word(Maybe.default(&2, String, Main.status.answer(ps, xs, path), SNil{}))),
+          S.eq_refl(path), digest_ok(ps, xs, path)),
         seens_ok(t, ps, xs, bf, reads, props, rest))
+
+def or_r(a: Bool, -b: Bool, e: {b == True{} : Bool}) -> {Bool.or(a, b) == True{} : Bool}:
+  match a:
+    case True{}:
+      {==}
+    case False{}:
+      e
+
+def unsettles_after(xs: List<&2, Sv.Obs>, +ys: List<&2, Sv.Obs>, +path: String, h: {Main.obs.any_unsettles(path, ys) == True{} : Bool}) -> {Main.obs.any_unsettles(path, List.append(&2, Sv.Obs, xs, ys)) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      h
+    case x <> rest:
+      or_r(Main.obs.unsettles(path, x), Main.obs.any_unsettles(path, List.append(&2, Sv.Obs, rest, ys)), unsettles_after(rest, ys, path, h))
+
+# After what a mode change says, one observation: what it says is all
+# there is to say of an edit or of emptying.
+def edits_after_mode(b: Bool, +path: String, +o: Sv.Obs, h: {Main.obs.edits(path, o) == False{} : Bool}) -> {Main.obs.any_edits(path, List.append(&2, Sv.Obs, Bool.pick(List<&2, Sv.Obs>, b, Nil{}, [Sv.Obs.Mode{path}]), [o])) == False{} : Bool}:
+  match b:
+    case True{}:
+      AL.or_false(Main.obs.edits(path, o), False{}, h, {==})
+    case False{}:
+      AL.or_false(Main.obs.edits(path, o), False{}, h, {==})
+
+def empties_after_mode(b: Bool, +path: String, +o: Sv.Obs, h: {Main.obs.empties(path, o) == False{} : Bool}) -> {Main.obs.any_empties(path, List.append(&2, Sv.Obs, Bool.pick(List<&2, Sv.Obs>, b, Nil{}, [Sv.Obs.Mode{path}]), [o])) == False{} : Bool}:
+  match b:
+    case True{}:
+      AL.or_false(Main.obs.empties(path, o), False{}, h, {==})
+    case False{}:
+      AL.or_false(Main.obs.empties(path, o), False{}, h, {==})
+
+# A file of lines the parents dispute, with a file in the folder at its
+# path, is edited, emptied, refused or still marked, whatever its bytes:
+# emptied only where it holds none, and edited only where it holds some.
+def disputed_file.marked(+path: String, +f: String, +q: String, +y: Maybe<&2, String>, +g: Maybe<&2, Tree.Target>, +m: Tree.Mode, +runs: Bool, empty: Bool, +n: Nat) -> {Bool.and(Main.obs.any_unsettles(path, List.append(&2, Sv.Obs, Sv.mode(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs), [Sv.Obs.Marked{path, n}])), Bool.not(Bool.pick(Bool, empty, Main.obs.any_edits(path, List.append(&2, Sv.Obs, Sv.mode(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs), [Sv.Obs.Marked{path, n}])), Main.obs.any_empties(path, List.append(&2, Sv.Obs, Sv.mode(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs), [Sv.Obs.Marked{path, n}]))))) == True{} : Bool}:
+  match empty:
+    case True{}:
+      AL.and_intro(Main.obs.any_unsettles(path, List.append(&2, Sv.Obs, Sv.mode(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs), [Sv.Obs.Marked{path, n}])), Bool.not(Main.obs.any_edits(path, List.append(&2, Sv.Obs, Sv.mode(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs), [Sv.Obs.Marked{path, n}]))),
+        unsettles_after(Sv.mode(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs), [Sv.Obs.Marked{path, n}], path, or_l(String.eq(path, path), False{}, S.eq_refl(path))),
+        AL.not_true(Main.obs.any_edits(path, List.append(&2, Sv.Obs, Sv.mode(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs), [Sv.Obs.Marked{path, n}])), edits_after_mode(Tree.mode_eq(Tree.entry_mode(Tree.Entry{f, q, Tree.Lines{}, y, g, m}), Bool.pick(Tree.Mode, runs, Tree.Executable{}, Tree.Plain{})), path, Sv.Obs.Marked{path, n}, {==})))
+    case False{}:
+      AL.and_intro(Main.obs.any_unsettles(path, List.append(&2, Sv.Obs, Sv.mode(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs), [Sv.Obs.Marked{path, n}])), Bool.not(Main.obs.any_empties(path, List.append(&2, Sv.Obs, Sv.mode(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs), [Sv.Obs.Marked{path, n}]))),
+        unsettles_after(Sv.mode(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs), [Sv.Obs.Marked{path, n}], path, or_l(String.eq(path, path), False{}, S.eq_refl(path))),
+        AL.not_true(Main.obs.any_empties(path, List.append(&2, Sv.Obs, Sv.mode(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs), [Sv.Obs.Marked{path, n}])), empties_after_mode(Tree.mode_eq(Tree.entry_mode(Tree.Entry{f, q, Tree.Lines{}, y, g, m}), Bool.pick(Tree.Mode, runs, Tree.Executable{}, Tree.Plain{})), path, Sv.Obs.Marked{path, n}, {==})))
+
+def disputed_file.settled(+path: String, +f: String, +q: String, +y: Maybe<&2, String>, +g: Maybe<&2, Tree.Target>, +m: Tree.Mode, +runs: Bool, empty: Bool) -> {Bool.and(Main.obs.any_unsettles(path, Bool.pick(List<&2, Sv.Obs>, empty, List.append(&2, Sv.Obs, Sv.mode(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs), [Sv.Obs.Emptied{path}]), Sv.lines.changed(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs, True{}))), Bool.not(Bool.pick(Bool, empty, Main.obs.any_edits(path, Bool.pick(List<&2, Sv.Obs>, empty, List.append(&2, Sv.Obs, Sv.mode(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs), [Sv.Obs.Emptied{path}]), Sv.lines.changed(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs, True{}))), Main.obs.any_empties(path, Bool.pick(List<&2, Sv.Obs>, empty, List.append(&2, Sv.Obs, Sv.mode(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs), [Sv.Obs.Emptied{path}]), Sv.lines.changed(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs, True{})))))) == True{} : Bool}:
+  match empty:
+    case True{}:
+      AL.and_intro(Main.obs.any_unsettles(path, List.append(&2, Sv.Obs, Sv.mode(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs), [Sv.Obs.Emptied{path}])), Bool.not(Main.obs.any_edits(path, List.append(&2, Sv.Obs, Sv.mode(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs), [Sv.Obs.Emptied{path}]))),
+        unsettles_after(Sv.mode(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs), [Sv.Obs.Emptied{path}], path, or_l(String.eq(path, path), False{}, S.eq_refl(path))),
+        AL.not_true(Main.obs.any_edits(path, List.append(&2, Sv.Obs, Sv.mode(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs), [Sv.Obs.Emptied{path}])), edits_after_mode(Tree.mode_eq(Tree.entry_mode(Tree.Entry{f, q, Tree.Lines{}, y, g, m}), Bool.pick(Tree.Mode, runs, Tree.Executable{}, Tree.Plain{})), path, Sv.Obs.Emptied{path}, {==})))
+    case False{}:
+      AL.and_intro(Main.obs.any_unsettles(path, List.append(&2, Sv.Obs, Sv.mode(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs), [Sv.Obs.Edited{path}])), Bool.not(Main.obs.any_empties(path, List.append(&2, Sv.Obs, Sv.mode(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs), [Sv.Obs.Edited{path}]))),
+        unsettles_after(Sv.mode(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs), [Sv.Obs.Edited{path}], path, or_l(String.eq(path, path), False{}, S.eq_refl(path))),
+        AL.not_true(Main.obs.any_empties(path, List.append(&2, Sv.Obs, Sv.mode(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs), [Sv.Obs.Edited{path}])), empties_after_mode(Tree.mode_eq(Tree.entry_mode(Tree.Entry{f, q, Tree.Lines{}, y, g, m}), Bool.pick(Tree.Mode, runs, Tree.Executable{}, Tree.Plain{})), path, Sv.Obs.Edited{path}, {==})))
+
+def disputed_file.resolved(+path: String, +f: String, +q: String, +y: Maybe<&2, String>, +g: Maybe<&2, Tree.Target>, +m: Tree.Mode, +runs: Bool, empty: Bool, marked: Nat) -> {Bool.and(Main.obs.any_unsettles(path, Sv.lines.resolved(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs, True{}, empty, marked)), Bool.not(Bool.pick(Bool, empty, Main.obs.any_edits(path, Sv.lines.resolved(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs, True{}, empty, marked)), Main.obs.any_empties(path, Sv.lines.resolved(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs, True{}, empty, marked))))) == True{} : Bool}:
+  match marked:
+    case 0n:
+      disputed_file.settled(path, f, q, y, g, m, runs, empty)
+    case 1n+k:
+      disputed_file.marked(path, f, q, y, g, m, runs, empty, 1n+k)
+
+def disputed_file(+path: String, +f: String, +q: String, +y: Maybe<&2, String>, +g: Maybe<&2, Tree.Target>, +m: Tree.Mode, +runs: Bool, text: Bool, empty: Bool, marked: Nat) -> {Bool.and(Main.obs.any_unsettles(path, Sv.lines.proposed(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs, text, empty, marked)), Bool.not(Bool.pick(Bool, empty, Main.obs.any_edits(path, Sv.lines.proposed(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs, text, empty, marked)), Main.obs.any_empties(path, Sv.lines.proposed(path, Tree.Entry{f, q, Tree.Lines{}, y, g, m}, runs, text, empty, marked))))) == True{} : Bool}:
+  match text:
+    case False{}:
+      match empty:
+        case True{}:
+          AL.and_intro(Bool.or(String.eq(path, path), False{}), True{}, or_l(String.eq(path, path), False{}, S.eq_refl(path)), {==})
+        case False{}:
+          AL.and_intro(Bool.or(String.eq(path, path), False{}), True{}, or_l(String.eq(path, path), False{}, S.eq_refl(path)), {==})
+    case True{}:
+      disputed_file.resolved(path, f, q, y, g, m, runs, empty, marked)
+
+def disputed_said(b: Bool, eb: {b == True{} : Bool}, +path: String, +f: String, +q: String, +y: Maybe<&2, String>, +g: Maybe<&2, Tree.Target>, +m: Tree.Mode, found: Maybe<&2, Folder.Found>, +dig: String, -bef: Maybe<&2, String>, text: Bool, -shown: Maybe<&2, String>, mk: Nat) -> {Main.disputed.said(path, f, found, Sv.seen(Sv.Seen{path, Some{Tree.Entry{f, q, Tree.Lines{}, y, g, m}}, found, dig, Bool.pick(Maybe<&2, String>, b, None{}, bef), text, shown, b, Bool.pick(Nat, b, mk, 0n)})) == True{} : Bool}:
+  match b:
+    case False{}:
+      Empty.absurd({Main.disputed.said(path, f, found, Sv.seen(Sv.Seen{path, Some{Tree.Entry{f, q, Tree.Lines{}, y, g, m}}, found, dig, bef, text, shown, False{}, 0n})) == True{} : Bool}, S.false_true(eb))
+    case True{}:
+      match found:
+        case None{}:
+          or_l(Bool.and(String.eq(path, path), String.eq(f, f)), False{}, B.and_tt(String.eq(path, path), String.eq(f, f), S.eq_refl(path), S.eq_refl(f)))
+        case Some{Folder.Found.Link{q2, +target}}:
+          or_l(Bool.and(String.eq(path, path), String.eq(f, f)), Main.obs.any_drops_bare(path, f, Sv.link(path, target, None{}, None{}, True{})), B.and_tt(String.eq(path, path), String.eq(f, f), S.eq_refl(path), S.eq_refl(f)))
+        case Some{Folder.Found.File{q2, +runs, n}}:
+          disputed_file(path, f, q, y, g, m, runs, text, Nat.is_eq(n, 0n), mk)
+
+# The map gives the file `-`, so the parents are read as disputing it.
+def dash(+f: String, +bf: Map<&2, String>, -bf2: Map<&2, String>, h: {Map.get(String, SNil{}, bf, f) == (bf2, "-") : Map<&2, String> & String}) -> {String.eq(Main.stat_of(f, Map.get(String, SNil{}, bf, f)), "-") == True{} : Bool}:
+  %Equal.sym(Map<&2, String> & String, Map.get(String, SNil{}, bf, f), (bf2, "-"), h) : {String.eq(Main.stat_of(f, _), "-") == True{} : Bool}
+  {==}
+
+# Where the parents leave a file of lines differently, the survey is given
+# no digest to settle it by: whatever the folder holds, a file there is
+# edited, emptied, refused or still marked, emptied only where it holds no bytes and
+# edited only where it holds some, and anything else drops it with no
+# content.
+def disputed(+t: Tree.Tree(), +dg: Map<&2, String>, +bf: Map<&2, String>, -bf2: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, +props: List<&2, Main.Proposal>, +path: String, +f: String, +q: String, +y: Maybe<&2, String>, +g: Maybe<&2, Tree.Target>, +m: Tree.Mode, found: Maybe<&2, Folder.Found>, h: {Map.get(String, SNil{}, bf, f) == (bf2, "-") : Map<&2, String> & String}) -> {Main.disputed.said(path, f, found, Sv.seen(Main.status.seen(t, dg, bf, reads, props, Main.Here{path, Some{Tree.Entry{f, q, Tree.Lines{}, y, g, m}}, found}))) == True{} : Bool}:
+  disputed_said(String.eq(Main.stat_of(f, Map.get(String, SNil{}, bf, f)), "-"), dash(f, bf, bf2, h), path, f, q, y, g, m, found, Main.status.folder_digest(dg, path), Main.status.before(bf, Some{Tree.Entry{f, q, Tree.Lines{}, y, g, m}}), Folder.is_utf8(Main.bytes_of(path, Map.get(List<&2, U32>, Nil{}, reads, path))), Main.status.shown(t, Some{Tree.Entry{f, q, Tree.Lines{}, y, g, m}}), Main.status.marked(props, Utf8.decode(Main.bytes_of(path, Map.get(List<&2, U32>, Nil{}, reads, path))), Some{Tree.Entry{f, q, Tree.Lines{}, y, g, m}}))
 
 # What it believes
 # ----------------
@@ -664,66 +772,148 @@ def go_fails(hs: List<&2, Main.Here>, +older: List<&2, Main.Full>, +ds: List<&2,
 def believes(+older: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +left: String, +eds: List<&2, Store.Doc>, +os: Map<&2, T.Split>, +hs: List<&2, Main.Here>, +m: Map<&2, String>, +e: String, h: {Main.status.befores(older, ds, left, eds, os, hs, m) == Fail{e} : Result<&2, &2, String, Map<&2, String>>}) -> {Main.status.replay_fails(older, ds, left, eds, os, Main.status.lined(hs), e) == True{} : Bool}:
   go_fails(Main.status.lined(hs), older, ds, left, eds, os, m, e, h)
 
-def err_of_l(r: Result<&2, &2, String, List<&2, Maybe<&2, String>>>, d: String) -> String:
+# Joining
+# -------
+
+def done_eq_g(-A: Data, -a: A, -b: A, h: {Done{a} == Done{b} : Result<&2, &2, String, A>}) -> {a == b : A}:
+  Equal.cong(Result<&2, &2, String, A>, A, r => Result.default(&2, &2, String, A, r, a), Done{a}, Done{b}, h)
+
+def and_l(a: Bool, -b: Bool, h: {Bool.and(a, b) == True{} : Bool}) -> {a == True{} : Bool}:
+  match a:
+    case True{}:
+      {==}
+    case False{}:
+      h
+
+def and_r(a: Bool, -b: Bool, h: {Bool.and(a, b) == True{} : Bool}) -> {b == True{} : Bool}:
+  match a:
+    case True{}:
+      h
+    case False{}:
+      Empty.absurd({b == True{} : Bool}, S.false_true(h))
+
+# What the parents mention, read as the plain list of digests mentioned.
+def none_somes(rs: List<&2, Maybe<&2, String>>) -> {Main.mentions.none(rs) == List.is_empty(&2, String, Main.somes(rs)) : Bool}:
+  match rs:
+    case Nil{}:
+      {==}
+    case None{} <> rest:
+      none_somes(rest)
+    case Some{x} <> rest:
+      {==}
+
+def all_somes(rs: List<&2, Maybe<&2, String>>, +d: String) -> {Main.mentions.all(rs, d) == Main.all_eq(Main.somes(rs), d) : Bool}:
+  match rs:
+    case Nil{}:
+      {==}
+    case None{} <> rest:
+      all_somes(rest, d)
+    case Some{x} <> rest:
+      %all_somes(rest, d) : {Bool.and(String.eq(x, d), Main.mentions.all(rest, d)) == Bool.and(String.eq(x, d), _) : Bool}
+      {==}
+
+def differ_s(xs: List<&2, String>) -> Bool:
+  match xs:
+    case Nil{}:
+      False{}
+    case +x <> +rest:
+      Bool.or(Bool.not(Main.all_eq(rest, x)), differ_s(rest))
+
+def differ_somes(rs: List<&2, Maybe<&2, String>>) -> {Main.mentions.differ(rs) == differ_s(Main.somes(rs)) : Bool}:
+  match rs:
+    case Nil{}:
+      {==}
+    case None{} <> rest:
+      differ_somes(rest)
+    case Some{+x} <> +rest:
+      %all_somes(rest, x) : {Bool.or(Bool.not(Main.mentions.all(rest, x)), Main.mentions.differ(rest)) == Bool.or(Bool.not(_), differ_s(Main.somes(rest))) : Bool}
+      %differ_somes(rest) : {Bool.or(Bool.not(Main.mentions.all(rest, x)), Main.mentions.differ(rest)) == Bool.or(Bool.not(Main.mentions.all(rest, x)), _) : Bool}
+      {==}
+
+# Digests that all equal one digest do not differ among themselves.
+def same_no_differ(xs: List<&2, String>, +d: String, +h: {Main.all_eq(xs, d) == True{} : Bool}) -> {differ_s(xs) == False{} : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      +hx = and_l(String.eq(x, d), Main.all_eq(rest, d), h)
+      +hr = and_r(String.eq(x, d), Main.all_eq(rest, d), h)
+      %Equal.sym(String, x, d, S.eq_true(x, d, hx)) : {Bool.or(Bool.not(Main.all_eq(rest, _)), differ_s(rest)) == False{} : Bool}
+      %Equal.sym(Bool, Main.all_eq(rest, d), True{}, hr) : {Bool.or(Bool.not(_), differ_s(rest)) == False{} : Bool}
+      same_no_differ(rest, d, hr)
+
+def joins_at(b: Bool, +d: String, +rest: List<&2, String>, +eb: {Main.all_eq(rest, d) == b : Bool}) -> {Bool.pick(Bool, Bool.or(Bool.not(b), differ_s(rest)), String.eq(Bool.pick(String, b, d, "-"), "-"), Main.all_eq(d <> rest, Bool.pick(String, b, d, "-"))) == True{} : Bool}:
+  match b:
+    case True{}:
+      %Equal.sym(Bool, differ_s(rest), False{}, same_no_differ(rest, d, eb)) : {Bool.pick(Bool, _, String.eq(d, "-"), Main.all_eq(d <> rest, d)) == True{} : Bool}
+      B.and_tt(String.eq(d, d), Main.all_eq(rest, d), S.eq_refl(d), eb)
+    case False{}:
+      {==}
+
+# The join of a plain list of digests: the empty digest of none, `-` where
+# two differ, and otherwise the digest every one is.
+def joins_s(s: List<&2, String>) -> {Bool.pick(Bool, List.is_empty(&2, String, s), String.eq(Main.status.agree(s), Sv.EMPTY()), Bool.pick(Bool, differ_s(s), String.eq(Main.status.agree(s), "-"), Main.all_eq(s, Main.status.agree(s)))) == True{} : Bool}:
+  match s:
+    case Nil{}:
+      S.eq_refl(Sv.EMPTY())
+    case +d <> +rest:
+      joins_at(Main.all_eq(rest, d), d, rest, {==})
+
+# What the parents' readings of a file join to, as the law reads a join.
+def joins(+rs: List<&2, Maybe<&2, String>>) -> {Main.joined.as(rs, Main.status.agree(Main.somes(rs))) == True{} : Bool}:
+  %Equal.sym(Bool, Main.mentions.none(rs), List.is_empty(&2, String, Main.somes(rs)), none_somes(rs)) : {Bool.pick(Bool, _, String.eq(Main.status.agree(Main.somes(rs)), Sv.EMPTY()), Bool.pick(Bool, Main.mentions.differ(rs), String.eq(Main.status.agree(Main.somes(rs)), "-"), Main.mentions.all(rs, Main.status.agree(Main.somes(rs))))) == True{} : Bool}
+  %Equal.sym(Bool, Main.mentions.differ(rs), differ_s(Main.somes(rs)), differ_somes(rs)) : {Bool.pick(Bool, List.is_empty(&2, String, Main.somes(rs)), String.eq(Main.status.agree(Main.somes(rs)), Sv.EMPTY()), Bool.pick(Bool, _, String.eq(Main.status.agree(Main.somes(rs)), "-"), Main.mentions.all(rs, Main.status.agree(Main.somes(rs))))) == True{} : Bool}
+  %Equal.sym(Bool, Main.mentions.all(rs, Main.status.agree(Main.somes(rs))), Main.all_eq(Main.somes(rs), Main.status.agree(Main.somes(rs))), all_somes(rs, Main.status.agree(Main.somes(rs)))) : {Bool.pick(Bool, List.is_empty(&2, String, Main.somes(rs)), String.eq(Main.status.agree(Main.somes(rs)), Sv.EMPTY()), Bool.pick(Bool, differ_s(Main.somes(rs)), String.eq(Main.status.agree(Main.somes(rs)), "-"), _)) == True{} : Bool}
+  joins_s(Main.somes(rs))
+
+def each_rest_r(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +file: String, +x: Maybe<&2, String>, +rest: List<&2, String>, +rs: List<&2, Maybe<&2, String>>, r: Result<&2, &2, String, List<&2, Maybe<&2, String>>>, +er: {Main.status.joined.each(fs, ds, file, rest) == r : Result<&2, &2, String, List<&2, Maybe<&2, String>>>}, h: {Result.bind(&2, &2, String, List<&2, Maybe<&2, String>>, List<&2, Maybe<&2, String>>, r, xs => Done{x <> xs}) == Done{rs} : Result<&2, &2, String, List<&2, Maybe<&2, String>>>}, ih: @r2: List<&2, Maybe<&2, String>> -> {Main.status.joined.each(fs, ds, file, rest) == Done{r2} : Result<&2, &2, String, List<&2, Maybe<&2, String>>>} -> {Main.status.readings(fs, ds, file, rest) == r2 : List<&2, Maybe<&2, String>>}) -> {x <> Main.status.readings(fs, ds, file, rest) == rs : List<&2, Maybe<&2, String>>}:
   match r:
-    case Fail{x}:
-      x
-    case Done{m}:
-      d
+    case Fail{y}:
+      Empty.absurd({x <> Main.status.readings(fs, ds, file, rest) == rs : List<&2, Maybe<&2, String>>}, B.fail_done_s(List<&2, Maybe<&2, String>>, y, rs, h))
+    case Done{+xs}:
+      %Equal.sym(List<&2, Maybe<&2, String>>, Main.status.readings(fs, ds, file, rest), xs, ih(xs, er)) : {x <> _ == rs : List<&2, Maybe<&2, String>>}
+      done_eq_g(List<&2, Maybe<&2, String>>, x <> xs, rs, h)
 
-def fail_eq_l(-x: String, -e: String, h: {Fail{x} == Fail{e} : Result<&2, &2, String, List<&2, Maybe<&2, String>>>}) -> {x == e : String}:
-  Equal.cong(Result<&2, &2, String, List<&2, Maybe<&2, String>>>, String, r => err_of_l(r, x), Fail{x}, Fail{e}, h)
-
-def rdisc_l(r: Result<&2, &2, String, List<&2, Maybe<&2, String>>>) -> Type:
+def each_one_r(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +file: String, +p: String, +rest: List<&2, String>, +rs: List<&2, Maybe<&2, String>>, r: Result<&2, &2, String, Maybe<&2, String>>, +er: {Main.status.joined.one(fs, ds, file, p) == r : Result<&2, &2, String, Maybe<&2, String>>}, h: {Result.bind(&2, &2, String, Maybe<&2, String>, List<&2, Maybe<&2, String>>, r, x => Result.bind(&2, &2, String, List<&2, Maybe<&2, String>>, List<&2, Maybe<&2, String>>, Main.status.joined.each(fs, ds, file, rest), xs => Done{x <> xs})) == Done{rs} : Result<&2, &2, String, List<&2, Maybe<&2, String>>>}, ih: @r2: List<&2, Maybe<&2, String>> -> {Main.status.joined.each(fs, ds, file, rest) == Done{r2} : Result<&2, &2, String, List<&2, Maybe<&2, String>>>} -> {Main.status.readings(fs, ds, file, rest) == r2 : List<&2, Maybe<&2, String>>}) -> {Main.reading.of(Main.status.joined.one(fs, ds, file, p)) <> Main.status.readings(fs, ds, file, rest) == rs : List<&2, Maybe<&2, String>>}:
   match r:
-    case Fail{x}:
-      Unit
-    case Done{xs}:
-      Empty
-
-def done_fail_l(-xs: List<&2, Maybe<&2, String>>, -e: String, h: {Done{xs} == Fail{e} : Result<&2, &2, String, List<&2, Maybe<&2, String>>>}) -> Empty:
-  %Equal.sym(Result<&2, &2, String, List<&2, Maybe<&2, String>>>, Done{xs}, Fail{e}, h) : {rdisc_l(_) : Type}
-  Unit{}
-
-def each_rest(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +file: String, +x: Maybe<&2, String>, +rest: List<&2, String>, +e: String, r: Result<&2, &2, String, List<&2, Maybe<&2, String>>>, +er: {Main.status.joined.each(fs, ds, file, rest) == r : Result<&2, &2, String, List<&2, Maybe<&2, String>>>}, h: {Result.bind(&2, &2, String, List<&2, Maybe<&2, String>>, List<&2, Maybe<&2, String>>, r, xs => Done{x <> xs}) == Fail{e} : Result<&2, &2, String, List<&2, Maybe<&2, String>>>}, ih: {Main.status.joined.each(fs, ds, file, rest) == Fail{e} : Result<&2, &2, String, List<&2, Maybe<&2, String>>>} -> {Main.status.parents_fail(fs, ds, file, rest, e) == True{} : Bool}) -> {Main.status.parents_fail(fs, ds, file, rest, e) == True{} : Bool}:
-  match r:
-    case Fail{+y}:
-      ih(Equal.trans(Result<&2, &2, String, List<&2, Maybe<&2, String>>>, Main.status.joined.each(fs, ds, file, rest), Fail{y}, Fail{e}, er, h))
-    case Done{xs}:
-      Empty.absurd({Main.status.parents_fail(fs, ds, file, rest, e) == True{} : Bool}, done_fail_l(x <> xs, e, h))
-
-def each_one(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +file: String, +p: String, +rest: List<&2, String>, +e: String, r: Result<&2, &2, String, Maybe<&2, String>>, +er: {Main.status.joined.one(fs, ds, file, p) == r : Result<&2, &2, String, Maybe<&2, String>>}, h: {Result.bind(&2, &2, String, Maybe<&2, String>, List<&2, Maybe<&2, String>>, r, x => Result.bind(&2, &2, String, List<&2, Maybe<&2, String>>, List<&2, Maybe<&2, String>>, Main.status.joined.each(fs, ds, file, rest), xs => Done{x <> xs})) == Fail{e} : Result<&2, &2, String, List<&2, Maybe<&2, String>>>}, ih: {Main.status.joined.each(fs, ds, file, rest) == Fail{e} : Result<&2, &2, String, List<&2, Maybe<&2, String>>>} -> {Main.status.parents_fail(fs, ds, file, rest, e) == True{} : Bool}) -> {Bool.or(Main.status.one_fails(Main.status.joined.one(fs, ds, file, p), e), Main.status.parents_fail(fs, ds, file, rest, e)) == True{} : Bool}:
-  match r:
-    case Fail{+y}:
-      AL.or_left(Main.status.one_fails(Main.status.joined.one(fs, ds, file, p), e), Main.status.parents_fail(fs, ds, file, rest, e),
-        (%Equal.sym(Result<&2, &2, String, Maybe<&2, String>>, Main.status.joined.one(fs, ds, file, p), Fail{y}, er) : {Main.status.one_fails(_, e) == True{} : Bool}
-          (%Equal.sym(String, y, e, fail_eq_l(y, e, h)) : {String.eq(_, e) == True{} : Bool}
-            S.eq_refl(e))))
+    case Fail{y}:
+      Empty.absurd({Main.reading.of(Main.status.joined.one(fs, ds, file, p)) <> Main.status.readings(fs, ds, file, rest) == rs : List<&2, Maybe<&2, String>>}, B.fail_done_s(List<&2, Maybe<&2, String>>, y, rs, h))
     case Done{+x}:
-      AL.or_right(Main.status.one_fails(Main.status.joined.one(fs, ds, file, p), e), Main.status.parents_fail(fs, ds, file, rest, e),
-        each_rest(fs, ds, file, x, rest, e, Main.status.joined.each(fs, ds, file, rest), {==}, h, ih))
+      %Equal.sym(Result<&2, &2, String, Maybe<&2, String>>, Main.status.joined.one(fs, ds, file, p), Done{x}, er) : {Main.reading.of(_) <> Main.status.readings(fs, ds, file, rest) == rs : List<&2, Maybe<&2, String>>}
+      each_rest_r(fs, ds, file, x, rest, rs, Main.status.joined.each(fs, ds, file, rest), {==}, h, ih)
 
-# Reading a file at each parent is refused only where one parent's reading
-# of it is, with that refusal.
-def each_fails(ps: List<&2, String>, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +file: String, +e: String, h: {Main.status.joined.each(fs, ds, file, ps) == Fail{e} : Result<&2, &2, String, List<&2, Maybe<&2, String>>>}) -> {Main.status.parents_fail(fs, ds, file, ps, e) == True{} : Bool}:
+# Reading a file at every parent, where no reading is refused, is reading
+# it at each.
+def each_readings(ps: List<&2, String>, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +file: String, +rs: List<&2, Maybe<&2, String>>, h: {Main.status.joined.each(fs, ds, file, ps) == Done{rs} : Result<&2, &2, String, List<&2, Maybe<&2, String>>>}) -> {Main.status.readings(fs, ds, file, ps) == rs : List<&2, Maybe<&2, String>>}:
   match ps:
     case Nil{}:
-      Empty.absurd({Main.status.parents_fail(fs, ds, file, Nil{}, e) == True{} : Bool}, done_fail_l(Nil{}, e, h))
+      done_eq_g(List<&2, Maybe<&2, String>>, Nil{}, rs, h)
     case +p <> +rest:
-      each_one(fs, ds, file, p, rest, e, Main.status.joined.one(fs, ds, file, p), {==}, h, h2 => each_fails(rest, fs, ds, file, e, h2))
+      each_one_r(fs, ds, file, p, rest, rs, Main.status.joined.one(fs, ds, file, p), {==}, h, r2 => h2 => each_readings(rest, fs, ds, file, r2, h2))
 
-def joined_step(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, +x: Main.Here, +rest: List<&2, Main.Here>, +m: Map<&2, String>, +e: String, r: Result<&2, &2, String, List<&2, Maybe<&2, String>>>, +er: {Main.status.joined.each(fs, ds, Main.here.file(x), ps) == r : Result<&2, &2, String, List<&2, Maybe<&2, String>>>}, h: {Result.bind(&2, &2, String, List<&2, Maybe<&2, String>>, Map<&2, String>, r, xs => Main.status.joined.go(fs, ds, ps, rest, Map.set(&2, String, m, Main.here.file(x), Main.status.agree(Main.somes(xs))))) == Fail{e} : Result<&2, &2, String, Map<&2, String>>}, ih: @m2: Map<&2, String> -> {Main.status.joined.go(fs, ds, ps, rest, m2) == Fail{e} : Result<&2, &2, String, Map<&2, String>>} -> {Main.status.joined_fails(fs, ds, ps, rest, e) == True{} : Bool}) -> {Bool.or(Main.status.parents_fail(fs, ds, Main.here.file(x), ps, e), Main.status.joined_fails(fs, ds, ps, rest, e)) == True{} : Bool}:
+def pairs_later(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, +x: Main.Here, +rest: List<&2, Main.Here>, +xs: List<&2, T.Split>, +rs: List<&2, Maybe<&2, String>>, r: Result<&2, &2, String, List<&2, T.Split>>, +er2: {Main.status.joined.pairs(fs, ds, ps, rest) == r : Result<&2, &2, String, List<&2, T.Split>>}, +er: {Main.status.joined.each(fs, ds, Main.here.file(x), ps) == Done{rs} : Result<&2, &2, String, List<&2, Maybe<&2, String>>>}, h: {Result.bind(&2, &2, String, List<&2, T.Split>, List<&2, T.Split>, r, later => Done{T.Split{Main.here.file(x), Main.status.agree(Main.somes(rs))} <> later}) == Done{xs} : Result<&2, &2, String, List<&2, T.Split>>}, ih: @ys: List<&2, T.Split> -> {Main.status.joined.pairs(fs, ds, ps, rest) == Done{ys} : Result<&2, &2, String, List<&2, T.Split>>} -> {Main.joined.files(fs, ds, ps, rest, ys) == True{} : Bool}) -> {Main.joined.files(fs, ds, ps, x <> rest, xs) == True{} : Bool}:
   match r:
-    case Fail{+y}:
-      +same = fail_eq(y, e, h)
-      AL.or_left(Main.status.parents_fail(fs, ds, Main.here.file(x), ps, e), Main.status.joined_fails(fs, ds, ps, rest, e),
-        each_fails(ps, fs, ds, Main.here.file(x), e, (%same : {Main.status.joined.each(fs, ds, Main.here.file(x), ps) == Fail{_} : Result<&2, &2, String, List<&2, Maybe<&2, String>>>} er)))
-    case Done{+xs}:
-      AL.or_right(Main.status.parents_fail(fs, ds, Main.here.file(x), ps, e), Main.status.joined_fails(fs, ds, ps, rest, e), ih(Map.set(&2, String, m, Main.here.file(x), Main.status.agree(Main.somes(xs))), h))
+    case Fail{y}:
+      Empty.absurd({Main.joined.files(fs, ds, ps, x <> rest, xs) == True{} : Bool}, B.fail_done_s(List<&2, T.Split>, y, xs, h))
+    case Done{+later}:
+      %done_eq_g(List<&2, T.Split>, T.Split{Main.here.file(x), Main.status.agree(Main.somes(rs))} <> later, xs, h) : {Main.joined.files(fs, ds, ps, x <> rest, _) == True{} : Bool}
+      %Equal.sym(List<&2, Maybe<&2, String>>, Main.status.readings(fs, ds, Main.here.file(x), ps), rs, each_readings(ps, fs, ds, Main.here.file(x), rs, er)) : {Bool.and(String.eq(Main.here.file(x), Main.here.file(x)), Bool.and(Main.joined.as(_, Main.status.agree(Main.somes(rs))), Main.joined.files(fs, ds, ps, rest, later))) == True{} : Bool}
+      B.and_tt(String.eq(Main.here.file(x), Main.here.file(x)), Bool.and(Main.joined.as(rs, Main.status.agree(Main.somes(rs))), Main.joined.files(fs, ds, ps, rest, later)), S.eq_refl(Main.here.file(x)),
+        B.and_tt(Main.joined.as(rs, Main.status.agree(Main.somes(rs))), Main.joined.files(fs, ds, ps, rest, later), joins(rs), ih(later, er2)))
 
-def joined_fails(hs: List<&2, Main.Here>, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, +m: Map<&2, String>, +e: String, h: {Main.status.joined.go(fs, ds, ps, hs, m) == Fail{e} : Result<&2, &2, String, Map<&2, String>>}) -> {Main.status.joined_fails(fs, ds, ps, hs, e) == True{} : Bool}:
+def pairs_step(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, +x: Main.Here, +rest: List<&2, Main.Here>, +xs: List<&2, T.Split>, r: Result<&2, &2, String, List<&2, Maybe<&2, String>>>, +er: {Main.status.joined.each(fs, ds, Main.here.file(x), ps) == r : Result<&2, &2, String, List<&2, Maybe<&2, String>>>}, h: {Result.bind(&2, &2, String, List<&2, Maybe<&2, String>>, List<&2, T.Split>, r, ys => Result.bind(&2, &2, String, List<&2, T.Split>, List<&2, T.Split>, Main.status.joined.pairs(fs, ds, ps, rest), later => Done{T.Split{Main.here.file(x), Main.status.agree(Main.somes(ys))} <> later})) == Done{xs} : Result<&2, &2, String, List<&2, T.Split>>}, ih: @ys: List<&2, T.Split> -> {Main.status.joined.pairs(fs, ds, ps, rest) == Done{ys} : Result<&2, &2, String, List<&2, T.Split>>} -> {Main.joined.files(fs, ds, ps, rest, ys) == True{} : Bool}) -> {Main.joined.files(fs, ds, ps, x <> rest, xs) == True{} : Bool}:
+  match r:
+    case Fail{y}:
+      Empty.absurd({Main.joined.files(fs, ds, ps, x <> rest, xs) == True{} : Bool}, B.fail_done_s(List<&2, T.Split>, y, xs, h))
+    case Done{+rs}:
+      pairs_later(fs, ds, ps, x, rest, xs, rs, Main.status.joined.pairs(fs, ds, ps, rest), {==}, er, h, ih)
+
+# Where several parents are joined, each file compared is paired, in order,
+# with what the parents' readings of it join to.
+def pairs_files(hs: List<&2, Main.Here>, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, +xs: List<&2, T.Split>, h: {Main.status.joined.pairs(fs, ds, ps, hs) == Done{xs} : Result<&2, &2, String, List<&2, T.Split>>}) -> {Main.joined.files(fs, ds, ps, hs, xs) == True{} : Bool}:
   match hs:
     case Nil{}:
-      Empty.absurd({Main.status.joined_fails(fs, ds, ps, Nil{}, e) == True{} : Bool}, B.fail_done_s(Map<&2, String>, e, m, Equal.sym(Result<&2, &2, String, Map<&2, String>>, Done{m}, Fail{e}, h)))
+      %done_eq_g(List<&2, T.Split>, Nil{}, xs, h) : {Main.joined.files(fs, ds, ps, Nil{}, _) == True{} : Bool}
+      {==}
     case +x <> +rest:
-      joined_step(fs, ds, ps, x, rest, m, e, Main.status.joined.each(fs, ds, Main.here.file(x), ps), {==}, h, m2 => h2 => joined_fails(rest, fs, ds, ps, m2, e, h2))
+      pairs_step(fs, ds, ps, x, rest, xs, Main.status.joined.each(fs, ds, Main.here.file(x), ps), {==}, h, ys => h2 => pairs_files(rest, fs, ds, ps, ys, h2))

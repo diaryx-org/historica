@@ -595,13 +595,10 @@ def Laws.reading_finds_what_resolutions_keep(ds, more, h):
   FetchL.kept_found(ds, more, h)
 
 def Laws.chain_follows_first_parents(fs, id):
-  ChainL.chain_line(fs, id)
+  ChainL.chain_whole(fs, id)
 
 def Laws.revisions_read_are_their_documents(root, ds):
   FullsL.fulls_filed(root, ds)
-
-def Laws.log_lists_its_span(fs, sp):
-  SpanL.span_listed(fs, sp)
 
 def Laws.log_reads_its_words(args, a, e):
   LogArgs.args_said(args, a, e)
@@ -756,8 +753,7 @@ def Laws.status_reads_only_lines(dg, bf, eds, os, hs):
 def Laws.status_believes_what_is_stated(older, ds, left, eds, os, hs, m, e, h):
   StatusL.believes(older, ds, left, eds, os, hs, m, e, h)
 
-def Laws.status_joins_what_it_reads(hs, fs, ds, ps, m, e, h):
-  StatusL.joined_fails(hs, fs, ds, ps, m, e, h)
+
 def Laws.status_refuses_what_the_folder_holds(t, held, walked, ss):
   SurveyL.refused_ok(t, held, walked, ss)
 
@@ -1123,3 +1119,12 @@ def Laws.abandon_abandons_only_a_word_it_was_given(args, c, e):
 
 def Laws.abandon_refuses_a_dry_run_with_fields(args, c, e):
   RewriteL.dry_fields(args, c, e)
+
+def Laws.log_lists_its_span(fs, a, b):
+  SpanL.span_listed(fs, a, b)
+
+def Laws.status_leaves_a_disputed_file_unsettled(t, dg, bf, bf2, reads, props, path, f, q, y, g, m, found, h):
+  StatusL.disputed(t, dg, bf, bf2, reads, props, path, f, q, y, g, m, found, h)
+
+def Laws.status_joins_what_it_reads(hs, fs, ds, ps, xs, h):
+  StatusL.pairs_files(hs, fs, ds, ps, xs, h)
