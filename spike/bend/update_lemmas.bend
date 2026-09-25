@@ -1848,3 +1848,24 @@ def plan_confined(+fs: List<&2, Main.Full>, +id: String, +t: Tree.Tree(), +rs: L
         confined_app(fs, List.append(&2, Store.Doc, ds, more), t, found, dg, U.effects.modes(U.modes(U.decided(plan.looks(fs, id, t, found, dg, ls, located, ds, more)))), Nil{},
           modes_conf(fs, List.append(&2, Store.Doc, ds, more), t, found, dg, U.modes(U.decided(plan.looks(fs, id, t, found, dg, ls, located, ds, more))), stepping_at(~(s => U.step.mode(s)), t, U.decided(plan.looks(fs, id, t, found, dg, ls, located, ds, more)), pres_at(t, fs, List.reverse(&2, Main.Full, Main.presentation(fs)), ds, located, id, t, U.found.map(found, dg, Map.new(&2, Maybe<&2, U.Held>)), ls, U.single(U.placings(t)), U.recorded.list(List.append(&2, String, U.asks(U.pres(fs, List.reverse(&2, Main.Full, Main.presentation(fs)), ds, located, id, t, U.found.map(found, dg, Map.new(&2, Maybe<&2, U.Held>)), ls, U.single(U.placings(t)))), U.gone.paths(found, Set.from_list(T.map(~U.Placing, ~String, ~(q => U.placing.path(q)), U.placings(t))))), fs, List.reverse(&2, Main.Full, Main.presentation(fs)), List.append(&2, Store.Doc, ds, more)), single_all(t)))),
           {==}))))
+
+# Settled, it says what its dry run says
+# --------------------------------------
+
+def empty_nil(-A: Data, xs: List<&2, A>, e: {List.is_empty(&2, A, xs) == True{} : Bool}) -> {xs == Nil{} : List<&2, A>}:
+  match xs:
+    case Nil{}:
+      {==}
+    case x <> rest:
+      Empty.absurd({x <> rest == Nil{} : List<&2, A>}, Comp.false_true(e))
+
+# Where there is nothing to do, `update` says what `update --dry-run` says.
+def settled_says(p: U.Plan, +s: String, +e: {U.settled(p) == True{} : Bool}) -> {U.said.settled(s, p) == U.said.dry(s, p) : List<&2, String>}:
+  match p:
+    case U.Plan{+ds, +ws}:
+      %Equal.sym(Bool, U.settled(U.Plan{ds, ws}), True{}, e) : {U.said.settled(s, U.Plan{ds, ws}) == List.concat(&2, String, [U.said.paths("write", T.map(~U.Decided, ~String, ~(d => U.decided.path(d)), U.writes(ds))), U.said.paths("remove", U.removes(ws)), U.said.modes("mode", U.modes(ds)), U.said.links("link", U.links(ds)), U.said.leaves(U.leaves(ws)), Bool.pick(List<&2, String>, _, ["the folder already holds " ++ s], Nil{})]) : List<&2, String>}
+      %Equal.sym(List<&2, U.Decided>, U.writes(ds), Nil{}, empty_nil(U.Decided, U.writes(ds), Comp.and_left(List.is_empty(&2, U.Decided, U.writes(ds)), List.is_empty(&2, String, U.removes(ws)), Comp.and_left(Bool.and(List.is_empty(&2, U.Decided, U.writes(ds)), List.is_empty(&2, String, U.removes(ws))), Bool.and(List.is_empty(&2, U.Decided, U.modes(ds)), List.is_empty(&2, U.Decided, U.links(ds))), e)))) : {U.said.settled(s, U.Plan{ds, ws}) == List.concat(&2, String, [U.said.paths("write", T.map(~U.Decided, ~String, ~(d => U.decided.path(d)), _)), U.said.paths("remove", U.removes(ws)), U.said.modes("mode", U.modes(ds)), U.said.links("link", U.links(ds)), U.said.leaves(U.leaves(ws)), ["the folder already holds " ++ s]]) : List<&2, String>}
+      %Equal.sym(List<&2, String>, U.removes(ws), Nil{}, empty_nil(String, U.removes(ws), Comp.and_right(List.is_empty(&2, U.Decided, U.writes(ds)), List.is_empty(&2, String, U.removes(ws)), Comp.and_left(Bool.and(List.is_empty(&2, U.Decided, U.writes(ds)), List.is_empty(&2, String, U.removes(ws))), Bool.and(List.is_empty(&2, U.Decided, U.modes(ds)), List.is_empty(&2, U.Decided, U.links(ds))), e)))) : {U.said.settled(s, U.Plan{ds, ws}) == List.concat(&2, String, [Nil{}, U.said.paths("remove", _), U.said.modes("mode", U.modes(ds)), U.said.links("link", U.links(ds)), U.said.leaves(U.leaves(ws)), ["the folder already holds " ++ s]]) : List<&2, String>}
+      %Equal.sym(List<&2, U.Decided>, U.modes(ds), Nil{}, empty_nil(U.Decided, U.modes(ds), Comp.and_left(List.is_empty(&2, U.Decided, U.modes(ds)), List.is_empty(&2, U.Decided, U.links(ds)), Comp.and_right(Bool.and(List.is_empty(&2, U.Decided, U.writes(ds)), List.is_empty(&2, String, U.removes(ws))), Bool.and(List.is_empty(&2, U.Decided, U.modes(ds)), List.is_empty(&2, U.Decided, U.links(ds))), e)))) : {U.said.settled(s, U.Plan{ds, ws}) == List.concat(&2, String, [Nil{}, Nil{}, U.said.modes("mode", _), U.said.links("link", U.links(ds)), U.said.leaves(U.leaves(ws)), ["the folder already holds " ++ s]]) : List<&2, String>}
+      %Equal.sym(List<&2, U.Decided>, U.links(ds), Nil{}, empty_nil(U.Decided, U.links(ds), Comp.and_right(List.is_empty(&2, U.Decided, U.modes(ds)), List.is_empty(&2, U.Decided, U.links(ds)), Comp.and_right(Bool.and(List.is_empty(&2, U.Decided, U.writes(ds)), List.is_empty(&2, String, U.removes(ws))), Bool.and(List.is_empty(&2, U.Decided, U.modes(ds)), List.is_empty(&2, U.Decided, U.links(ds))), e)))) : {U.said.settled(s, U.Plan{ds, ws}) == List.concat(&2, String, [Nil{}, Nil{}, Nil{}, U.said.links("link", _), U.said.leaves(U.leaves(ws)), ["the folder already holds " ++ s]]) : List<&2, String>}
+      {==}
