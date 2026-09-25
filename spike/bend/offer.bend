@@ -193,6 +193,42 @@ def manifest(+prefix: String, +s: Prune.Stored, +marks: List<&2, Bm.Bookmark>, +
 # What the laws say of a manifest
 # -------------------------------
 
+# A line names a file of the listing it was drawn from, by the digest that
+# listing gives the file.
+def listed(ss: List<&2, T.Split>, +prefix: String, +path: String, +digest: String) -> Bool:
+  match ss:
+    case Nil{}:
+      False{}
+    case T.Split{+l, +d} <> rest:
+      Bool.or(Bool.and(String.eq(addressed(prefix, l), path), String.eq(d, digest)), listed(rest, prefix, path, digest))
+
+def offered.from(os: List<&2, Offered>, +ss: List<&2, T.Split>, +prefix: String) -> Bool:
+  match os:
+    case Nil{}:
+      True{}
+    case Offered{k, +d, f, +p} <> rest:
+      Bool.and(listed(ss, prefix, p, d), offered.from(rest, ss, prefix))
+
+def body.splits(bs: List<&2, Prune.Body>) -> List<&2, T.Split>:
+  match bs:
+    case Nil{}:
+      Nil{}
+    case Prune.Body{+p, +d, ok, f} <> rest:
+      T.Split{p, d} <> body.splits(rest)
+
+# Every line of a manifest, group by group: each payload, document,
+# revision, rule, file of `claims/` and bookmark is named by the digest the
+# store's listing gives the file at that path.
+def manifest.from(+prefix: String, s: Prune.Stored, +marks: List<&2, Bm.Bookmark>, +claims: List<&2, T.Split>, +rule_ids: List<&2, T.Split>, +name_ids: List<&2, T.Split>) -> Bool:
+  match s:
+    case Prune.Stored{docs, +revs, od, +bs, +ps, names, rules}:
+      Bool.and(offered.from(splits.offered(ps, "payload", prefix), ps, prefix),
+        Bool.and(offered.from(bodies.offered(bs, prefix), body.splits(bs), prefix),
+          Bool.and(offered.from(splits.offered(revs, "revision", prefix), revs, prefix),
+            Bool.and(offered.from(rules.offered(Receive.ruled(rules), rule_ids, prefix), rule_ids, prefix),
+              Bool.and(offered.from(splits.offered(claims, "reserved", prefix), claims, prefix),
+                offered.from(names.offered(marks, name_ids, prefix), name_ids, prefix))))))
+
 # The bookmarks that travel.
 def shared(bs: List<&2, Bm.Bookmark>) -> List<&2, Bm.Bookmark>:
   match bs:

@@ -813,3 +813,6 @@ def Laws.export_lays_out_only_what_the_walk_offers_back(t, fs, ds, id, pays, bs,
 
 def Laws.export_destroys_only_what_is_forgotten(p, here, cst, marks):
   ExportL.destroys(p, here, cst, marks)
+
+def Laws.offer_names_each_file_by_its_digest(prefix, s, marks, claims, rids, nids):
+  OfferL.digests(prefix, s, marks, claims, rids, nids)

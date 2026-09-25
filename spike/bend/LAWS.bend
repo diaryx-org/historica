@@ -1823,3 +1823,16 @@ law export_destroys_only_what_is_forgotten:
   for +cst: Prune.Stored
   for +marks: List<&2, Bm.Bookmark>
   {Main.all_held(Export.onto.forgotten(Export.onto.of(p, here, cst, marks)), Export.onto.destroys(Export.onto.of(p, here, cst, marks))) == True{} : Bool}
+
+# Every line of an `offer` manifest names a file by the digest the store's
+# listing gives the file at that path: each payload, document, revision,
+# rule, file of `claims/` and bookmark, group by group, so a fetcher that
+# checks a file against its line checks it against what the store holds.
+law offer_names_each_file_by_its_digest:
+  for +prefix: String
+  for +s: Prune.Stored
+  for +marks: List<&2, Bm.Bookmark>
+  for +claims: List<&2, T.Split>
+  for +rids: List<&2, T.Split>
+  for +nids: List<&2, T.Split>
+  {Offer.manifest.from(prefix, s, marks, claims, rids, nids) == True{} : Bool}
