@@ -9718,6 +9718,18 @@ def abandon.dry.lines(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +id: Stri
 def abandon.dry(+fs: List<&2, Full>, +bs: List<&2, Bm.Bookmark>, +id: String, +only: Bool, +run: List<&2, String>) -> IO(Unit):
   print_lines(abandon.dry.lines(fs, bs, id, only, run))
 
+# A dry run of `abandon` begins by naming, in order, each revision it
+# would abandon, by its digest's first twelve letters.
+# `LAWS.abandon_dry_run_names_the_run`.
+def said.first(xs: List<&2, String>, ls: List<&2, String>, +prefix: String) -> Bool:
+  match xs ls:
+    case Nil{} _:
+      True{}
+    case +x <> rest +l <> more:
+      Bool.and(String.starts_with(l, prefix ++ ab12(x)), said.first(rest, more, prefix))
+    case _ Nil{}:
+      False{}
+
 # What abandoning says it did: for a machine, decision 0074's header, each
 # revision written and each bookmark moved; for a person, what was
 # abandoned, the tombstone, each bookmark moved and what was carried.
