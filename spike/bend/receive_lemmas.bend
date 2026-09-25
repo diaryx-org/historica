@@ -954,3 +954,211 @@ def removes_only(+bs: List<&2, Prune.Body>, +ps: List<&2, T.Split>, +des: List<&
     Equal.trans(Bool, Bool.or(Rev.member(a, x), Rev.member(b, x)), Rev.member(l, x), True{}, Equal.sym(Bool, Rev.member(l, x), Bool.or(Rev.member(a, x), Rev.member(b, x)), ArrangeL.member_app(a, b, x)), hl),
     ha => kept_gone(T.map(~Prune.Body, ~T.Split, ~(b => Receive.body.split.of(b)), bs), des, x, ha),
     hb => sdistinct_gone(ps, x, des, kept_gone(Receive.splits.distinct(ps), des, x, hb)))
+
+# Related histories, read from each side
+# --------------------------------------
+
+def or_comm(a: Bool, b: Bool) -> {Bool.or(a, b) == Bool.or(b, a) : Bool}:
+  match a b:
+    case True{} True{}:
+      {==}
+    case True{} False{}:
+      {==}
+    case False{} True{}:
+      {==}
+    case False{} False{}:
+      {==}
+
+def mix4(a: Bool, b: Bool, c: Bool, -d: Bool) -> {Bool.or(Bool.or(a, b), Bool.or(c, d)) == Bool.or(Bool.or(a, c), Bool.or(b, d)) : Bool}:
+  match a b c:
+    case True{} True{} True{}:
+      {==}
+    case True{} True{} False{}:
+      {==}
+    case True{} False{} True{}:
+      {==}
+    case True{} False{} False{}:
+      {==}
+    case False{} True{} True{}:
+      {==}
+    case False{} True{} False{}:
+      {==}
+    case False{} False{} True{}:
+      {==}
+    case False{} False{} False{}:
+      {==}
+
+def eq_sym.of(q: Bool, +x: String, +y: String, +eq: {String.eq(y, x) == q : Bool}, e: {String.eq(x, y) == False{} : Bool}) -> {False{} == q : Bool}:
+  match q:
+    case False{}:
+      {==}
+    case True{}:
+      Empty.absurd({False{} == True{} : Bool}, S.true_false(Equal.trans(Bool, True{}, String.eq(x, y), False{}, Equal.sym(Bool, String.eq(x, y), True{}, (%Equal.sym(String, y, x, S.eq_true(y, x, eq)) : {String.eq(x, _) == True{} : Bool}
+        S.eq_refl(x))), e)))
+
+def eq_sym.at(p: Bool, +x: String, +y: String, +ep: {String.eq(x, y) == p : Bool}) -> {p == String.eq(y, x) : Bool}:
+  match p:
+    case True{}:
+      Equal.sym(Bool, String.eq(y, x), True{}, (%Equal.sym(String, x, y, S.eq_true(x, y, ep)) : {String.eq(y, _) == True{} : Bool}
+        S.eq_refl(y)))
+    case False{}:
+      eq_sym.of(String.eq(y, x), x, y, {==}, ep)
+
+def eq_sym(+x: String, +y: String) -> {String.eq(x, y) == String.eq(y, x) : Bool}:
+  eq_sym.at(String.eq(x, y), x, y, {==})
+
+def am_cons_r(ys: List<&2, String>, +x: String, +xs: List<&2, String>) -> {any_member(ys, x <> xs) == Bool.or(Rev.member(ys, x), any_member(ys, xs)) : Bool}:
+  match ys:
+    case Nil{}:
+      {==}
+    case +y <> +rest:
+      %Equal.sym(Bool, any_member(rest, x <> xs), Bool.or(Rev.member(rest, x), any_member(rest, xs)), am_cons_r(rest, x, xs)) : {Bool.or(Bool.or(String.eq(x, y), Rev.member(xs, y)), _) == Bool.or(Rev.member(y <> rest, x), any_member(y <> rest, xs)) : Bool}
+      %eq_sym(y, x) : {Bool.or(Bool.or(_, Rev.member(xs, y)), Bool.or(Rev.member(rest, x), any_member(rest, xs))) == Bool.or(Rev.member(y <> rest, x), any_member(y <> rest, xs)) : Bool}
+      mix4(String.eq(y, x), Rev.member(xs, y), Rev.member(rest, x), any_member(rest, xs))
+
+def am_nil(ys: List<&2, String>) -> {False{} == any_member(ys, Nil{}) : Bool}:
+  match ys:
+    case Nil{}:
+      {==}
+    case +y <> +rest:
+      am_nil(rest)
+
+# Two lists share a string whichever is asked of the other.
+def am_sym(xs: List<&2, String>, +ys: List<&2, String>) -> {any_member(xs, ys) == any_member(ys, xs) : Bool}:
+  match xs:
+    case Nil{}:
+      am_nil(ys)
+    case +x <> +rest:
+      %Equal.sym(Bool, any_member(rest, ys), any_member(ys, rest), am_sym(rest, ys)) : {Bool.or(Rev.member(ys, x), _) == any_member(ys, x <> rest) : Bool}
+      Equal.sym(Bool, any_member(ys, x <> rest), Bool.or(Rev.member(ys, x), any_member(ys, rest)), am_cons_r(ys, x, rest))
+
+# What one revision names of others: its parents, then what it says it
+# supersedes.
+def named_by(+f: Main.Full) -> List<&2, String>:
+  List.append(&2, String, Main.parents_of(f), Prune.supersedes_of(f))
+
+# Relatedness reads both histories alike.
+def rel_sym(+ours: List<&2, Main.Full>, +theirs: List<&2, Main.Full>) -> {related(ours, theirs) == related(theirs, ours) : Bool}:
+  %or_comm(List.is_empty(&2, Main.Full, theirs), List.is_empty(&2, Main.Full, ours)) : {Bool.or(_, Bool.or(any_member(Main.ids(theirs), Main.ids(ours)), Bool.or(names_one(Main.ids(ours), theirs), names_one(Main.ids(theirs), ours)))) == related(theirs, ours) : Bool}
+  %am_sym(Main.ids(ours), Main.ids(theirs)) : {Bool.or(Bool.or(List.is_empty(&2, Main.Full, theirs), List.is_empty(&2, Main.Full, ours)), Bool.or(_, Bool.or(names_one(Main.ids(ours), theirs), names_one(Main.ids(theirs), ours)))) == related(theirs, ours) : Bool}
+  %or_comm(names_one(Main.ids(theirs), ours), names_one(Main.ids(ours), theirs)) : {Bool.or(Bool.or(List.is_empty(&2, Main.Full, theirs), List.is_empty(&2, Main.Full, ours)), Bool.or(any_member(Main.ids(ours), Main.ids(theirs)), _)) == related(theirs, ours) : Bool}
+  {==}
+
+# Whether `receive` plans between two stores the check passes does not
+# depend on which receives from which.
+def either_way(+here: Receive.Side, +there: Receive.Side, +join: Bool, +hh: {Prune.sound(Receive.stored.of(here)) == True{} : Bool}, +ht: {Prune.sound(Receive.stored.of(there)) == True{} : Bool}) -> {Result.is_done(&2, &2, Main.Refused, Receive.RPlan, Receive.plan.r(here, there, join)) == Result.is_done(&2, &2, Main.Refused, Receive.RPlan, Receive.plan.r(there, here, join)) : Bool}:
+  Equal.trans(Bool, Result.is_done(&2, &2, Main.Refused, Receive.RPlan, Receive.plan.r(here, there, join)), Bool.or(join, related(Receive.side.fulls(here), Receive.side.fulls(there))), Result.is_done(&2, &2, Main.Refused, Receive.RPlan, Receive.plan.r(there, here, join)),
+    joins(here, there, join, hh, ht),
+    Equal.trans(Bool, Bool.or(join, related(Receive.side.fulls(here), Receive.side.fulls(there))), Bool.or(join, related(Receive.side.fulls(there), Receive.side.fulls(here))), Result.is_done(&2, &2, Main.Refused, Receive.RPlan, Receive.plan.r(there, here, join)),
+      Equal.cong(Bool, Bool, z => Bool.or(join, z), related(Receive.side.fulls(here), Receive.side.fulls(there)), related(Receive.side.fulls(there), Receive.side.fulls(here)), rel_sym(Receive.side.fulls(here), Receive.side.fulls(there))),
+      Equal.sym(Bool, Result.is_done(&2, &2, Main.Refused, Receive.RPlan, Receive.plan.r(there, here, join)), Bool.or(join, related(Receive.side.fulls(there), Receive.side.fulls(here))), joins(there, here, join, ht, hh))))
+
+def or_cases(a: Bool, -b: Bool, -X: Bool, h: {Bool.or(a, b) == True{} : Bool}, ha: {a == True{} : Bool} -> {X == True{} : Bool}, hb: {b == True{} : Bool} -> {X == True{} : Bool}) -> {X == True{} : Bool}:
+  match a:
+    case True{}:
+      ha({==})
+    case False{}:
+      hb(h)
+
+def am_hit.of(e: Bool, +x: String, +rest: List<&2, String>, +ys: List<&2, String>, +id: String, +ee: {String.eq(x, id) == e : Bool}, hy: {Rev.member(ys, id) == True{} : Bool}, hx: {Bool.or(e, Rev.member(rest, id)) == True{} : Bool}, ih: {Rev.member(rest, id) == True{} : Bool} -> {any_member(rest, ys) == True{} : Bool}) -> {Bool.or(Rev.member(ys, x), any_member(rest, ys)) == True{} : Bool}:
+  match e:
+    case True{}:
+      %Equal.sym(String, x, id, S.eq_true(x, id, ee)) : {Bool.or(Rev.member(ys, _), any_member(rest, ys)) == True{} : Bool}
+      PruneL.or_lt(Rev.member(ys, id), any_member(rest, ys), hy)
+    case False{}:
+      PruneL.or_rt(Rev.member(ys, x), any_member(rest, ys), ih(hx))
+
+# A string in both lists is one they share.
+def am_hit(xs: List<&2, String>, +ys: List<&2, String>, +id: String, hx: {Rev.member(xs, id) == True{} : Bool}, +hy: {Rev.member(ys, id) == True{} : Bool}) -> {any_member(xs, ys) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      Empty.absurd({False{} == True{} : Bool}, S.false_true(hx))
+    case +x <> +rest:
+      am_hit.of(String.eq(x, id), x, rest, ys, id, {==}, hy, hx, h => am_hit(rest, ys, id, h, hy))
+
+# A revision among these whose parents or supersedes hold a string of
+# `ys` is one that names one of them.
+def no_hit(fs: List<&2, Main.Full>, +ys: List<&2, String>, +id: String, hc: {Rev.member(List.concat(&2, String, T.map(~Main.Full, ~List<&2, String>, ~(f => named_by(f)), fs)), id) == True{} : Bool}, +hy: {Rev.member(ys, id) == True{} : Bool}) -> {names_one(ys, fs) == True{} : Bool}:
+  match fs:
+    case Nil{}:
+      Empty.absurd({False{} == True{} : Bool}, S.false_true(hc))
+    case Main.Full{i, c, +parents, +supersedes, a, w, rb, rv, fa, m} <> +rest:
+      or_cases(Rev.member(List.append(&2, String, parents, supersedes), id), Rev.member(List.concat(&2, String, T.map(~Main.Full, ~List<&2, String>, ~(f => named_by(f)), rest)), id), Bool.or(Bool.or(any_member(parents, ys), any_member(supersedes, ys)), names_one(ys, rest)),
+        Equal.trans(Bool, Bool.or(Rev.member(List.append(&2, String, parents, supersedes), id), Rev.member(List.concat(&2, String, T.map(~Main.Full, ~List<&2, String>, ~(f => named_by(f)), rest)), id)), Rev.member(List.append(&2, String, List.append(&2, String, parents, supersedes), List.concat(&2, String, T.map(~Main.Full, ~List<&2, String>, ~(f => named_by(f)), rest))), id), True{},
+          Equal.sym(Bool, Rev.member(List.append(&2, String, List.append(&2, String, parents, supersedes), List.concat(&2, String, T.map(~Main.Full, ~List<&2, String>, ~(f => named_by(f)), rest))), id), Bool.or(Rev.member(List.append(&2, String, parents, supersedes), id), Rev.member(List.concat(&2, String, T.map(~Main.Full, ~List<&2, String>, ~(f => named_by(f)), rest)), id)), ArrangeL.member_app(List.append(&2, String, parents, supersedes), List.concat(&2, String, T.map(~Main.Full, ~List<&2, String>, ~(f => named_by(f)), rest)), id)), hc),
+        h1 => PruneL.or_lt(Bool.or(any_member(parents, ys), any_member(supersedes, ys)), names_one(ys, rest),
+          or_cases(Rev.member(parents, id), Rev.member(supersedes, id), Bool.or(any_member(parents, ys), any_member(supersedes, ys)),
+            Equal.trans(Bool, Bool.or(Rev.member(parents, id), Rev.member(supersedes, id)), Rev.member(List.append(&2, String, parents, supersedes), id), True{}, Equal.sym(Bool, Rev.member(List.append(&2, String, parents, supersedes), id), Bool.or(Rev.member(parents, id), Rev.member(supersedes, id)), ArrangeL.member_app(parents, supersedes, id)), h1),
+            hp => PruneL.or_lt(any_member(parents, ys), any_member(supersedes, ys), am_hit(parents, ys, id, hp, hy)),
+            hs => PruneL.or_rt(any_member(parents, ys), any_member(supersedes, ys), am_hit(supersedes, ys, id, hs, hy)))),
+        h2 => PruneL.or_rt(Bool.or(any_member(parents, ys), any_member(supersedes, ys)), names_one(ys, rest), no_hit(rest, ys, id, h2, hy)))
+
+# Two histories meet where one of ours is one of theirs, or one a revision
+# of theirs names as a parent or as what it supersedes.
+def related_meets(+ours: List<&2, Main.Full>, +theirs: List<&2, Main.Full>, +id: String, +hi: {Rev.member(Main.ids(ours), id) == True{} : Bool}, hm: {Rev.member(List.append(&2, String, Main.ids(theirs), List.concat(&2, String, T.map(~Main.Full, ~List<&2, String>, ~(f => named_by(f)), theirs))), id) == True{} : Bool}) -> {related(ours, theirs) == True{} : Bool}:
+  or_cases(Rev.member(Main.ids(theirs), id), Rev.member(List.concat(&2, String, T.map(~Main.Full, ~List<&2, String>, ~(f => named_by(f)), theirs)), id), related(ours, theirs),
+    Equal.trans(Bool, Bool.or(Rev.member(Main.ids(theirs), id), Rev.member(List.concat(&2, String, T.map(~Main.Full, ~List<&2, String>, ~(f => named_by(f)), theirs)), id)), Rev.member(List.append(&2, String, Main.ids(theirs), List.concat(&2, String, T.map(~Main.Full, ~List<&2, String>, ~(f => named_by(f)), theirs))), id), True{}, Equal.sym(Bool, Rev.member(List.append(&2, String, Main.ids(theirs), List.concat(&2, String, T.map(~Main.Full, ~List<&2, String>, ~(f => named_by(f)), theirs))), id), Bool.or(Rev.member(Main.ids(theirs), id), Rev.member(List.concat(&2, String, T.map(~Main.Full, ~List<&2, String>, ~(f => named_by(f)), theirs)), id)), ArrangeL.member_app(Main.ids(theirs), List.concat(&2, String, T.map(~Main.Full, ~List<&2, String>, ~(f => named_by(f)), theirs)), id)), hm),
+    h1 => PruneL.or_rt(Bool.or(List.is_empty(&2, Main.Full, ours), List.is_empty(&2, Main.Full, theirs)), Bool.or(any_member(Main.ids(theirs), Main.ids(ours)), Bool.or(names_one(Main.ids(ours), theirs), names_one(Main.ids(theirs), ours))),
+      PruneL.or_lt(any_member(Main.ids(theirs), Main.ids(ours)), Bool.or(names_one(Main.ids(ours), theirs), names_one(Main.ids(theirs), ours)), am_hit(Main.ids(theirs), Main.ids(ours), id, h1, hi))),
+    h2 => PruneL.or_rt(Bool.or(List.is_empty(&2, Main.Full, ours), List.is_empty(&2, Main.Full, theirs)), Bool.or(any_member(Main.ids(theirs), Main.ids(ours)), Bool.or(names_one(Main.ids(ours), theirs), names_one(Main.ids(theirs), ours))),
+      PruneL.or_rt(any_member(Main.ids(theirs), Main.ids(ours)), Bool.or(names_one(Main.ids(ours), theirs), names_one(Main.ids(theirs), ours)),
+        PruneL.or_lt(names_one(Main.ids(ours), theirs), names_one(Main.ids(theirs), ours), no_hit(theirs, Main.ids(ours), id, h2, hi)))))
+
+# Between two stores the check passes, `receive` plans without being asked
+# to join where a revision here is one the source holds or names.
+def meets(+here: Receive.Side, +there: Receive.Side, hh: {Prune.sound(Receive.stored.of(here)) == True{} : Bool}, ht: {Prune.sound(Receive.stored.of(there)) == True{} : Bool}, +id: String, hi: {Rev.member(Main.ids(Receive.side.fulls(here)), id) == True{} : Bool}, hm: {Rev.member(List.append(&2, String, Main.ids(Receive.side.fulls(there)), List.concat(&2, String, T.map(~Main.Full, ~List<&2, String>, ~(f => named_by(f)), Receive.side.fulls(there)))), id) == True{} : Bool}) -> {Result.is_done(&2, &2, Main.Refused, Receive.RPlan, Receive.plan.r(here, there, False{})) == True{} : Bool}:
+  %Equal.sym(Bool, Result.is_done(&2, &2, Main.Refused, Receive.RPlan, Receive.plan.r(here, there, False{})), Bool.or(False{}, related(Receive.side.fulls(here), Receive.side.fulls(there))), joins(here, there, False{}, hh, ht)) : {_ == True{} : Bool}
+  related_meets(Receive.side.fulls(here), Receive.side.fulls(there), id, hi, hm)
+
+# A string no member of `ys` matches is one they do not share.
+def am_none(xs: List<&2, String>, +ys: List<&2, String>, +h: {List.all(~&2, ~String, ~(i => Bool.not(Rev.member(ys, i))), xs) == True{} : Bool}) -> {any_member(xs, ys) == False{} : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      ArrangeL.or_ff(Rev.member(ys, x), any_member(rest, ys),
+        ArrangeL.not_tt(Rev.member(ys, x), ArrangeL.and_tl(Bool.not(Rev.member(ys, x)), List.all(~&2, ~String, ~(i => Bool.not(Rev.member(ys, i))), rest), h)),
+        am_none(rest, ys, ArrangeL.and_tr(Bool.not(Rev.member(ys, x)), List.all(~&2, ~String, ~(i => Bool.not(Rev.member(ys, i))), rest), h)))
+
+def all_app_l(xs: List<&2, String>, +zs: List<&2, String>, +ys: List<&2, String>, +h: {List.all(~&2, ~String, ~(i => Bool.not(Rev.member(ys, i))), List.append(&2, String, xs, zs)) == True{} : Bool}) -> {List.all(~&2, ~String, ~(i => Bool.not(Rev.member(ys, i))), xs) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +x <> +rest:
+      B.and_tt(Bool.not(Rev.member(ys, x)), List.all(~&2, ~String, ~(i => Bool.not(Rev.member(ys, i))), rest), ArrangeL.and_tl(Bool.not(Rev.member(ys, x)), List.all(~&2, ~String, ~(i => Bool.not(Rev.member(ys, i))), List.append(&2, String, rest, zs)), h), all_app_l(rest, zs, ys, ArrangeL.and_tr(Bool.not(Rev.member(ys, x)), List.all(~&2, ~String, ~(i => Bool.not(Rev.member(ys, i))), List.append(&2, String, rest, zs)), h)))
+
+def all_app_r(xs: List<&2, String>, +zs: List<&2, String>, +ys: List<&2, String>, +h: {List.all(~&2, ~String, ~(i => Bool.not(Rev.member(ys, i))), List.append(&2, String, xs, zs)) == True{} : Bool}) -> {List.all(~&2, ~String, ~(i => Bool.not(Rev.member(ys, i))), zs) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      h
+    case +x <> +rest:
+      all_app_r(rest, zs, ys, ArrangeL.and_tr(Bool.not(Rev.member(ys, x)), List.all(~&2, ~String, ~(i => Bool.not(Rev.member(ys, i))), List.append(&2, String, rest, zs)), h))
+
+# Revisions none of whose parents or supersedes is among `ys` name none.
+def no_none(fs: List<&2, Main.Full>, +ys: List<&2, String>, +h: {List.all(~&2, ~String, ~(i => Bool.not(Rev.member(ys, i))), List.concat(&2, String, T.map(~Main.Full, ~List<&2, String>, ~(f => named_by(f)), fs))) == True{} : Bool}) -> {names_one(ys, fs) == False{} : Bool}:
+  match fs:
+    case Nil{}:
+      {==}
+    case Main.Full{i, c, +parents, +supersedes, a, w, rb, rv, fa, m} <> +rest:
+      +hl = all_app_l(List.append(&2, String, parents, supersedes), List.concat(&2, String, T.map(~Main.Full, ~List<&2, String>, ~(f => named_by(f)), rest)), ys, h)
+      ArrangeL.or_ff(Bool.or(any_member(parents, ys), any_member(supersedes, ys)), names_one(ys, rest),
+        ArrangeL.or_ff(any_member(parents, ys), any_member(supersedes, ys), am_none(parents, ys, all_app_l(parents, supersedes, ys, hl)), am_none(supersedes, ys, all_app_r(parents, supersedes, ys, hl))),
+        no_none(rest, ys, all_app_r(List.append(&2, String, parents, supersedes), List.concat(&2, String, T.map(~Main.Full, ~List<&2, String>, ~(f => named_by(f)), rest)), ys, h)))
+
+# Two nonempty histories sharing no revision, where no revision of either
+# names one of the other's, are unrelated.
+def unrelated(+ours: List<&2, Main.Full>, +theirs: List<&2, Main.Full>, no: {List.is_empty(&2, Main.Full, ours) == False{} : Bool}, nt: {List.is_empty(&2, Main.Full, theirs) == False{} : Bool}, hs: {List.all(~&2, ~String, ~(i => Bool.not(Rev.member(Main.ids(ours), i))), Main.ids(theirs)) == True{} : Bool}, eo: {List.all(~&2, ~String, ~(i => Bool.not(Rev.member(Main.ids(theirs), i))), List.concat(&2, String, T.map(~Main.Full, ~List<&2, String>, ~(f => named_by(f)), ours))) == True{} : Bool}, et: {List.all(~&2, ~String, ~(i => Bool.not(Rev.member(Main.ids(ours), i))), List.concat(&2, String, T.map(~Main.Full, ~List<&2, String>, ~(f => named_by(f)), theirs))) == True{} : Bool}) -> {related(ours, theirs) == False{} : Bool}:
+  ArrangeL.or_ff(Bool.or(List.is_empty(&2, Main.Full, ours), List.is_empty(&2, Main.Full, theirs)), Bool.or(any_member(Main.ids(theirs), Main.ids(ours)), Bool.or(names_one(Main.ids(ours), theirs), names_one(Main.ids(theirs), ours))),
+    ArrangeL.or_ff(List.is_empty(&2, Main.Full, ours), List.is_empty(&2, Main.Full, theirs), no, nt),
+    ArrangeL.or_ff(any_member(Main.ids(theirs), Main.ids(ours)), Bool.or(names_one(Main.ids(ours), theirs), names_one(Main.ids(theirs), ours)), am_none(Main.ids(theirs), Main.ids(ours), hs),
+      ArrangeL.or_ff(names_one(Main.ids(ours), theirs), names_one(Main.ids(theirs), ours), no_none(theirs, Main.ids(ours), et), no_none(ours, Main.ids(theirs), eo))))
+
+# `receive` refuses two such stores, and plans between them when asked to
+# join them.
+def refuses(+here: Receive.Side, +there: Receive.Side, +hh: {Prune.sound(Receive.stored.of(here)) == True{} : Bool}, +ht: {Prune.sound(Receive.stored.of(there)) == True{} : Bool}, nh: {List.is_empty(&2, Main.Full, Receive.side.fulls(here)) == False{} : Bool}, nt: {List.is_empty(&2, Main.Full, Receive.side.fulls(there)) == False{} : Bool}, hs: {List.all(~&2, ~String, ~(i => Bool.not(Rev.member(Main.ids(Receive.side.fulls(here)), i))), Main.ids(Receive.side.fulls(there))) == True{} : Bool}, eh: {List.all(~&2, ~String, ~(i => Bool.not(Rev.member(Main.ids(Receive.side.fulls(there)), i))), List.concat(&2, String, T.map(~Main.Full, ~List<&2, String>, ~(f => named_by(f)), Receive.side.fulls(here)))) == True{} : Bool}, et: {List.all(~&2, ~String, ~(i => Bool.not(Rev.member(Main.ids(Receive.side.fulls(here)), i))), List.concat(&2, String, T.map(~Main.Full, ~List<&2, String>, ~(f => named_by(f)), Receive.side.fulls(there)))) == True{} : Bool}) -> {(Receive.plan.r(here, there, False{}), Result.is_done(&2, &2, Main.Refused, Receive.RPlan, Receive.plan.r(here, there, True{}))) == (Fail{Main.Refused{1, "these nonempty stores share no revision or graph edge; use `--join-unrelated` only if combining two histories is intended"}}, True{}) : Result<&2, &2, Main.Refused, Receive.RPlan> & Bool}:
+  %Equal.sym(Bool, Result.is_done(&2, &2, Main.Refused, Receive.RPlan, Receive.plan.r(here, there, True{})), Bool.or(True{}, related(Receive.side.fulls(here), Receive.side.fulls(there))), joins(here, there, True{}, hh, ht)) : {(Receive.plan.r(here, there, False{}), _) == (Fail{Main.Refused{1, "these nonempty stores share no revision or graph edge; use `--join-unrelated` only if combining two histories is intended"}}, True{}) : Result<&2, &2, Main.Refused, Receive.RPlan> & Bool}
+  %Equal.sym(Bool, Prune.sound(Receive.stored.of(here)), True{}, hh) : {(Receive.plan.here(_, here, there, False{}), True{}) == (Fail{Main.Refused{1, "these nonempty stores share no revision or graph edge; use `--join-unrelated` only if combining two histories is intended"}}, True{}) : Result<&2, &2, Main.Refused, Receive.RPlan> & Bool}
+  %Equal.sym(Bool, Prune.sound(Receive.stored.of(there)), True{}, ht) : {(Receive.plan.source(_, here, there, False{}), True{}) == (Fail{Main.Refused{1, "these nonempty stores share no revision or graph edge; use `--join-unrelated` only if combining two histories is intended"}}, True{}) : Result<&2, &2, Main.Refused, Receive.RPlan> & Bool}
+  %Equal.sym(Bool, Receive.related(Receive.side.fulls(here), Receive.side.fulls(there)), related(Receive.side.fulls(here), Receive.side.fulls(there)), related_is(Receive.side.fulls(here), Receive.side.fulls(there))) : {(Receive.plan.related(_, here, there), True{}) == (Fail{Main.Refused{1, "these nonempty stores share no revision or graph edge; use `--join-unrelated` only if combining two histories is intended"}}, True{}) : Result<&2, &2, Main.Refused, Receive.RPlan> & Bool}
+  %Equal.sym(Bool, related(Receive.side.fulls(here), Receive.side.fulls(there)), False{}, unrelated(Receive.side.fulls(here), Receive.side.fulls(there), nh, nt, hs, eh, et)) : {(Receive.plan.related(_, here, there), True{}) == (Fail{Main.Refused{1, "these nonempty stores share no revision or graph edge; use `--join-unrelated` only if combining two histories is intended"}}, True{}) : Result<&2, &2, Main.Refused, Receive.RPlan> & Bool}
+  {==}

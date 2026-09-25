@@ -626,12 +626,16 @@ def cached(ls: List<&2, String>) -> List<&2, String>:
     case +l <> rest:
       Rev.keep(Bool.and(String.starts_with(l, "f "), T.is_digest(entry_name(l))), entry_name(l), cached(rest))
 
+# What clearing `cache/` removes, given the directory's listing.
+def cleared.paths(+text: String) -> List<&2, String>:
+  T.map(~String, ~String, ~(n => "cache/" ++ n), cached(String.lines(text)))
+
 def cleared.of(+r: String, listed: Result<&1, &1, U32 & String, String>) -> IO(Unit):
   match listed:
     case Fail{e}:
       IO.pure(Unit, Unit{})
-    case Done{text}:
-      removed(r, T.map(~String, ~String, ~(n => "cache/" ++ n), cached(String.lines(text))))
+    case Done{+text}:
+      removed(r, cleared.paths(text))
 
 # `cache/` cleared of what it derived, quietly: nothing there is lost.
 def cleared(+r: String) -> IO(Unit):

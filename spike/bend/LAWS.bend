@@ -3026,8 +3026,9 @@ law arrange_plans_no_overwrite:
   {Bool.or(String.eq(from, to), Rev.member(ls, to)) == False{} : Bool}
 
 # Without `--refile`, `arrange` renames a revision document only within
-# the directory it sits in: a folder a person filed one in is one they
-# meant, and the stem's month is `--refile`'s to apply.
+# the directory it sits in: every rename it plans in `revisions/` leaves
+# the path what it was up to its last `/`, so a folder a person filed one
+# in is one they meant, and the stem's month is `--refile`'s to apply.
 law arrange_keeps_a_revision_where_it_sits:
   for +fs: List<&2, Main.Full>
   for +revs: List<&2, T.Split>
@@ -3035,7 +3036,7 @@ law arrange_keeps_a_revision_where_it_sits:
   for +ls: List<&2, String>
   for +a: Arrange.Arrangement
   for e: {Arrange.arrangement.r(False{}, fs, revs, ops, ls) == Done{a} : Result<&2, &2, Main.Refused, Arrange.Arrangement>}
-  {Arrange.all_in_place(Arrange.arrangement.revs(a)) == True{} : Bool}
+  {ArrangeL.stays(Arrange.done.renamed(Arrange.arrangement.revs(a))) == True{} : Bool}
 
 # `arrange` opens no store holding a revision document whose text does not
 # parse, wherever among the store's files it stands, as the Rust tool
@@ -3053,9 +3054,12 @@ law arrange_opens_what_parses:
   for hf: {Rev.parse(text) == Fail{msg} : Result<&2, &2, String, Rev.Rev>}
   {Result.is_done(&2, &2, Main.Refused, Unit, Arrange.opened.r(List.append(&2, Store.Doc, pre, Store.Doc{path, id, size, text} <> post))) == False{} : Bool}
 
-# Every file `arrange` walks is counted once in what it prints for its
-# directory: renamed, already arranged, left because its name is taken, or
-# named by no revision. Nothing it looked at goes unsaid.
+# Every file `arrange` walks is placed once, from where the walk found it
+# and in the walk's order, and the counts each directory's report ends
+# with — renamed, already arranged, left as duplicates, named by no
+# revision — add up to the files the walk found there: in a dry run, and
+# in the real run whatever each rename comes to, done or left because its
+# name filled after the plan was made.
 law arrange_counts_every_file:
   for +refile: Bool
   for +fs: List<&2, Main.Full>
@@ -3064,7 +3068,11 @@ law arrange_counts_every_file:
   for +ls: List<&2, String>
   for +a: Arrange.Arrangement
   for e: {Arrange.arrangement.r(refile, fs, revs, ops, ls) == Done{a} : Result<&2, &2, Main.Refused, Arrange.Arrangement>}
-  {Arrange.accounted(a, revs, ops) == True{} : Bool}
+  for +ro: List<&2, Bool>
+  for +oo: List<&2, Bool>
+  for h1: {List.length(&2, Bool, ro) == List.length(&2, T.Split, Arrange.done.renamed(Arrange.arrangement.revs(a))) : Nat}
+  for h2: {List.length(&2, Bool, oo) == List.length(&2, T.Split, Arrange.done.renamed(Arrange.arrangement.ops(a))) : Nat}
+  {((T.map(~Arrange.Placing, ~String, ~(q => ArrangeL.placing.path(q)), Arrange.arrangement.revs(a)), (ArrangeL.tally(Arrange.planned(Arrange.arrangement.revs(a))), ArrangeL.tally(Arrange.act.came(Arrange.arrangement.revs(a), ro)))), (T.map(~Arrange.Placing, ~String, ~(q => ArrangeL.placing.path(q)), Arrange.arrangement.ops(a)), (ArrangeL.tally(Arrange.planned(Arrange.arrangement.ops(a))), ArrangeL.tally(Arrange.act.came(Arrange.arrangement.ops(a), oo))))) == ((T.map(~T.Split, ~String, ~(s => ArrangeL.first(s)), revs), (List.length(&2, T.Split, revs), List.length(&2, T.Split, revs))), (T.map(~T.Split, ~String, ~(s => ArrangeL.first(s)), ops), (List.length(&2, T.Split, ops), List.length(&2, T.Split, ops)))) : (List<&2, String> & (Nat & Nat)) & (List<&2, String> & (Nat & Nat))}
 
 # `arrange` moves each file once: of each directory, a path is renamed
 # from no more often than the walk found a file there, so a file the walk
@@ -3113,22 +3121,43 @@ law prune_lets_go_only_what_is_superseded:
   for hk: {Rev.member(Main.ids(Prune.kept(fs)), id) == False{} : Bool}
   {PruneL.supersedes_any(fs, id) == True{} : Bool}
 
-# `prune --dry-run` and `prune` plan the same: of any store, the dry run
-# removes nothing and names, a line each and in the order they would go,
-# exactly the files the real run removes, and the real run names the same
-# files as it removes them; where nothing is prunable, both say so.
+# `prune --dry-run` names what `prune` removes: of any plan, a line
+# `would remove history/<path>` is among what the dry run prints exactly
+# where the real run removes that path, and the real run prints `removed
+# history/<path>` for exactly the paths it removes. Where nothing is
+# prunable, the line either prints names no path at all.
 law prune_dry_run_names_what_prune_removes:
-  for +s: Prune.Stored
-  {(Prune.act.says(Prune.act.of(True{}, False{}, Prune.stored.plan(s))), (Prune.act.says(Prune.act.of(False{}, False{}, Prune.stored.plan(s))), Prune.act.removes(Prune.act.of(True{}, False{}, Prune.stored.plan(s))))) == (PruneL.report(Prune.act.removes(Prune.act.of(False{}, False{}, Prune.stored.plan(s))), T.map(~String, ~String, ~(f => "would remove history/" ++ f), Prune.act.removes(Prune.act.of(False{}, False{}, Prune.stored.plan(s))))), (PruneL.report(Prune.act.removes(Prune.act.of(False{}, False{}, Prune.stored.plan(s))), T.map(~String, ~String, ~(f => "removed history/" ++ f), Prune.act.removes(Prune.act.of(False{}, False{}, Prune.stored.plan(s))))), Nil{})) : List<&2, String> & (List<&2, String> & List<&2, String>)}
+  for +p: Prune.Pruned
+  for +x: String
+  {(Rev.member(Prune.act.says(Prune.act.of(True{}, False{}, p)), "would remove history/" ++ x), Rev.member(Prune.act.says(Prune.act.of(False{}, False{}, p)), "removed history/" ++ x)) == (Rev.member(Prune.act.removes(Prune.act.of(False{}, False{}, p)), x), Rev.member(Prune.act.removes(Prune.act.of(False{}, False{}, p)), x)) : Bool & Bool}
+
+# Every file `prune` removes is one of the store's that may go: a revision
+# document holding a revision a revision of the store says, in its own
+# `supersedes`, that it supersedes, and that no revision `prune` keeps
+# names as a parent; or an operation document or payload holding a digest
+# no revision it keeps names by its own `edit`, `text` or `bytes` facts,
+# and that no forgetting document standing in for such content is filed
+# under.
+law prune_removes_only_files_that_may_go:
+  for +fs: List<&2, Main.Full>
+  for +revs: List<&2, T.Split>
+  for +bs: List<&2, Prune.Body>
+  for +ps: List<&2, T.Split>
+  for +x: String
+  for h: {Rev.member(Prune.act.removes(Prune.act.of(False{}, False{}, Prune.plan(fs, revs, bs, ps))), x) == True{} : Bool}
+  {Bool.or(PruneL.rev_goes(revs, fs, x), Bool.or(PruneL.content_goes(T.map(~Prune.Body, ~T.Split, ~(b => Prune.body.split(b)), bs), fs, bs, x), PruneL.content_goes(ps, fs, bs, x))) == True{} : Bool}
 
 # `prune` clears from `cache/` only files named by a digest — what any
-# reader rebuilds, and what may hold content it has just destroyed; the
-# note `init` writes there, or anything else a person put there, stays.
+# reader rebuilds, and what may hold content it has just destroyed: every
+# path it removes there is `cache/` and the name a file line (`f `) of
+# the directory's listing gives, sixty-four lowercase hexadecimal digits.
+# So it never removes `cache/README.txt`, the note `init` writes, and a
+# directory, or a file a person put there under any other name, stays.
 law prune_clears_only_derived_files:
-  for +ls: List<&2, String>
-  for +x: String
-  for h: {Rev.member(Prune.cached(ls), x) == True{} : Bool}
-  {T.is_digest(x) == True{} : Bool}
+  for +text: String
+  for +y: String
+  for h: {Rev.member(Prune.cleared.paths(text), y) == True{} : Bool}
+  {Bool.and(PruneL.derived(String.lines(text), y), Bool.not(String.eq(y, "cache/README.txt"))) == True{} : Bool}
 
 # Every operation document and payload `prune` removes holds a digest no
 # revision it keeps names — read from that revision's own `edit`, `text`
@@ -3181,18 +3210,47 @@ law receive_takes_only_payloads_it_lacks:
   for h: {ReceiveL.lists(ReceiveL.rplan.payloads(Receive.plan.of(here, there)), path, d) == True{} : Bool}
   {Bool.and(Bool.not(Bool.or(Rev.member(T.map(~T.Split, ~String, ~(s => Receive.split.digest(s)), Receive.stored.payloads(Receive.stored.of(here))), d), Bool.or(Receive.forgot.by(Receive.stored.bodies(Receive.stored.of(here)), d), Receive.forgot.by(Receive.stored.bodies(Receive.stored.of(there)), d)))), ReceiveL.lists(Receive.stored.payloads(Receive.stored.of(there)), path, d)) == True{} : Bool}
 
-# Between two stores the check passes, `receive` plans exactly where it
-# was given `--join-unrelated` or the histories are related as decision
-# 0029 has it, read from the revisions themselves: one store is empty, or
-# they share a revision, or a revision of either names one of the other's
-# as a parent or as what it supersedes. Anything else is refused.
-law receive_joins_only_related_histories:
+# Between two stores the check passes, `receive` plans without being given
+# `--join-unrelated` where a revision this store holds is one the source
+# holds too, or one a revision of the source names as a parent or as what
+# it supersedes: a source that shares this store's history, or was built
+# on it, is the same history as decision 0029 has it.
+law receive_joins_histories_that_meet:
+  for +here: Receive.Side
+  for +there: Receive.Side
+  for hh: {Prune.sound(Receive.stored.of(here)) == True{} : Bool}
+  for ht: {Prune.sound(Receive.stored.of(there)) == True{} : Bool}
+  for +id: String
+  for hi: {Rev.member(Main.ids(Receive.side.fulls(here)), id) == True{} : Bool}
+  for hm: {Rev.member(List.append(&2, String, Main.ids(Receive.side.fulls(there)), List.concat(&2, String, T.map(~Main.Full, ~List<&2, String>, ~(f => ReceiveL.named_by(f)), Receive.side.fulls(there)))), id) == True{} : Bool}
+  {Result.is_done(&2, &2, Main.Refused, Receive.RPlan, Receive.plan.r(here, there, False{})) == True{} : Bool}
+
+# `receive` refuses two nonempty stores the check passes that share no
+# revision, where no revision of either names one of the other's as a
+# parent or as what it supersedes, saying so and naming
+# `--join-unrelated`; and, given it, plans between them.
+law receive_refuses_unrelated_histories:
+  for +here: Receive.Side
+  for +there: Receive.Side
+  for hh: {Prune.sound(Receive.stored.of(here)) == True{} : Bool}
+  for ht: {Prune.sound(Receive.stored.of(there)) == True{} : Bool}
+  for nh: {List.is_empty(&2, Main.Full, Receive.side.fulls(here)) == False{} : Bool}
+  for nt: {List.is_empty(&2, Main.Full, Receive.side.fulls(there)) == False{} : Bool}
+  for hs: {List.all(~&2, ~String, ~(i => Bool.not(Rev.member(Main.ids(Receive.side.fulls(here)), i))), Main.ids(Receive.side.fulls(there))) == True{} : Bool}
+  for eh: {List.all(~&2, ~String, ~(i => Bool.not(Rev.member(Main.ids(Receive.side.fulls(there)), i))), List.concat(&2, String, T.map(~Main.Full, ~List<&2, String>, ~(f => ReceiveL.named_by(f)), Receive.side.fulls(here)))) == True{} : Bool}
+  for et: {List.all(~&2, ~String, ~(i => Bool.not(Rev.member(Main.ids(Receive.side.fulls(here)), i))), List.concat(&2, String, T.map(~Main.Full, ~List<&2, String>, ~(f => ReceiveL.named_by(f)), Receive.side.fulls(there)))) == True{} : Bool}
+  {(Receive.plan.r(here, there, False{}), Result.is_done(&2, &2, Main.Refused, Receive.RPlan, Receive.plan.r(here, there, True{}))) == (Fail{Main.Refused{1, "these nonempty stores share no revision or graph edge; use `--join-unrelated` only if combining two histories is intended"}}, True{}) : Result<&2, &2, Main.Refused, Receive.RPlan> & Bool}
+
+# Whether `receive` plans between two stores the check passes does not
+# depend on which of them receives from the other: the histories are one
+# history or two whichever way round they are read.
+law receive_answers_the_same_either_way:
   for +here: Receive.Side
   for +there: Receive.Side
   for +join: Bool
   for hh: {Prune.sound(Receive.stored.of(here)) == True{} : Bool}
   for ht: {Prune.sound(Receive.stored.of(there)) == True{} : Bool}
-  {Result.is_done(&2, &2, Main.Refused, Receive.RPlan, Receive.plan.r(here, there, join)) == Bool.or(join, ReceiveL.related(Receive.side.fulls(here), Receive.side.fulls(there))) : Bool}
+  {Result.is_done(&2, &2, Main.Refused, Receive.RPlan, Receive.plan.r(here, there, join)) == Result.is_done(&2, &2, Main.Refused, Receive.RPlan, Receive.plan.r(there, here, join)) : Bool}
 
 # `receive` moves no bookmark this store has, though it may add one: each
 # it writes, by name and by the target it spells, is one this store has
