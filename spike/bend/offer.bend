@@ -30,6 +30,9 @@ import ./prune.bend as Prune
 import ./receive.bend as Receive
 import ./folder.bend as Folder
 import ./tree.bend as Tree
+import ./standin.bend as Stand
+import ./resolution.bend as Res
+import ./ops.bend as Ops
 
 # The words
 # ---------
@@ -281,6 +284,28 @@ def prefix.of(+copy: String, real: Result<&1, &1, U32 & String, String>) -> Stri
     case Fail{e}:
       Naming.last(copy)
 
+# What the Rust tool's catalogue of `operations/` says a document forgets,
+# which is what its manifest lists: a payload's stand-in and an operation
+# document their `forgets` line, and a resolution nothing, since the
+# catalogue parses no resolution — a forgetting one included.
+def catalogue.forgets(+text: String) -> Maybe<&2, String>:
+  Bool.pick(Maybe<&2, String>, Prune.forgotten.payload(T.lines(text)), Stand.payload.forgets(Stand.payload.parse(text)),
+    Bool.pick(Maybe<&2, String>, Res.is_resolution(text), None{}, Prune.ops.forgets(Ops.parse(text))))
+
+def catalogued(+root: String, ds: List<&2, Store.Doc>) -> List<&2, Prune.Body>:
+  match ds:
+    case Nil{}:
+      Nil{}
+    case Store.Doc{+path, +id, n, +text} <> rest:
+      Prune.Body{Store.relative(root, path), id, True{}, catalogue.forgets(text)} <> catalogued(root, rest)
+
+# The store as the catalogue has it: each document with what the catalogue
+# says it forgets.
+def stored.catalogued(+root: String, s: Prune.Stored) -> Prune.Stored:
+  match s:
+    case Prune.Stored{docs, revs, +od, bs, ps, names, rules}:
+      Prune.Stored{docs, revs, od, List.sort(~Prune.Body, ~(a => b => Prune.body_le(a, b)), catalogued(root, od)), ps, names, rules}
+
 def offer(+args: List<&2, String>) -> IO(Unit):
   do IO<Unit>:
     dir : String <- Main.refused.io(String, args.r(args))
@@ -291,7 +316,7 @@ def offer(+args: List<&2, String>) -> IO(Unit):
     Main.refused.io(Unit, header.r(copy, header))
     +root : String = copy ++ "/history"
     st : Prune.Stored <- Prune.read(root)
-    +st2 : Prune.Stored = st
+    +st2 : Prune.Stored = stored.catalogued(root, st)
     Main.refused.io(Unit, Arrange.opened.r(List.sort(~Store.Doc, ~(a => b => Arrange.doc_le(a, b)), Receive.stored.docs(st2))))
     bs : List<&2, Bm.Bookmark> <- Main.bookmarks(root)
     +bs2 : List<&2, Bm.Bookmark> = bs

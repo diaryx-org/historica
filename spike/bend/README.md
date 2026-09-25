@@ -1097,7 +1097,17 @@ bytes, and a second span of the first document, so that two stand-ins name
 one digest; forty-five commands read it — `log`, `files`, `cat`, `show`,
 `diff`, `blame` and `status` at the revisions it touched, and `record`,
 `amend` and `carry` over it, with the store compared after — and ten
-`forget`s run over what is already forgotten.
+`forget`s run over what is already forgotten. The moves read it too:
+`prune`, `receive` from itself, `offer`, and three `export`s, each copy
+compared whole. The part of `check` those ask first reads `operations/`
+in three grammars, as the Rust tool's `Store::body` does — a payload's
+stand-in, told by its `length` header, before a resolution and an
+operation document — so a store that forgot a payload is not called
+broken; and an export carries every forgetting document with what it
+stands in for and lays each file out as `cat` reads it. `offer` lists
+what the Rust tool's catalogue of `operations/` says each document
+forgets, and that catalogue parses no resolution: a forgetting resolution
+is listed as forgetting nothing (`-`), there as here.
 
 `forget <target> <path> --lines <first>..<last>` destroys a span's text
 everywhere history quotes it (`forget.bend`). The lines are those the
@@ -1965,10 +1975,8 @@ is under 5k. Not ported:
   every command at once, elsewhere.
 - **`export`'s edges**: the folder a copy is caught up to is read from
   this store's documents rather than the copy's, which differ only where
-  the copy lacks bytes this store holds; a path the tree places under a
-  file the folder holds is refused in the port's words; and a file of lines
-  the target holds whose content a forgetting document stands in for is
-  not read, as `cat` does not read one (**Forgetting**, above). The copy's
+  the copy lacks bytes this store holds; and a path the tree places under a
+  file the folder holds is refused in the port's words. The copy's
   documents are written as they were read, not rewritten from what they
   parse to, which is the same bytes in any store `check` passes.
 
