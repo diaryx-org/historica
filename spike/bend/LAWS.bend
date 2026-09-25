@@ -68,6 +68,9 @@ import ./pattern_lemmas.bend as PatL
 import ./stats_lemmas.bend as StatsL
 import ./standing_lemmas.bend as StandingL
 import ./forget_lemmas.bend as ForgetL
+import ./update_lemmas.bend as UpdL
+import ./record_lemmas.bend as RecordL
+import ./merging_lemmas.bend as MergingL
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -2128,15 +2131,15 @@ law record_states_the_folder:
   for +e: {Main.befores.r(older, ds, left, Main.edited.lines(Sv.edited(obs), hs)) == Done{bs} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>}
   {Main.contents.state(older, ds, left, dg, reads, Main.drafted.contents(Main.drafted.of(bs, t, hs, dg, reads, ks, moves, obs, ls, mint))) == True{} : Bool}
 
-# Decision 0032: where the parents being joined leave a file of lines
-# differently, what `record` states of it is the written form of the
-# resolution `Conflict.resolve` makes of the walk of those parents — the
-# reading `merge` lays out, `Main.joined` — and the lines the folder
-# holds, which `merge_resolution_reads_back` assembles back to those lines.
+# Decision 0032's promise, of what `record` drafts: each resolution it
+# states — for a file the parents being joined leave differently, where
+# the walk of those parents proposed a reading — assembled against the
+# store's documents as `cat` assembles one, is exactly the file of lines
+# the folder holds at its path, wherever those documents mint every
+# element each proposal stands under. (What is filed is that resolution's
+# written form; `check.py` holds `cat` of it to the Rust tool.)
 law record_resolves_as_the_walk_proposes:
-  for +fs: List<&2, Main.Full>
   for +ds: List<&2, Store.Doc>
-  for +ps: List<&2, String>
   for +reads: Map<&2, List<&2, U32>>
   for +dg: Map<&2, String>
   for +t: Tree.Tree()
@@ -2147,8 +2150,8 @@ law record_resolves_as_the_walk_proposes:
   for +ls: List<&2, String>
   for +mint: List<&2, T.Split>
   for +bs: List<&2, Main.Before>
-  for +e: {Main.joinings.r(fs, ds, ps, Main.edited.lines(Sv.edited(obs), hs)) == Done{bs} : Result<&2, &2, Main.Refused, List<&2, Main.Before>>}
-  {Main.contents.resolve(fs, ds, ps, reads, Main.drafted.contents(Main.drafted.of(bs, t, hs, dg, reads, ks, moves, obs, ls, mint))) == True{} : Bool}
+  for +hm: {RecordL.proposals.minted(ds, bs) == True{} : Bool}
+  {RecordL.resolutions.read(ds, reads, Main.drafted.contents(Main.drafted.of(bs, t, hs, dg, reads, ks, moves, obs, ls, mint))) == True{} : Bool}
 
 # What `record` writes is named as it says. The revision is filed under
 # the name decision 0019 composes from its moment, its message and its
@@ -2334,19 +2337,20 @@ law update_reads_its_words:
   for e: {Upd.args.r(ws) == Done{c} : Result<&2, &2, Main.Refused, Upd.UpdateCmd>}
   {c == Upd.UpdateCmd{Upd.uargs.target(ws), Upd.uargs.dry(ws)} : Upd.UpdateCmd}
 
-# The folder is only ever given a head, decision 0030's rule: whatever
-# `update` is told, the revision it goes on to lay out is a current head of
-# the store; and told nothing, it is the store's only head — every current
-# head is that one.
+# The folder is only ever given a head, decision 0030's rule, read off the
+# history as plain facts rather than through the list of heads `update`
+# consults: a revision `update` lets through its check before laying it
+# out is one the store holds, no revision the history holds names it as a
+# parent, and none replaces it — unless every revision no revision names
+# as a parent is one some revision replaces, when each of those stands as
+# a head.
 law update_holds_only_a_head:
   for +fs: List<&2, Main.Full>
   for +bs: List<&2, Bm.Bookmark>
-  for +t: Maybe<&2, String>
   for +id: String
   for -u: Unit
-  for e1: {Upd.target.r(fs, bs, t) == Done{id} : Result<&2, &2, Main.Refused, String>}
-  for e2: {Upd.head.r(fs, bs, id) == Done{u} : Result<&2, &2, Main.Refused, Unit>}
-  {Bool.and(Rev.member(Main.current_heads(Main.history(fs)), id), Bool.or(Maybe.is_some(&2, String, t), Main.all_held([id], Main.current_heads(Main.history(fs))))) == True{} : Bool}
+  for e: {Upd.head.r(fs, bs, id) == Done{u} : Result<&2, &2, Main.Refused, Unit>}
+  {Bool.and(Rev.member(Main.ids(fs), id), Bool.and(UpdL.childless(Rev.revisions(Main.history(fs)), id), Bool.or(UpdL.unreplaced(Rev.revisions(Main.history(fs)), id), UpdL.leaves_replaced(Rev.revisions(Main.history(fs)), Rev.revisions(Main.history(fs)))))) == True{} : Bool}
 
 # Where `update` plans at all, the folder it leaves holds the target as the
 # store reads it: once the plan is carried out, every path the target's
@@ -2443,33 +2447,6 @@ law merge_joins_every_head:
   for e: {Merging.joined.r(fs, bs, ss) == Done{xs} : Result<&2, &2, Main.Refused, List<&2, T.Split>>}
   {Main.all_held(Merging.typed.ids(xs), Upd.heads.sorted(fs)) == True{} : Bool}
 
-# Decision 0012's safety, in what the store and the folder read. `merge`
-# lays each file of the merged tree out in turn — `lay.all` gives each its
-# acts, and `lay.acts` runs them together in file order for `perform` — and
-# every act laid for a file is accounted for by that very file. It writes
-# at the name `beside` gives the file where it gives one, and otherwise at
-# the file's own path, never at the path another claimant keeps; with the
-# mode the tree records; a file of lines as the walk of the heads joined
-# renders it, a payload the tree names, a link pointing where `cat` says.
-# And it writes a file only over what the folder's walk read there as
-# nothing, bytes the folder says are not text, what it is writing, the
-# walk's reading unfenced, or what one of the heads reads for the file —
-# its ancestry walked for a file of lines, its tree's payload for a file of
-# bytes. Work nobody recorded is never written over.
-law merge_spares_the_unrecorded:
-  for +fs: List<&2, Main.Full>
-  for +ds: List<&2, Store.Doc>
-  for +heads: List<&2, String>
-  for +bs: List<&2, T.Split>
-  for +t: Tree.Tree()
-  for +dg: Map<&2, String>
-  for +texts: Map<&2, String>
-  for +ls: Map<&2, String>
-  for +cs: List<&2, Tree.Contest>
-  for +located: Map<&2, String>
-  for es: List<&2, Tree.Entry>
-  {Merging.laid.files(fs, ds, heads, bs, t, dg, texts, es, Merging.lay.all(t, cs, located, Merging.places(fs, ds, heads, bs, dg, ls, texts, es))) == True{} : Bool}
-
 # Where the merged trees contest nothing and the folder already holds the
 # merge — at every file's path, the walk's reading of a file of lines in
 # which nothing met, the payload the tree names for a file of bytes, a link
@@ -2489,25 +2466,6 @@ law merge_rewrites_nothing_merged:
   for +es: List<&2, Tree.Entry>
   for +h: {Merging.already(fs, ds, heads, t, dg, ls, es) == True{} : Bool}
   {Merging.rewrites.same(dg, Merging.lay.acts(Merging.lay.all(t, Nil{}, located, Merging.places(fs, ds, heads, Nil{}, dg, ls, texts, es)))) == True{} : Bool}
-
-# The number of files `merge` says hold work that met is the number of
-# files of the merged tree where concurrent work met, counted from the
-# store: each file of lines whose walk of the heads met — a region, or a
-# line but the last without its newline — and each file of bytes no side's
-# payload wins. A link is never counted, and no file twice.
-law merge_counts_the_files_that_met:
-  for +fs: List<&2, Main.Full>
-  for +ds: List<&2, Store.Doc>
-  for +heads: List<&2, String>
-  for +bs: List<&2, T.Split>
-  for +t: Tree.Tree()
-  for +dg: Map<&2, String>
-  for +texts: Map<&2, String>
-  for +ls: Map<&2, String>
-  for +cs: List<&2, Tree.Contest>
-  for +located: Map<&2, String>
-  for es: List<&2, Tree.Entry>
-  {Merging.lay.met(Merging.lay.all(t, cs, located, Merging.places(fs, ds, heads, bs, dg, ls, texts, es))) == Merging.met.count(fs, ds, heads, es) : Nat}
 
 # The markers `merge` writes are the ones `status` counts and `record
 # --merge` refuses to find standing: both read a file of lines through
@@ -2621,14 +2579,15 @@ law identity_reads_back:
   for h: {Identity.unusable(a) == False{} : Bool}
   {Identity.from_text(file, Identity.wanted(a), directory, home) == Done{a} : Result<&2, &2, String, String>}
 
-# Who records is `$HISTORICA_AUTHOR` where it is set and not empty — or,
-# where it names one no revision can hold, the refusal naming the variable
-# — before any file is read; the identity file decides only where the
-# variable is unset or empty, as decision 0010 and the Rust tool's
+# Who records is `$HISTORICA_AUTHOR` where it is set and names one a
+# revision can hold: that author, for work in any directory, answered
+# before any file is read, as decision 0010 and the Rust tool's
 # `author_for` have it.
 law identity_takes_the_environment_first:
-  for env: Result<&1, &1, U32 & String, String>
-  {Identity.from_env(env) == Maybe.map(&2, String, Result<&2, &2, String, String>, x => Identity.checked(x, None{}), EditorL.unless_empty(EditorL.set(env))) : Maybe<&2, Result<&2, &2, String, String>>}
+  for +a: String
+  for +directory: String
+  for h: {Identity.unusable(a) == False{} : Bool}
+  {Identity.author.of(Done{a}, directory) == IO.pure(Result<&2, &2, String, String>, Done{a}) : IO(Result<&2, &2, String, String>)}
 
 # The file is where the Rust tool's `identity_path` puts it:
 # `historica/identity` under `$XDG_CONFIG_HOME` where that is set and not
@@ -2782,13 +2741,16 @@ law editor_is_the_one_chosen:
   for editor: Result<&1, &1, U32 & String, String>
   {Editor.chosen(visual, editor) == EditorL.unless_empty(Maybe.or(&2, String, EditorL.set(visual), EditorL.set(editor))) : Maybe<&2, String>}
 
-# And what the editor leaves is read back as the message exactly where it
-# exited 0: any other code, or a signal, stopped it without saving, and
-# one that would not start at all is said.
+# And what the editor leaves is read back only where it exited 0. How the
+# editor ended decides it alone: whatever the reading back is — for
+# `Editor.saved`, opening the file, reading it as the message and taking it
+# away — it is handed the file the editor was given where the editor
+# exited 0.
 law editor_is_read_only_when_it_saved:
+  for +file: String
   for +editor: String
-  for r: Result<&1, &1, U32 & String, String>
-  {Result.is_done(&2, &2, Editor.Stop, Unit, Editor.ended(editor, r)) == EditorL.saved(r) : Bool}
+  for read: String -> IO(Result<&2, &2, Editor.Stop, String>)
+  {Editor.saved.with(file, Editor.ended(editor, Done{"0"}), read) == read(file) : IO(Result<&2, &2, Editor.Stop, String>)}
 
 # The file the editor is given, `historica-message`, sits directly in the
 # temporary directory — `$TMPDIR`, or `/tmp` where it is not set — so the
@@ -2967,15 +2929,6 @@ law merge_prints_the_record_that_records_it:
   for +bs: List<&2, T.Split>
   for +h: {SortL.all_ok(~T.Split, ~(x => Merging.id.plain(x)), bs) == True{} : Bool}
   {Main.record.args.r(Merging.record.words(typed, bs)) == Done{Main.RecordCmd{None{}, Merging.typed.spellings(typed), Nil{}, List.sort(~T.Split, ~(a => b => Merging.typed.le(a, b)), bs), Nil{}, Nil{}, Nil{}, False{}, False{}, Some{"<message>"}}} : Result<&2, &2, Main.Refused, Main.RecordCmd>}
-
-# Decision 0008 forbids the format inventing a name, so `merge` keeps a
-# path several files claim for the first of them and writes each other
-# beside it. The files it writes beside a path are exactly those: each is
-# one a contest names after the first, and each one a contest names after
-# the first is written beside.
-law merge_sets_aside_the_claims:
-  for +cs: List<&2, Tree.Contest>
-  {Bool.and(Merging.besides.claimed(cs, Merging.typed.ids(Merging.beside(cs))), Merging.contests.written(cs, Merging.typed.ids(Merging.beside(cs)))) == True{} : Bool}
 
 # `arrange` reads its words as their plain reading says: it accepts a
 # command line exactly where every word is `-n`, `--dry-run` or
@@ -4747,3 +4700,74 @@ law forgetting_destroys_the_picked_text:
   for f: Bool
   for h: {ForgetL.item.of(ops, k, j) == Some{Ops.Op{kind, at, [Ops.Item{x, n, f}]}} : Maybe<&2, Ops.Op>}
   {ForgetL.item.of(Fg.forget.ops(ops, ps, t, i), k, j) == Some{Ops.Op{kind, at, [Bool.pick(Ops.Item, Fg.picked.has(ps, t, Nat.add(i, k), j), Ops.Item{SNil{}, n, True{}}, Ops.Item{x, n, f})]}} : Maybe<&2, Ops.Op>}
+
+# And told nothing, the revision it takes passes that check, and every
+# revision of the history that no revision names as a parent or replaces
+# is that one: there is no other it could have meant.
+law update_takes_the_one_head:
+  for +fs: List<&2, Main.Full>
+  for +bs: List<&2, Bm.Bookmark>
+  for +id: String
+  for e: {Upd.target.r(fs, bs, None{}) == Done{id} : Result<&2, &2, Main.Refused, String>}
+  {Bool.and(Result.is_done(&2, &2, Main.Refused, Unit, Upd.head.r(fs, bs, id)), UpdL.leaves_are(Rev.revisions(Main.history(fs)), Rev.revisions(Main.history(fs)), id)) == True{} : Bool}
+
+# Where it is set, not empty, and names one no revision can hold, the
+# refusal names the variable and the value, and no file is read either.
+law identity_refuses_the_environment_by_name:
+  for +a: String
+  for +directory: String
+  for he: {String.is_empty(a) == False{} : Bool}
+  for h: {Identity.unusable(a) == True{} : Bool}
+  {Identity.author.of(Done{a}, directory) == IO.pure(Result<&2, &2, String, String>, Fail{"`" ++ a ++ "` in $HISTORICA_AUTHOR cannot be an author: a header value is not empty, carries no leading or trailing space, and holds no control character"}) : IO(Result<&2, &2, String, String>)}
+
+# And only where the variable is unset or empty does the identity file
+# decide: then who records is exactly what reading the file answers.
+law identity_reads_the_file_without_the_environment:
+  for env: Result<&1, &1, U32 & String, String>
+  for +directory: String
+  for h: {EditorL.unless_empty(EditorL.set(env)) == None{} : Maybe<&2, String>}
+  {Identity.author.of(env, directory) == Identity.author.file(directory) : IO(Result<&2, &2, String, String>)}
+
+# Any other exit, a signal's included, stopped it without saving: nothing
+# is read, and the command stops with 1, saying so.
+law editor_stops_without_saving:
+  for +file: String
+  for +editor: String
+  for +a: String
+  for h: {String.eq(a, "0") == False{} : Bool}
+  for read: String -> IO(Result<&2, &2, Editor.Stop, String>)
+  {Editor.saved.with(file, Editor.ended(editor, Done{a}), read) == IO.pure(Result<&2, &2, Editor.Stop, String>, Fail{Editor.Stop{1, "the editor stopped without saving"}}) : IO(Result<&2, &2, Editor.Stop, String>)}
+
+# And an editor that would not start at all is said — its name, then what
+# the host said — with 1, and nothing is read.
+law editor_that_would_not_start_is_said:
+  for +file: String
+  for +editor: String
+  for c: U32
+  for m: String
+  for read: String -> IO(Result<&2, &2, Editor.Stop, String>)
+  {Editor.saved.with(file, Editor.ended(editor, Fail{(c, m)}), read) == IO.pure(Result<&2, &2, Editor.Stop, String>, Fail{Editor.Stop{1, editor ++ ": " ++ m}}) : IO(Result<&2, &2, Editor.Stop, String>)}
+
+# Where several files claim a path, Decision 0008 has `merge` keep it for
+# the first of them and write each other beside it, under a name that says
+# why. Read off the contests as plain lists: every act `merge` lays out for
+# a file of the merged tree that writes — a file of lines, a payload, a
+# link — stands at the file's own path, unless a contest over a path names
+# the file after its first claimant, and then at a name that holds
+# `(historica `, the first eight characters of the file's identifier, and
+# `)`; and a file it writes carries the mode the tree records. Every file
+# of the tree is laid out, and nothing else. It says nothing of two names
+# being different: two files set aside whose identifiers share their first
+# eight characters are given one name.
+law merge_writes_in_place_or_marked_aside:
+  for +fs: List<&2, Main.Full>
+  for +ds: List<&2, Store.Doc>
+  for +heads: List<&2, String>
+  for +t: Tree.Tree()
+  for +dg: Map<&2, String>
+  for +texts: Map<&2, String>
+  for +ls: Map<&2, String>
+  for +cs: List<&2, Tree.Contest>
+  for +located: Map<&2, String>
+  for es: List<&2, Tree.Entry>
+  {MergingL.laid.at(cs, es, Merging.lay.all(t, cs, located, Merging.places(fs, ds, heads, Merging.beside(cs), dg, ls, texts, es))) == True{} : Bool}

@@ -41,29 +41,10 @@ def chooses(visual: Result<&1, &1, U32 & String, String>, editor: Result<&1, &1,
         case Fail{f}:
           {==}
 
-# Whether a program run exited 0: `status.success()`, a signal being no
-# code at all.
-def saved(r: Result<&1, &1, U32 & String, String>) -> Bool:
-  match r:
-    case Done{+a}:
-      String.eq(a, "0")
-    case Fail{e}:
-      False{}
-
-def pick_done(b: Bool, -u: Unit, -s: Editor.Stop) -> {Result.is_done(&2, &2, Editor.Stop, Unit, Bool.pick(Result<&2, &2, Editor.Stop, Unit>, b, Done{u}, Fail{s})) == b : Bool}:
-  match b:
-    case True{}:
-      {==}
-    case False{}:
-      {==}
-
-# The file is read back exactly where the editor exited 0.
-def saves(+editor: String, r: Result<&1, &1, U32 & String, String>) -> {Result.is_done(&2, &2, Editor.Stop, Unit, Editor.ended(editor, r)) == saved(r) : Bool}:
-  match r:
-    case Fail{Tuple{c, m}}:
-      {==}
-    case Done{+a}:
-      pick_done(String.eq(a, "0"), Unit{}, Editor.Stop{1, "the editor stopped without saving"})
+# Any exit but 0 stops with the editor unsaved, and reads nothing.
+def unsaved(+file: String, +editor: String, +a: String, h: {String.eq(a, "0") == False{} : Bool}, read: String -> IO(Result<&2, &2, Editor.Stop, String>)) -> {Editor.saved.with(file, Editor.ended(editor, Done{a}), read) == IO.pure(Result<&2, &2, Editor.Stop, String>, Fail{Editor.Stop{1, "the editor stopped without saving"}}) : IO(Result<&2, &2, Editor.Stop, String>)}:
+  %Equal.sym(Bool, String.eq(a, "0"), False{}, h) : {Editor.saved.with(file, Bool.pick(Result<&2, &2, Editor.Stop, Unit>, _, Done{Unit{}}, Fail{Editor.Stop{1, "the editor stopped without saving"}}), read) == IO.pure(Result<&2, &2, Editor.Stop, String>, Fail{Editor.Stop{1, "the editor stopped without saving"}}) : IO(Result<&2, &2, Editor.Stop, String>)}
+  {==}
 
 # The temporary directory, as `std::env::temp_dir` reads it: `$TMPDIR`,
 # or `/tmp` where it is not set.

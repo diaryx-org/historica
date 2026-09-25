@@ -890,9 +890,6 @@ def Laws.header_opens_under_a_note(note):
 def Laws.identity_reads_back(file, a, directory, home, h):
   IdentityL.reads_back(file, a, directory, home, h)
 
-def Laws.identity_takes_the_environment_first(env):
-  IdentityL.from_env(env)
-
 def Laws.identity_file_is_where_the_rust_tool_looks(xdg, home, profile):
   IdentityL.path_is(xdg, home, profile)
 
@@ -932,9 +929,6 @@ def Laws.identity_refuses_a_line_with_no_space(d, us, w, hf, he, hs, hc):
 def Laws.editor_is_the_one_chosen(visual, editor):
   EditorL.chooses(visual, editor)
 
-def Laws.editor_is_read_only_when_it_saved(editor, r):
-  EditorL.saves(editor, r)
-
 def Laws.editor_file_is_in_the_temporary_directory(r, h):
   IdentityL.scratch_parent(r, h)
 
@@ -962,9 +956,6 @@ def Laws.skip_lists_each_rule_once(ss):
 def Laws.skip_writes_what_is_new(rs, had):
   SkipL.writes_new(rs, had)
 
-def Laws.update_holds_only_a_head(fs, bs, t, id, u, e1, e2):
-  UpdL.only_heads(fs, bs, t, id, u, e1, e2)
-
 def Laws.update_lands(fs, id, t, rs, walked, found, dg, ls, located, ds, more, p, e):
   UpdL.plan_holds(fs, id, t, rs, walked, found, dg, ls, located, ds, more, p, e)
 
@@ -986,9 +977,6 @@ def Laws.update_says_settled_as_its_dry_run(p, s, e):
 def Laws.update_dry_run_names_what_it_does(p, s):
   UpdL.dry_names(p, s)
 
-def Laws.merge_spares_the_unrecorded(fs, ds, heads, bs, t, dg, texts, ls, cs, located, es):
-  MergingL.spares(fs, ds, heads, bs, t, dg, texts, ls, cs, located, es)
-
 def Laws.merge_rewrites_nothing_merged(fs, ds, heads, t, dg, texts, ls, located, es, h):
   MergingL.merged_all(fs, ds, heads, t, dg, texts, ls, located, es, h)
 
@@ -1000,12 +988,6 @@ def Laws.merge_counts_nothing_unfenced(j):
 
 def Laws.merge_prints_the_record_that_records_it(typed, bs, h):
   MergingL.record_back(typed, bs, h)
-
-def Laws.merge_counts_the_files_that_met(fs, ds, heads, bs, t, dg, texts, ls, cs, located, es):
-  MergingL.met_all(fs, ds, heads, bs, t, dg, texts, ls, cs, located, es)
-
-def Laws.merge_sets_aside_the_claims(cs):
-  MergingL.aside(cs)
 
 def Laws.arrange_reads_its_words(ws):
   WordsL.arrange_words(ws)
@@ -1222,9 +1204,6 @@ def Laws.carry_reads_its_words(args, m, mv, o, n, d, f, y, e, v, a, b, ha, w, hw
 
 def Laws.record_states_the_folder(older, ds, left, dg, reads, t, hs, ks, moves, obs, ls, mint, bs, e):
   RecordL.drafted_state(~(p => c => tbl => d => e2 => Laws.diff_applies(p, c, tbl, d, e2)), older, ds, left, dg, reads, t, hs, ks, moves, obs, ls, mint, bs, e)
-
-def Laws.record_resolves_as_the_walk_proposes(fs, ds, ps, reads, dg, t, hs, ks, moves, obs, ls, mint, bs, e):
-  RecordL.drafted_resolves(fs, ds, ps, reads, dg, t, hs, ks, moves, obs, ls, mint, bs, e)
 
 def Laws.record_names_what_it_writes(a, when, message, fl, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls):
   RecordL.names_ok(a, when, message, fl, hex, befores, fs, bs, ps, t, hs, dg, reads, ks, moves, obs, ls)
@@ -1486,3 +1465,33 @@ def Laws.replay_reads_alike_through_standins(ds1, ds2, r1, r2, hd, hr):
 
 def Laws.forgetting_destroys_the_picked_text(ops, ps, t, i, k, j, kind, at, x, n, f, h):
   ForgetL.ops_forgot_at(ops, ps, t, i, k, j, kind, at, x, n, f, h)
+
+def Laws.identity_takes_the_environment_first(a, directory, h):
+  IdentityL.env_first(a, directory, h)
+
+def Laws.identity_refuses_the_environment_by_name(a, directory, he, h):
+  IdentityL.env_refused(a, directory, he, h)
+
+def Laws.identity_reads_the_file_without_the_environment(env, directory, h):
+  IdentityL.env_unset(env, directory, h)
+
+def Laws.editor_is_read_only_when_it_saved(file, editor, read):
+  {==}
+
+def Laws.editor_stops_without_saving(file, editor, a, h, read):
+  EditorL.unsaved(file, editor, a, h, read)
+
+def Laws.editor_that_would_not_start_is_said(file, editor, c, m, read):
+  {==}
+
+def Laws.update_holds_only_a_head(fs, bs, id, u, e):
+  UpdL.head_facts(fs, bs, id, u, e)
+
+def Laws.update_takes_the_one_head(fs, bs, id, e):
+  UpdL.the_head(fs, bs, id, e)
+
+def Laws.merge_writes_in_place_or_marked_aside(fs, ds, heads, t, dg, texts, ls, cs, located, es):
+  MergingL.placed_all(fs, ds, heads, t, dg, texts, ls, cs, located, es)
+
+def Laws.record_resolves_as_the_walk_proposes(ds, reads, dg, t, hs, ks, moves, obs, ls, mint, bs, hm):
+  RecordL.drafted_resolves(ds, reads, dg, t, hs, ks, moves, obs, ls, mint, bs, hm)

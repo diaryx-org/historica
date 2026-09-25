@@ -29,6 +29,7 @@ import ./sort_lemmas.bend as SortL
 import ./rewrite_lemmas.bend as RewriteL
 import ./fetch_lemmas.bend as FetchL
 import ./bookmark.bend as Bm
+import ./target_lemmas.bend as TG
 
 # Results
 # -------
@@ -1901,15 +1902,6 @@ def sort_back(+xs: List<&2, String>, +d: String, m: {Rev.member(List.sort(~Strin
     (%SortL.sort_keyed(~String, ~(s => s), xs, d) : {List.is_empty(&2, String, _) == False{} : Bool}
       mem_keyed(List.sort(~String, ~(a => b => String.is_le(a, b)), xs), d, m)))
 
-def sorted_all(ys: List<&2, String>, +xs: List<&2, String>, +h: {Main.all_held(xs, ys) == True{} : Bool}) -> {Main.all_held(List.sort(~String, ~(a => b => String.is_le(a, b)), xs), ys) == True{} : Bool}:
-  match ys:
-    case Nil{}:
-      {==}
-    case +y <> +rest:
-      AL.and_intro(Rev.member(List.sort(~String, ~(a => b => String.is_le(a, b)), xs), y), Main.all_held(List.sort(~String, ~(a => b => String.is_le(a, b)), xs), rest),
-        FetchL.sort_mem(xs, y, Comp.and_left(Rev.member(xs, y), Main.all_held(xs, rest), h)),
-        sorted_all(rest, xs, Comp.and_right(Rev.member(xs, y), Main.all_held(xs, rest), h)))
-
 def head_of.pick(b: Bool, +fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +id: String, -u: Unit, e: {Bool.pick(Result<&2, &2, Main.Refused, Unit>, b, Done{Unit{}}, Fail{Main.Refused{1, U.spelled.id(fs, bs, id) ++ " is not a head, and the folder only ever holds one; reading the past is `show` and `cat`, and going back is `abandon`. the heads:" ++ Main.described(fs, bs, U.heads.sorted(fs))}}) == Done{u} : Result<&2, &2, Main.Refused, Unit>}) -> {b == True{} : Bool}:
   match b:
     case True{}:
@@ -1917,30 +1909,220 @@ def head_of.pick(b: Bool, +fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, 
     case False{}:
       Empty.absurd({False{} == True{} : Bool}, fail_done(Main.Refused, Unit, Main.Refused{1, U.spelled.id(fs, bs, id) ++ " is not a head, and the folder only ever holds one; reading the past is `show` and `cat`, and going back is `abandon`. the heads:" ++ Main.described(fs, bs, U.heads.sorted(fs))}, u, e))
 
-# Told nothing, `update` takes the store's one head, and there is no other.
-def none_only(hs: List<&2, String>, +fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, -id: String, +ehs: {U.heads.sorted(fs) == hs : List<&2, String>}, e: {U.target.none(fs, bs, hs) == Done{id} : Result<&2, &2, Main.Refused, String>}) -> {Main.all_held([id], Main.current_heads(Main.history(fs))) == True{} : Bool}:
+# What a head is, read off the history as plain facts
+# ----------------------------------------------------
+
+# Whether no revision among `rs` names `id` as a parent.
+def childless(rs: List<&2, Rev.Revision>, +id: String) -> Bool:
+  match rs:
+    case Nil{}:
+      True{}
+    case +r <> rest:
+      Bool.and(Bool.not(Rev.member(Rev.parents_of(r), id)), childless(rest, id))
+
+# Whether no revision among `rs` says it replaces `id`.
+def unreplaced(rs: List<&2, Rev.Revision>, +id: String) -> Bool:
+  match rs:
+    case Nil{}:
+      True{}
+    case +r <> rest:
+      Bool.and(Bool.not(Rev.member(Rev.supersedes_of(r), id)), unreplaced(rest, id))
+
+# Whether every revision of `rs` that no revision of `all` names as a
+# parent is one some revision of `all` replaces.
+def leaves_replaced(rs: List<&2, Rev.Revision>, +all: List<&2, Rev.Revision>) -> Bool:
+  match rs:
+    case Nil{}:
+      True{}
+    case +r <> rest:
+      Bool.and(Bool.or(Bool.not(childless(all, Rev.id_of(r))), Bool.not(unreplaced(all, Rev.id_of(r)))), leaves_replaced(rest, all))
+
+# Whether every revision of `rs` that no revision of `all` names as a
+# parent or replaces is `id`.
+def leaves_are(rs: List<&2, Rev.Revision>, +all: List<&2, Rev.Revision>, +id: String) -> Bool:
+  match rs:
+    case Nil{}:
+      True{}
+    case +r <> rest:
+      Bool.and(Bool.or(Bool.not(childless(all, Rev.id_of(r))), Bool.or(Bool.not(unreplaced(all, Rev.id_of(r))), String.eq(id, Rev.id_of(r)))), leaves_are(rest, all, id))
+
+def mem_app(xs: List<&2, String>, +ys: List<&2, String>, +x: String) -> {Rev.member(List.append(&2, String, xs, ys), x) == Bool.or(Rev.member(xs, x), Rev.member(ys, x)) : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +y <> +rest:
+      %Equal.sym(Bool, Rev.member(List.append(&2, String, rest, ys), x), Bool.or(Rev.member(rest, x), Rev.member(ys, x)), mem_app(rest, ys, x)) : {Bool.or(String.eq(y, x), _) == Bool.or(Bool.or(String.eq(y, x), Rev.member(rest, x)), Rev.member(ys, x)) : Bool}
+      AL.or_assoc(String.eq(y, x), Rev.member(rest, x), Rev.member(ys, x))
+
+def not_or(a: Bool, -b: Bool) -> {Bool.and(Bool.not(a), Bool.not(b)) == Bool.not(Bool.or(a, b)) : Bool}:
+  match a:
+    case True{}:
+      {==}
+    case False{}:
+      {==}
+
+# `childless` and `unreplaced` are the absence of `id` from every parent,
+# and every replaced revision, the list names.
+def childless_is(rs: List<&2, Rev.Revision>, +x: String) -> {childless(rs, x) == Bool.not(Rev.member(Rev.all_parents(rs), x)) : Bool}:
+  match rs:
+    case Nil{}:
+      {==}
+    case +r <> +rest:
+      %Equal.sym(Bool, Rev.member(List.append(&2, String, Rev.parents_of(r), Rev.all_parents(rest)), x), Bool.or(Rev.member(Rev.parents_of(r), x), Rev.member(Rev.all_parents(rest), x)), mem_app(Rev.parents_of(r), Rev.all_parents(rest), x)) : {Bool.and(Bool.not(Rev.member(Rev.parents_of(r), x)), childless(rest, x)) == Bool.not(_) : Bool}
+      %Equal.sym(Bool, childless(rest, x), Bool.not(Rev.member(Rev.all_parents(rest), x)), childless_is(rest, x)) : {Bool.and(Bool.not(Rev.member(Rev.parents_of(r), x)), _) == Bool.not(Bool.or(Rev.member(Rev.parents_of(r), x), Rev.member(Rev.all_parents(rest), x))) : Bool}
+      not_or(Rev.member(Rev.parents_of(r), x), Rev.member(Rev.all_parents(rest), x))
+
+def replaced(rs: List<&2, Rev.Revision>) -> List<&2, String>:
+  T.concat(String, T.map(~Rev.Revision, ~List<&2, String>, ~(r => Rev.supersedes_of(r)), rs))
+
+def unreplaced_is(rs: List<&2, Rev.Revision>, +x: String) -> {unreplaced(rs, x) == Bool.not(Rev.member(replaced(rs), x)) : Bool}:
+  match rs:
+    case Nil{}:
+      {==}
+    case +r <> +rest:
+      %Equal.sym(Bool, Rev.member(List.append(&2, String, Rev.supersedes_of(r), replaced(rest)), x), Bool.or(Rev.member(Rev.supersedes_of(r), x), Rev.member(replaced(rest), x)), mem_app(Rev.supersedes_of(r), replaced(rest), x)) : {Bool.and(Bool.not(Rev.member(Rev.supersedes_of(r), x)), unreplaced(rest, x)) == Bool.not(_) : Bool}
+      %Equal.sym(Bool, unreplaced(rest, x), Bool.not(Rev.member(replaced(rest), x)), unreplaced_is(rest, x)) : {Bool.and(Bool.not(Rev.member(Rev.supersedes_of(r), x)), _) == Bool.not(Bool.or(Rev.member(Rev.supersedes_of(r), x), Rev.member(replaced(rest), x))) : Bool}
+      not_or(Rev.member(Rev.supersedes_of(r), x), Rev.member(replaced(rest), x))
+
+# What `without` keeps is none of what it takes away.
+def not_in_without.of(b: Bool, +y: String, +rest: List<&2, String>, +ys: List<&2, String>, +x: String, eb: {Rev.member(ys, y) == b : Bool}, m: {Rev.member(Rev.keep(Bool.not(b), y, Rev.without(rest, ys)), x) == True{} : Bool}, ih: {Rev.member(Rev.without(rest, ys), x) == True{} : Bool} -> {Rev.member(ys, x) == False{} : Bool}) -> {Rev.member(ys, x) == False{} : Bool}:
+  match b:
+    case True{}:
+      ih(m)
+    case False{}:
+      GL.member_cons({Rev.member(ys, x) == False{} : Bool}, y, Rev.without(rest, ys), x, m, h => (%h : {Rev.member(ys, _) == False{} : Bool}; eb), t => ih(t))
+
+def not_in_without(xs: List<&2, String>, +ys: List<&2, String>, +x: String, m: {Rev.member(Rev.without(xs, ys), x) == True{} : Bool}) -> {Rev.member(ys, x) == False{} : Bool}:
+  match xs:
+    case Nil{}:
+      Empty.absurd({Rev.member(ys, x) == False{} : Bool}, SL.false_true(m))
+    case +y <> +rest:
+      not_in_without.of(Rev.member(ys, y), y, rest, ys, x, {==}, m, w => not_in_without(rest, ys, x, w))
+
+def not_false(b: Bool, h: {Bool.not(b) == False{} : Bool}) -> {b == True{} : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      Empty.absurd({False{} == True{} : Bool}, SL.true_false(h))
+
+def not_of(b: Bool, h: {b == False{} : Bool}) -> {Bool.not(b) == True{} : Bool}:
+  match b:
+    case False{}:
+      {==}
+    case True{}:
+      Empty.absurd({Bool.not(True{}) == True{} : Bool}, SL.true_false(h))
+
+# A current head is a head.
+def in_heads(+hs: List<&2, String>, +sup: List<&2, String>, +x: String, m: {Rev.member(Main.current_heads.of(hs, Rev.without(hs, sup)), x) == True{} : Bool}) -> {Rev.member(hs, x) == True{} : Bool}:
+  AL.or_cases({Rev.member(hs, x) == True{} : Bool}, Rev.member(hs, x), Rev.member(Rev.without(hs, sup), x), TG.cur_mem(hs, Rev.without(hs, sup), x, m), l => l, r => GL.without_sub(hs, sup, x, r))
+
+# And what the current heads hold, where there are any not replaced.
+def cur_of(c: List<&2, String>, +hs: List<&2, String>, +x: String, m: {Rev.member(c, x) == True{} : Bool}) -> {Rev.member(Main.current_heads.of(hs, c), x) == True{} : Bool}:
+  match c:
+    case Nil{}:
+      Empty.absurd({Rev.member(Main.current_heads.of(hs, Nil{}), x) == True{} : Bool}, SL.false_true(m))
+    case y <> r:
+      m
+
+# A head of the history is childless.
+def head_childless(+fs: List<&2, Main.Full>, +x: String, m: {Rev.member(Rev.heads(Main.history(fs)), x) == True{} : Bool}) -> {childless(Rev.revisions(Main.history(fs)), x) == True{} : Bool}:
+  %Equal.sym(Bool, childless(Rev.revisions(Main.history(fs)), x), Bool.not(Rev.member(Rev.all_parents(Rev.revisions(Main.history(fs))), x)), childless_is(Rev.revisions(Main.history(fs)), x)) : {_ == True{} : Bool}
+  not_of(Rev.member(Rev.all_parents(Rev.revisions(Main.history(fs))), x), not_in_without(Rev.ids(Rev.revisions(Main.history(fs))), Rev.all_parents(Rev.revisions(Main.history(fs))), x, m))
+
+# And a childless revision of the history is a head.
+def childless_head(+fs: List<&2, Main.Full>, +x: String, hm: {Rev.member(Rev.ids(Rev.revisions(Main.history(fs))), x) == True{} : Bool}, hc: {childless(Rev.revisions(Main.history(fs)), x) == True{} : Bool}) -> {Rev.member(Rev.heads(Main.history(fs)), x) == True{} : Bool}:
+  GL.without_in(Rev.ids(Rev.revisions(Main.history(fs))), Rev.all_parents(Rev.revisions(Main.history(fs))), x, hm, not_true(Rev.member(Rev.all_parents(Rev.revisions(Main.history(fs))), x), (%childless_is(Rev.revisions(Main.history(fs)), x) : {_ == True{} : Bool}; hc)))
+
+def replaced_of(+fs: List<&2, Main.Full>, +x: String, u: {unreplaced(Rev.revisions(Main.history(fs)), x) == False{} : Bool}) -> {Bool.not(unreplaced(Rev.revisions(Main.history(fs)), x)) == True{} : Bool}:
+  not_of(unreplaced(Rev.revisions(Main.history(fs)), x), u)
+
+# Where no head is current, every childless revision is replaced.
+def leaves_all(rs: List<&2, Rev.Revision>, +fs: List<&2, Main.Full>, +hs: {Main.all_held(Rev.ids(Rev.revisions(Main.history(fs))), Rev.ids(rs)) == True{} : Bool}, +e: {Rev.without(Rev.heads(Main.history(fs)), Rev.superseded(Main.history(fs))) == Nil{} : List<&2, String>}) -> {leaves_replaced(rs, Rev.revisions(Main.history(fs))) == True{} : Bool}:
+  match rs:
+    case Nil{}:
+      {==}
+    case +r <> +rest:
+      AL.and_intro(Bool.or(Bool.not(childless(Rev.revisions(Main.history(fs)), Rev.id_of(r))), Bool.not(unreplaced(Rev.revisions(Main.history(fs)), Rev.id_of(r)))), leaves_replaced(rest, Rev.revisions(Main.history(fs))),
+        AL.bool_cases({Bool.or(Bool.not(childless(Rev.revisions(Main.history(fs)), Rev.id_of(r))), Bool.not(unreplaced(Rev.revisions(Main.history(fs)), Rev.id_of(r)))) == True{} : Bool}, childless(Rev.revisions(Main.history(fs)), Rev.id_of(r)),
+          t => AL.or_right(Bool.not(childless(Rev.revisions(Main.history(fs)), Rev.id_of(r))), Bool.not(unreplaced(Rev.revisions(Main.history(fs)), Rev.id_of(r))),
+            (%Equal.sym(Bool, unreplaced(Rev.revisions(Main.history(fs)), Rev.id_of(r)), Bool.not(Rev.member(Rev.superseded(Main.history(fs)), Rev.id_of(r))), unreplaced_is(Rev.revisions(Main.history(fs)), Rev.id_of(r))) : {Bool.not(_) == True{} : Bool};
+              (%Equal.sym(Bool, Rev.member(Rev.superseded(Main.history(fs)), Rev.id_of(r)), True{}, GL.without_nil_all(Rev.heads(Main.history(fs)), Rev.superseded(Main.history(fs)), Rev.id_of(r), e, childless_head(fs, Rev.id_of(r), Comp.and_left(Rev.member(Rev.ids(Rev.revisions(Main.history(fs))), Rev.id_of(r)), Main.all_held(Rev.ids(Rev.revisions(Main.history(fs))), Rev.ids(rest)), hs), t))) : {Bool.not(Bool.not(_)) == True{} : Bool}; {==}))),
+          f => AL.or_left(Bool.not(childless(Rev.revisions(Main.history(fs)), Rev.id_of(r))), Bool.not(unreplaced(Rev.revisions(Main.history(fs)), Rev.id_of(r))), not_of(childless(Rev.revisions(Main.history(fs)), Rev.id_of(r)), f))),
+        leaves_all(rest, fs, Comp.and_right(Rev.member(Rev.ids(Rev.revisions(Main.history(fs))), Rev.id_of(r)), Main.all_held(Rev.ids(Rev.revisions(Main.history(fs))), Rev.ids(rest)), hs), e))
+
+# A current head is not replaced, unless every head is.
+def cur_facts(c: List<&2, String>, +fs: List<&2, Main.Full>, +id: String, ec: {Rev.without(Rev.heads(Main.history(fs)), Rev.superseded(Main.history(fs))) == c : List<&2, String>}, m: {Rev.member(Main.current_heads.of(Rev.heads(Main.history(fs)), c), id) == True{} : Bool}) -> {Bool.or(unreplaced(Rev.revisions(Main.history(fs)), id), leaves_replaced(Rev.revisions(Main.history(fs)), Rev.revisions(Main.history(fs)))) == True{} : Bool}:
+  match c:
+    case Nil{}:
+      AL.or_right(unreplaced(Rev.revisions(Main.history(fs)), id), leaves_replaced(Rev.revisions(Main.history(fs)), Rev.revisions(Main.history(fs))), leaves_all(Rev.revisions(Main.history(fs)), fs, RewriteL.held_refl(Rev.ids(Rev.revisions(Main.history(fs)))), ec))
+    case +y <> +r:
+      AL.or_left(unreplaced(Rev.revisions(Main.history(fs)), id), leaves_replaced(Rev.revisions(Main.history(fs)), Rev.revisions(Main.history(fs))),
+        (%Equal.sym(Bool, unreplaced(Rev.revisions(Main.history(fs)), id), Bool.not(Rev.member(Rev.superseded(Main.history(fs)), id)), unreplaced_is(Rev.revisions(Main.history(fs)), id)) : {_ == True{} : Bool};
+          not_of(Rev.member(Rev.superseded(Main.history(fs)), id), not_in_without(Rev.heads(Main.history(fs)), Rev.superseded(Main.history(fs)), id, (%Equal.sym(List<&2, String>, Rev.without(Rev.heads(Main.history(fs)), Rev.superseded(Main.history(fs))), y <> r, ec) : {Rev.member(_, id) == True{} : Bool}; m)))))
+
+# The revision `update` goes on to lay out, having checked it is a head:
+# one the store holds, that no revision names as a parent, and that none
+# replaces unless every revision nothing names as a parent is replaced.
+def head_facts(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +id: String, -u: Unit, e: {U.head.r(fs, bs, id) == Done{u} : Result<&2, &2, Main.Refused, Unit>}) -> {Bool.and(Rev.member(Main.ids(fs), id), Bool.and(childless(Rev.revisions(Main.history(fs)), id), Bool.or(unreplaced(Rev.revisions(Main.history(fs)), id), leaves_replaced(Rev.revisions(Main.history(fs)), Rev.revisions(Main.history(fs)))))) == True{} : Bool}:
+  +mc = sort_back(Main.current_heads(Main.history(fs)), id, head_of.pick(Rev.member(U.heads.sorted(fs), id), fs, bs, id, u, e))
+  +mh = in_heads(Rev.heads(Main.history(fs)), Rev.superseded(Main.history(fs)), id, mc)
+  AL.and_intro(Rev.member(Main.ids(fs), id), Bool.and(childless(Rev.revisions(Main.history(fs)), id), Bool.or(unreplaced(Rev.revisions(Main.history(fs)), id), leaves_replaced(Rev.revisions(Main.history(fs)), Rev.revisions(Main.history(fs))))),
+    TG.head_held(fs, id, mh),
+    AL.and_intro(childless(Rev.revisions(Main.history(fs)), id), Bool.or(unreplaced(Rev.revisions(Main.history(fs)), id), leaves_replaced(Rev.revisions(Main.history(fs)), Rev.revisions(Main.history(fs)))),
+      head_childless(fs, id, mh),
+      cur_facts(Rev.without(Rev.heads(Main.history(fs)), Rev.superseded(Main.history(fs))), fs, id, {==}, mc)))
+
+# Told nothing, the one head there is.
+def only_list(hs: List<&2, String>, +fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, -id: String, e: {U.target.none(fs, bs, hs) == Done{id} : Result<&2, &2, Main.Refused, String>}) -> {hs == [id] : List<&2, String>}:
   match hs:
     case Nil{}:
-      Empty.absurd({Main.all_held([id], Main.current_heads(Main.history(fs))) == True{} : Bool}, fail_done(Main.Refused, String, Main.Refused{1, "nothing is recorded here yet"}, id, e))
+      Empty.absurd({Nil{} == [id] : List<&2, String>}, fail_done(Main.Refused, String, Main.Refused{1, "nothing is recorded here yet"}, id, e))
     case +only <> more:
       match more:
         case Nil{}:
-          %done_eq(Main.Refused, String, only, id, e) : {Main.all_held([_], Main.current_heads(Main.history(fs))) == True{} : Bool}
-          %ehs : {Main.all_held(_, Main.current_heads(Main.history(fs))) == True{} : Bool}
-          sorted_all(Main.current_heads(Main.history(fs)), Main.current_heads(Main.history(fs)), RewriteL.held_refl(Main.current_heads(Main.history(fs))))
+          Equal.cong(String, List<&2, String>, x => [x], only, id, done_eq(Main.Refused, String, only, id, e))
         case +x <> +rest:
-          Empty.absurd({Main.all_held([id], Main.current_heads(Main.history(fs))) == True{} : Bool}, fail_done(Main.Refused, String, Main.Refused{1, "this store has " ++ Nat.show(List.length(&2, String, only <> x <> rest)) ++ " heads, so nothing here is `the` latest; name the one the folder should hold:" ++ Main.described(fs, bs, only <> x <> rest)}, id, e))
+          Empty.absurd({only <> x <> rest == [id] : List<&2, String>}, fail_done(Main.Refused, String, Main.Refused{1, "this store has " ++ Nat.show(List.length(&2, String, only <> x <> rest)) ++ " heads, so nothing here is `the` latest; name the one the folder should hold:" ++ Main.described(fs, bs, only <> x <> rest)}, id, e))
 
-def only_when(t: Maybe<&2, String>, +fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, -id: String, e: {U.target.r(fs, bs, t) == Done{id} : Result<&2, &2, Main.Refused, String>}) -> {Bool.or(Maybe.is_some(&2, String, t), Main.all_held([id], Main.current_heads(Main.history(fs)))) == True{} : Bool}:
-  match t:
-    case None{}:
-      none_only(U.heads.sorted(fs), fs, bs, id, {==}, e)
-    case Some{s}:
+def pick_done(b: Bool, -r: Main.Refused, h: {b == True{} : Bool}) -> {Result.is_done(&2, &2, Main.Refused, Unit, Bool.pick(Result<&2, &2, Main.Refused, Unit>, b, Done{Unit{}}, Fail{r})) == True{} : Bool}:
+  match b:
+    case True{}:
       {==}
+    case False{}:
+      Empty.absurd({Result.is_done(&2, &2, Main.Refused, Unit, Bool.pick(Result<&2, &2, Main.Refused, Unit>, False{}, Done{Unit{}}, Fail{r})) == True{} : Bool}, SL.false_true(h))
 
-# Whatever `update` is told, the revision it lays out is a current head of
-# the store; told nothing, it is the store's only head.
-def only_heads(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +t: Maybe<&2, String>, +id: String, -u: Unit, e1: {U.target.r(fs, bs, t) == Done{id} : Result<&2, &2, Main.Refused, String>}, e2: {U.head.r(fs, bs, id) == Done{u} : Result<&2, &2, Main.Refused, Unit>}) -> {Bool.and(Rev.member(Main.current_heads(Main.history(fs)), id), Bool.or(Maybe.is_some(&2, String, t), Main.all_held([id], Main.current_heads(Main.history(fs))))) == True{} : Bool}:
-  AL.and_intro(Rev.member(Main.current_heads(Main.history(fs)), id), Bool.or(Maybe.is_some(&2, String, t), Main.all_held([id], Main.current_heads(Main.history(fs)))),
-    sort_back(Main.current_heads(Main.history(fs)), id, head_of.pick(Rev.member(U.heads.sorted(fs), id), fs, bs, id, u, e2)),
-    only_when(t, fs, bs, id, e1))
+def one_eq(+id: String, +x: String, m: {Rev.member([id], x) == True{} : Bool}) -> {String.eq(id, x) == True{} : Bool}:
+  AL.or_cases({String.eq(id, x) == True{} : Bool}, String.eq(id, x), False{}, m, l => l, r => Empty.absurd({String.eq(id, x) == True{} : Bool}, SL.false_true(r)))
+
+# A childless revision nothing replaces is a current head.
+def leaf_current(+fs: List<&2, Main.Full>, +x: String, hm: {Rev.member(Rev.ids(Rev.revisions(Main.history(fs))), x) == True{} : Bool}, hc: {childless(Rev.revisions(Main.history(fs)), x) == True{} : Bool}, hu: {unreplaced(Rev.revisions(Main.history(fs)), x) == True{} : Bool}) -> {Rev.member(U.heads.sorted(fs), x) == True{} : Bool}:
+  FetchL.sort_mem(Main.current_heads(Main.history(fs)), x, cur_of(Rev.without(Rev.heads(Main.history(fs)), Rev.superseded(Main.history(fs))), Rev.heads(Main.history(fs)), x,
+    GL.without_in(Rev.heads(Main.history(fs)), Rev.superseded(Main.history(fs)), x, childless_head(fs, x, hm, hc),
+      not_true(Rev.member(Rev.superseded(Main.history(fs)), x), (%unreplaced_is(Rev.revisions(Main.history(fs)), x) : {_ == True{} : Bool}; hu)))))
+
+# Every childless revision no revision replaces is the only head.
+def leaves_one(rs: List<&2, Rev.Revision>, +fs: List<&2, Main.Full>, +id: String, +hs: {Main.all_held(Rev.ids(Rev.revisions(Main.history(fs))), Rev.ids(rs)) == True{} : Bool}, +hl: {U.heads.sorted(fs) == [id] : List<&2, String>}) -> {leaves_are(rs, Rev.revisions(Main.history(fs)), id) == True{} : Bool}:
+  match rs:
+    case Nil{}:
+      {==}
+    case +r <> +rest:
+      AL.and_intro(Bool.or(Bool.not(childless(Rev.revisions(Main.history(fs)), Rev.id_of(r))), Bool.or(Bool.not(unreplaced(Rev.revisions(Main.history(fs)), Rev.id_of(r))), String.eq(id, Rev.id_of(r)))), leaves_are(rest, Rev.revisions(Main.history(fs)), id),
+        AL.bool_cases({Bool.or(Bool.not(childless(Rev.revisions(Main.history(fs)), Rev.id_of(r))), Bool.or(Bool.not(unreplaced(Rev.revisions(Main.history(fs)), Rev.id_of(r))), String.eq(id, Rev.id_of(r)))) == True{} : Bool}, childless(Rev.revisions(Main.history(fs)), Rev.id_of(r)),
+          t => AL.or_right(Bool.not(childless(Rev.revisions(Main.history(fs)), Rev.id_of(r))), Bool.or(Bool.not(unreplaced(Rev.revisions(Main.history(fs)), Rev.id_of(r))), String.eq(id, Rev.id_of(r))),
+            AL.bool_cases({Bool.or(Bool.not(unreplaced(Rev.revisions(Main.history(fs)), Rev.id_of(r))), String.eq(id, Rev.id_of(r))) == True{} : Bool}, unreplaced(Rev.revisions(Main.history(fs)), Rev.id_of(r)),
+              u => AL.or_right(Bool.not(unreplaced(Rev.revisions(Main.history(fs)), Rev.id_of(r))), String.eq(id, Rev.id_of(r)),
+                one_eq(id, Rev.id_of(r), (%hl : {Rev.member(_, Rev.id_of(r)) == True{} : Bool};
+                  leaf_current(fs, Rev.id_of(r), Comp.and_left(Rev.member(Rev.ids(Rev.revisions(Main.history(fs))), Rev.id_of(r)), Main.all_held(Rev.ids(Rev.revisions(Main.history(fs))), Rev.ids(rest)), hs), t, u)))),
+              f => AL.or_left(Bool.not(unreplaced(Rev.revisions(Main.history(fs)), Rev.id_of(r))), String.eq(id, Rev.id_of(r)), not_of(unreplaced(Rev.revisions(Main.history(fs)), Rev.id_of(r)), f)))),
+          f => AL.or_left(Bool.not(childless(Rev.revisions(Main.history(fs)), Rev.id_of(r))), Bool.or(Bool.not(unreplaced(Rev.revisions(Main.history(fs)), Rev.id_of(r))), String.eq(id, Rev.id_of(r))), not_of(childless(Rev.revisions(Main.history(fs)), Rev.id_of(r)), f))),
+        leaves_one(rest, fs, id, Comp.and_right(Rev.member(Rev.ids(Rev.revisions(Main.history(fs))), Rev.id_of(r)), Main.all_held(Rev.ids(Rev.revisions(Main.history(fs))), Rev.ids(rest)), hs), hl))
+
+# Told nothing, `update` takes a revision that passes its own check, and
+# every revision nothing names as a parent or replaces is that one.
+def the_head(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +id: String, e: {U.target.r(fs, bs, None{}) == Done{id} : Result<&2, &2, Main.Refused, String>}) -> {Bool.and(Result.is_done(&2, &2, Main.Refused, Unit, U.head.r(fs, bs, id)), leaves_are(Rev.revisions(Main.history(fs)), Rev.revisions(Main.history(fs)), id)) == True{} : Bool}:
+  +hl = only_list(U.heads.sorted(fs), fs, bs, id, e)
+  AL.and_intro(Result.is_done(&2, &2, Main.Refused, Unit, U.head.r(fs, bs, id)), leaves_are(Rev.revisions(Main.history(fs)), Rev.revisions(Main.history(fs)), id),
+    pick_done(Rev.member(U.heads.sorted(fs), id), Main.Refused{1, U.spelled.id(fs, bs, id) ++ " is not a head, and the folder only ever holds one; reading the past is `show` and `cat`, and going back is `abandon`. the heads:" ++ Main.described(fs, bs, U.heads.sorted(fs))},
+      (%Equal.sym(List<&2, String>, U.heads.sorted(fs), [id], hl) : {Rev.member(_, id) == True{} : Bool}; (%Equal.sym(Bool, String.eq(id, id), True{}, SL.eq_refl(id)) : {Bool.or(_, False{}) == True{} : Bool}; {==}))),
+    leaves_one(Rev.revisions(Main.history(fs)), fs, id, RewriteL.held_refl(Rev.ids(Rev.revisions(Main.history(fs)))), hl))

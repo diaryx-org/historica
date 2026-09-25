@@ -8274,7 +8274,7 @@ type Content is Data:
   Content.Ops{file: String, path: String, doc: Ops.Doc}
   Content.Text{file: String, path: String, bytes: List<&2, U32>}
   Content.Whole{file: String, path: String, digest: String}
-  Content.Resolved{file: String, path: String, doc: String}
+  Content.Resolved{file: String, path: String, doc: Res.Doc}
 
 def content.held(c: Content) -> String:
   match c:
@@ -8285,7 +8285,7 @@ def content.held(c: Content) -> String:
     case Content.Whole{f, p, d}:
       d
     case Content.Resolved{f, p, doc}:
-      Sha.digest(Utf8.encode(doc))
+      Sha.digest(Utf8.encode(Res.write(doc)))
 
 def content.file(c: Content) -> String:
   match c:
@@ -8517,7 +8517,7 @@ def resolved.content(+f: String, +p: String, d: Maybe<&2, Res.Doc>) -> List<&2, 
     case None{}:
       Nil{}
     case Some{doc}:
-      [Content.Resolved{f, p, Res.write(doc)}]
+      [Content.Resolved{f, p, doc}]
 
 def lines.content(+f: String, +p: String, +befores: List<&2, Before>, +after: List<&2, Ops.Item>, proposed: Maybe<&2, Conflict.Joined>) -> List<&2, Content>:
   match proposed:
@@ -8716,7 +8716,7 @@ def filed.one(+repo: String, +name: String, c: Content) -> IO(Result<&1, &1, U32
         disk : String <- Folder.on_disk(repo, p)
         Store.copied(repo ++ "/" ++ disk ++ "\n" ++ name ++ "\n" ++ d)
     case Content.Resolved{f, p, doc}:
-      Store.filed(name ++ "\n" ++ doc)
+      Store.filed(name ++ "\n" ++ Res.write(doc))
 
 # Each file of content filed under the revision's stem, unless the store
 # already holds its digest anywhere: then it is there, and stays where it is.
@@ -8803,26 +8803,6 @@ def drafted(+st: Bool, +root: String, +fs: List<&2, Full>, +ps: List<&2, String>
 # the lines the folder holds; text is the folder's bytes; and a payload is
 # named by the digest the folder's walk gave its path. A record from one
 # position resolves nothing. `LAWS.record_states_the_folder`.
-#
-# Where the parents being joined leave a file of lines differently, what
-# it states is the written form of the resolution `Conflict.resolve` makes
-# of the walk of those parents — `joined`, the reading `merge` lays out —
-# and the lines the folder holds; `LAWS.merge_resolution_reads_back`
-# assembles that back to those lines. `LAWS.record_resolves_as_the_walk_proposes`.
-def resolution.written(d: Maybe<&2, Res.Doc>, +doc: String) -> Bool:
-  match d:
-    case Some{x}:
-      String.eq(Res.write(x), doc)
-    case None{}:
-      False{}
-
-def resolution.states(j: Maybe<&2, Conflict.Joined>, +after: List<&2, Ops.Item>, +doc: String) -> Bool:
-  match j:
-    case Some{x}:
-      resolution.written(Conflict.resolve(x, after), doc)
-    case None{}:
-      False{}
-
 def content.applied(r: Result<&2, &2, String, List<&2, Ops.Item>>, +after: List<&2, Ops.Item>) -> Bool:
   match r:
     case Done{xs}:
@@ -8849,27 +8829,6 @@ def content.states(+older: List<&2, Full>, +ds: List<&2, Store.Doc>, +left: Stri
       String.eq(d, status.folder_digest(dg, p))
     case Content.Resolved{f, p, doc}:
       False{}
-
-def joined.maybe(r: Result<&2, &2, String, Conflict.Joined>) -> Maybe<&2, Conflict.Joined>:
-  match r:
-    case Done{j}:
-      Some{j}
-    case Fail{e}:
-      None{}
-
-def content.resolves(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, +reads: Map<&2, List<&2, U32>>, c: Content) -> Bool:
-  match c:
-    case Content.Resolved{+f, +p, +doc}:
-      resolution.states(joined.maybe(joined(fs, ds, ps, f)), Ops.from_text(Utf8.decode(bytes_of(p, Map.get(List<&2, U32>, Nil{}, reads, p)))), doc)
-    case _:
-      True{}
-
-def contents.resolve(+fs: List<&2, Full>, +ds: List<&2, Store.Doc>, +ps: List<&2, String>, +reads: Map<&2, List<&2, U32>>, cs: List<&2, Content>) -> Bool:
-  match cs:
-    case Nil{}:
-      True{}
-    case c <> rest:
-      Bool.and(content.resolves(fs, ds, ps, reads, c), contents.resolve(fs, ds, ps, reads, rest))
 
 def contents.state(+older: List<&2, Full>, +ds: List<&2, Store.Doc>, +left: String, +dg: Map<&2, String>, +reads: Map<&2, List<&2, U32>>, cs: List<&2, Content>) -> Bool:
   match cs:
