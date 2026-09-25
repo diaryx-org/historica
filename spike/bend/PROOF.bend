@@ -83,6 +83,7 @@ import ./export_lemmas.bend as ExportL
 import ./words_lemmas.bend as WordsL
 import ./nfc_lemmas.bend as NfcL
 import ./fetching_lemmas.bend as FetchingL
+import ./init_lemmas.bend as InitL
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -931,7 +932,22 @@ def Laws.check_reads_its_words(ws):
   CheckL.reads_words(ws)
 
 def Laws.check_finds_nothing_in_a_new_store(root):
-  CheckL.fresh(root)
+  {==}
+
+def Laws.init_lays_down_only_its_store(root):
+  InitL.only_its_store(root)
+
+def Laws.init_writes_text(root):
+  {==}
+
+def Laws.init_takes_an_absolute_dir_as_it_is(base, other, d):
+  InitL.absolute(base, other, d)
+
+def Laws.init_doubles_no_slash(base, d, e, f):
+  InitL.slash_once(base, d, e, f)
+
+def Laws.init_keeps_a_dot(base, e, f):
+  InitL.dot_kept(base, e, f)
 
 def Laws.skip_rules_equal_only_when_equal(a, b, e):
   SkipL.rule_eq_sound(a, b, e)
