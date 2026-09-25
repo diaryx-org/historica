@@ -783,3 +783,33 @@ def Laws.export_writes_over_no_unrecorded_work(os, ss, dirs, others, whole, rs):
 
 def Laws.export_removes_only_recorded_files(ss, placed, whole, rs):
   ExportL.removes_safe(ss, placed, whole, rs)
+
+def Laws.export_reads_its_words(ws):
+  ExportL.words(ws)
+
+def Laws.export_writes_only_where_a_copy_may_go(into, l, store):
+  ExportL.dest(into, l, store)
+
+def Laws.export_lays_each_file_as_the_tree_has_it(ps, t, fs, ds, id, pays, bs):
+  ExportL.laid_all(ps, t, fs, ds, id, pays, bs)
+
+def Laws.export_carries_only_this_stores_files(held, t, ds, ps, bodies, rs, bs, claims):
+  ExportL.plan_from(held, t, ds, ps, bodies, rs, bs, claims)
+
+def Laws.export_renames_nothing_a_copy_holds(fs, held, ex, id, s, e, m):
+  ExportL.stems_kept(fs, held, ex, id, s, e, m)
+
+def Laws.receive_trusts_what_it_plans_from(here, there, join):
+  ReceiveL.plan_ok(here, there, join)
+
+def Laws.receive_reads_its_words(ws):
+  ReceiveL.words(ws)
+
+def Laws.offer_reads_its_words(ws):
+  OfferL.words(ws)
+
+def Laws.export_lays_out_only_what_the_walk_offers_back(t, fs, ds, id, pays, bs, rules):
+  ExportL.folder_clear(t, fs, ds, id, pays, bs, rules)
+
+def Laws.export_destroys_only_what_is_forgotten(p, here, cst, marks):
+  ExportL.destroys(p, here, cst, marks)

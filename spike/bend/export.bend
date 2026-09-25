@@ -993,21 +993,40 @@ type Dest is Data:
   Dest.Fresh{}
   Dest.Copy{}
 
-def dest.held(+into: String, empty: Bool, header: Result<&1, &1, U32 & String, String>) -> Result<&2, &2, Main.Refused, Dest>:
-  match empty header:
-    case True{} _:
-      Done{Dest.Fresh{}}
-    case False{} Done{x}:
-      Done{Dest.Copy{}}
-    case False{} Fail{e}:
-      Fail{Main.Refused{1, into ++ " already holds something that is not a copy of this store; an export writes a fresh repository into an empty directory and updates a copy it made, and combining a copy with what is already there is `receive`"}}
+# What listing the destination found: nothing there, something that could
+# not be listed and why, or what it holds.
+type Lst is Data:
+  Lst.Absent{}
+  Lst.Unreadable{msg: String}
+  Lst.Listed{text: String}
 
-def dest.r(+into: String, listed: Result<&1, &1, U32 & String, String>, header: Result<&1, &1, U32 & String, String>) -> Result<&2, &2, Main.Refused, Dest>:
+def lst.of(listed: Result<&1, &1, U32 & String, String>) -> Lst:
   match listed:
     case Fail{Tuple{code, msg}}:
-      Bool.pick(Result<&2, &2, Main.Refused, Dest>, U32.is_eq(code, 2), Done{Dest.Fresh{}}, Fail{Main.Refused{1, msg}})
+      Bool.pick(Lst, U32.is_eq(code, 2), Lst.Absent{}, Lst.Unreadable{msg})
     case Done{text}:
-      dest.held(into, String.is_empty(text), header)
+      Lst.Listed{text}
+
+def dest.held(+into: String, empty: Bool, store: Bool) -> Result<&2, &2, Main.Refused, Dest>:
+  match empty store:
+    case True{} _:
+      Done{Dest.Fresh{}}
+    case False{} True{}:
+      Done{Dest.Copy{}}
+    case False{} False{}:
+      Fail{Main.Refused{1, into ++ " already holds something that is not a copy of this store; an export writes a fresh repository into an empty directory and updates a copy it made, and combining a copy with what is already there is `receive`"}}
+
+def dest.decide(+into: String, l: Lst, store: Bool) -> Result<&2, &2, Main.Refused, Dest>:
+  match l:
+    case Lst.Absent{}:
+      Done{Dest.Fresh{}}
+    case Lst.Unreadable{msg}:
+      Fail{Main.Refused{1, msg}}
+    case Lst.Listed{+text}:
+      dest.held(into, String.is_empty(text), store)
+
+def dest.r(+into: String, listed: Result<&1, &1, U32 & String, String>, header: Result<&1, &1, U32 & String, String>) -> Result<&2, &2, Main.Refused, Dest>:
+  dest.decide(into, lst.of(listed), Result.is_done(&1, &1, U32 & String, String, header))
 
 def more.said(+n: Nat) -> String:
   Bool.pick(String, Nat.is_lt(3n, n), " and " ++ Nat.show(Nat.sub(n, 3n)) ++ " more", SNil{})
@@ -1185,13 +1204,6 @@ def stands.in(f: Maybe<&2, String>, +content: Set()) -> Bool:
 def body.kept(+id: String, +f: Maybe<&2, String>, +docs: Set(), +content: Set()) -> Bool:
   Bool.or(Arrange.has(docs, id), stands.in(f, content))
 
-def bodies.destroys(bs: List<&2, Prune.Body>, +forgotten: Set()) -> List<&2, String>:
-  match bs:
-    case Nil{}:
-      Nil{}
-    case Prune.Body{p, +id, ok, f} <> rest:
-      Tree.keep(~String, Arrange.has(forgotten, id), id, bodies.destroys(rest, forgotten))
-
 def bodies.holds(bs: List<&2, Prune.Body>, +forgotten: Set(), +docs: Set(), +content: Set()) -> List<&2, String>:
   match bs:
     case Nil{}:
@@ -1205,13 +1217,6 @@ def bodies.gone(bs: List<&2, Prune.Body>, +forgotten: Set(), +docs: Set(), +cont
       Nil{}
     case Prune.Body{+p, +id, ok, +f} <> rest:
       Tree.keep(~String, Bool.not(Bool.or(Arrange.has(forgotten, id), body.kept(id, f, docs, content))), p, bodies.gone(rest, forgotten, docs, content))
-
-def pays.destroys(ss: List<&2, T.Split>, +forgotten: Set()) -> List<&2, String>:
-  match ss:
-    case Nil{}:
-      Nil{}
-    case T.Split{p, +d} <> rest:
-      Tree.keep(~String, Arrange.has(forgotten, d), d, pays.destroys(rest, forgotten))
 
 def pays.holds(ss: List<&2, T.Split>, +forgotten: Set(), +pays: Set()) -> List<&2, String>:
   match ss:
@@ -1260,13 +1265,6 @@ def names.files(ns: List<&2, String>) -> List<&2, String>:
     case n <> rest:
       ("names/" ++ n ++ ".txt") <> names.files(rest)
 
-def split.digests(ss: List<&2, T.Split>) -> List<&2, String>:
-  match ss:
-    case Nil{}:
-      Nil{}
-    case T.Split{p, d} <> rest:
-      d <> split.digests(rest)
-
 def marks.names(bs: List<&2, Bm.Bookmark>) -> List<&2, String>:
   match bs:
     case Nil{}:
@@ -1296,12 +1294,38 @@ def rules.lines(rs: List<&2, Receive.Ruled>) -> List<&2, String>:
 # a document or payload either side forgets is destroyed, one the set names
 # — or a stand-in for one — held, and the rest withdrawn; then the rule
 # files and bookmarks the origin no longer shares.
+def split.digests(ss: List<&2, T.Split>) -> List<&2, String>:
+  match ss:
+    case Nil{}:
+      Nil{}
+    case T.Split{p, d} <> rest:
+      d <> split.digests(rest)
+
+def plan.docset(+p: Plan) -> Set():
+  Set.from_list(List.append(&2, String, doc.ids(plan.documents(p)), doc.ids(plan.forgetting(p))))
+
+# What either side forgets: what the documents that travel forget, and
+# everything the copy forgets.
+def onto.forgotten.of(+p: Plan, +here: List<&2, Prune.Body>, +cst: Prune.Stored) -> List<&2, String>:
+  Main.sorted_distinct(List.append(&2, String, forgets.here(here, plan.docset(p)), forgets.all(Receive.stored.bodies(cst))))
+
+def body.digests(bs: List<&2, Prune.Body>) -> List<&2, String>:
+  match bs:
+    case Nil{}:
+      Nil{}
+    case Prune.Body{p, i, ok, f} <> rest:
+      i <> body.digests(rest)
+
+# The originals the copy holds that either side forgets, each once.
+def onto.destroys.of(+forgotten: List<&2, String>, +cst: Prune.Stored) -> List<&2, String>:
+  Main.sorted_distinct(Receive.among(forgotten, Set.from_list(List.append(&2, String, body.digests(Receive.stored.bodies(cst)), split.digests(Receive.stored.payloads(cst))))))
+
 def onto.of(+p: Plan, +here: List<&2, Prune.Body>, +cst: Prune.Stored, +marks: List<&2, Bm.Bookmark>) -> Onto:
   +revset = Set.from_list(Main.ids(plan.revisions(p)))
-  +docset = Set.from_list(List.append(&2, String, doc.ids(plan.documents(p)), doc.ids(plan.forgetting(p))))
+  +docset = plan.docset(p)
   +payset = Set.from_list(split.digests(plan.payloads(p)))
   +content = Set.from_list(List.concat(&2, String, [doc.ids(plan.documents(p)), doc.ids(plan.forgetting(p)), split.digests(plan.payloads(p))]))
-  +forgotten = Main.sorted_distinct(List.append(&2, String, forgets.here(here, docset), forgets.all(Receive.stored.bodies(cst))))
+  +forgotten = onto.forgotten.of(p, here, cst)
   +fset = Set.from_list(forgotten)
   +revs = stored.revs(cst)
   +bodies = Receive.stored.bodies(cst)
@@ -1311,7 +1335,7 @@ def onto.of(+p: Plan, +here: List<&2, Prune.Body>, +cst: Prune.Stored, +marks: L
     List.concat(&2, String, [revs.gone(revs, revset), bodies.gone(bodies, fset, docset, content), pays.gone(pays, fset, payset)]),
     rules.retired(Receive.ruled(Receive.stored.rules(cst)), Set.from_list(rules.lines(plan.rules(p)))),
     names.retired(marks, Set.from_list(marks.names(travel.names(plan.names(p))))),
-    Main.sorted_distinct(List.append(&2, String, bodies.destroys(bodies, fset), pays.destroys(pays, fset))),
+    onto.destroys.of(forgotten, cst),
     forgotten}
 
 def onto.holds(o: Onto) -> List<&2, String>:
@@ -1895,6 +1919,198 @@ def ever.all(ps: List<&2, String>, +fs: List<&2, Main.Full>) -> List<&2, String>
 def origin.fulls(+st: Prune.Stored) -> List<&2, Main.Full>:
   Arrange.distinct(Prune.fulls(Arrange.revision_docs(Receive.stored.docs(st))))
 
+
+# What the laws say of an export
+# ------------------------------
+
+# Every word starting `-` is a flag `export` takes.
+def flags.only(ws: List<&2, String>) -> Bool:
+  match ws:
+    case Nil{}:
+      True{}
+    case +w <> rest:
+      Bool.and(Bool.or(Bool.not(String.starts_with(w, "-")), is_flag(w)), flags.only(rest))
+
+# A command line `export` accepts: its flags, one directory, and at most
+# one target.
+def words.ok(+ws: List<&2, String>) -> Bool:
+  Bool.and(flags.only(ws), Bool.and(Nat.is_le(1n, List.length(&2, String, plain(ws))), Nat.is_le(List.length(&2, String, plain(ws)), 2n)))
+
+# A file of the store holding a digest.
+def split.held(ss: List<&2, T.Split>, +path: String, +digest: String) -> Bool:
+  match ss:
+    case Nil{}:
+      False{}
+    case T.Split{+p, +d} <> rest:
+      Bool.or(Bool.and(String.eq(p, path), String.eq(d, digest)), split.held(rest, path, digest))
+
+def doc.has(ds: List<&2, Store.Doc>, +id: String) -> Bool:
+  match ds:
+    case Nil{}:
+      False{}
+    case Store.Doc{p, +i, n, t} <> rest:
+      Bool.or(String.eq(i, id), doc.has(rest, id))
+
+def docs.from(xs: List<&2, Store.Doc>, +ds: List<&2, Store.Doc>) -> Bool:
+  match xs:
+    case Nil{}:
+      True{}
+    case Store.Doc{p, +i, n, t} <> rest:
+      Bool.and(doc.has(ds, i), docs.from(rest, ds))
+
+def pays.from(ys: List<&2, T.Split>, +ps: List<&2, T.Split>) -> Bool:
+  match ys:
+    case Nil{}:
+      True{}
+    case T.Split{+p, +d} <> rest:
+      Bool.and(split.held(ps, p, d), pays.from(rest, ps))
+
+# A copy is assembled from this store's own files: every document and
+# forgetting document it carries is one this store holds under that
+# digest, and every payload is a file of this store holding it.
+def plan.from(p: Plan, +ds: List<&2, Store.Doc>, +ps: List<&2, T.Split>) -> Bool:
+  match p:
+    case Plan{r, docs, pays, forg, paths, rs, w, n, res}:
+      Bool.and(docs.from(docs, ds), Bool.and(pays.from(pays, ps), docs.from(forg, ds)))
+
+# Where an export writes: nowhere yet, or a directory holding nothing, gets
+# a fresh copy, and only a directory holding a store is updated.
+def lst.empty(l: Lst) -> Bool:
+  match l:
+    case Lst.Absent{}:
+      True{}
+    case Lst.Unreadable{m}:
+      False{}
+    case Lst.Listed{+tx}:
+      String.is_empty(tx)
+
+def dest.as(+l: Lst, +store: Bool, dd: Dest) -> Bool:
+  match dd:
+    case Dest.Fresh{}:
+      lst.empty(l)
+    case Dest.Copy{}:
+      Bool.and(store, Bool.not(lst.empty(l)))
+
+# Where an export writes: a fresh copy only where nothing is or nothing is
+# held, and an update only into a directory holding something that is a
+# store.
+def dest.ok(+l: Lst, +store: Bool, r: Result<&2, &2, Main.Refused, Dest>) -> Bool:
+  match r:
+    case Fail{e}:
+      True{}
+    case Done{dd}:
+      dest.as(l, store, dd)
+
+# What `export` may do with a command line: refuse it, or read one it
+# accepts.
+def args.ok(+ws: List<&2, String>, r: Result<&2, &2, Main.Refused, ExportCmd>) -> Bool:
+  match r:
+    case Fail{e}:
+      True{}
+    case Done{c}:
+      words.ok(ws)
+
+# What `cat` prints of a file at a revision.
+def cat.of(r: Result<&2, &2, String, List<&2, Ops.Item>>) -> Maybe<&2, String>:
+  match r:
+    case Fail{e}:
+      None{}
+    case Done{items}:
+      Some{Ops.text(items)}
+
+def cat.text(+fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String, +file: String) -> Maybe<&2, String>:
+  cat.of(Main.content(fs, ds, id, file))
+
+def maybe.is(m: Maybe<&2, String>, +x: String) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{+y}:
+      String.eq(y, x)
+
+def bool.same(a: Bool, b: Bool) -> Bool:
+  Bool.not(Bool.xor(a, b))
+
+def link.as(target: Maybe<&2, Tree.Target>, +g: String, +t: Tree.Tree(), +path: String) -> Bool:
+  match target:
+    case None{}:
+      False{}
+    case Some{tg}:
+      String.eq(Main.materialise(t, path, tg), g)
+
+# One file as the tree has it: a file of lines holds what `cat` prints
+# there, a file of bytes the payload its entry names, copied from a file of
+# the store holding it, a link is spelled as decision 0040 spells it, and
+# each runs exactly where the tree says.
+def text.as(+text: String, +r: Bool, en: Tree.Entry, +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String) -> Bool:
+  match en:
+    case Tree.Entry{+f, ep, kind, payload, target, mode}:
+      Bool.and(Tree.kind_eq(kind, Tree.Lines{}), Bool.and(maybe.is(cat.text(fs, ds, id, f), text), bool.same(r, runs(mode))))
+
+def bytes.as(+from: String, +d: String, +r: Bool, en: Tree.Entry, +pays: List<&2, T.Split>) -> Bool:
+  match en:
+    case Tree.Entry{f, ep, kind, payload, target, mode}:
+      Bool.and(Tree.kind_eq(kind, Tree.Whole{}), Bool.and(maybe.is(payload, d), Bool.and(split.held(pays, from, d), bool.same(r, runs(mode)))))
+
+def link.entry.as(+g: String, en: Tree.Entry, +t: Tree.Tree(), +path: String) -> Bool:
+  match en:
+    case Tree.Entry{f, ep, kind, payload, target, mode}:
+      Bool.and(Tree.kind_eq(kind, Tree.Link{}), link.as(target, g, t, path))
+
+# One file as the tree has it: a file of lines holds what `cat` prints
+# there, a file of bytes the payload its entry names, copied from a file of
+# the store holding it, a link is spelled as decision 0040 spells it, and
+# each runs exactly where the tree says.
+def put.as(pt: Put, +path: String, en: Tree.Entry, +t: Tree.Tree(), +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String, +pays: List<&2, T.Split>) -> Bool:
+  match pt:
+    case Put.Text{q, +text, r}:
+      text.as(text, r, en, fs, ds, id)
+    case Put.Bytes{q, +from, +d, r}:
+      bytes.as(from, d, r, en, pays)
+    case Put.Link{q, +g}:
+      link.entry.as(g, en, t, path)
+
+def laid.as(o: Outcome, +path: String, e: Tree.Entry, +t: Tree.Tree(), +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String, +pays: List<&2, T.Split>) -> Bool:
+  match o:
+    case Outcome.Refused{p, b}:
+      True{}
+    case Outcome.Laid{put}:
+      put.as(put, path, e, t, fs, ds, id, pays)
+
+def placed.as(p: Placed, o: Outcome, +t: Tree.Tree(), +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String, +pays: List<&2, T.Split>) -> Bool:
+  match p:
+    case Placed{+path, es}:
+      match es:
+        case e <> Nil{}:
+          laid.as(o, path, e, t, fs, ds, id, pays)
+        case _:
+          True{}
+
+def laid.all(ps: List<&2, Placed>, os: List<&2, Outcome>, +t: Tree.Tree(), +fs: List<&2, Main.Full>, +ds: List<&2, Store.Doc>, +id: String, +pays: List<&2, T.Split>) -> Bool:
+  match ps os:
+    case p <> prest o <> orest:
+      Bool.and(placed.as(p, o, t, fs, ds, id, pays), laid.all(prest, orest, t, fs, ds, id, pays))
+    case _ _:
+      True{}
+
+# A path a folder may be given: outside the store, not a directory another
+# of the tree's files needs, and not one a rule covers.
+def path.clear(+path: String, +dirs: Set(), +rules: List<&2, Folder.Scope>) -> Bool:
+  Bool.and(Bool.not(Arrange.has(dirs, path)), Bool.and(Bool.not(Bool.or(String.eq(path, "history"), String.starts_with(path, "history/"))), Bool.not(Folder.skips(rules, path))))
+
+def puts.clear(ps: List<&2, Put>, +dirs: Set(), +rules: List<&2, Folder.Scope>) -> Bool:
+  match ps:
+    case Nil{}:
+      True{}
+    case +p <> rest:
+      Bool.and(path.clear(put.path(p), dirs, rules), puts.clear(rest, dirs, rules))
+
+def folder.clear(+t: Tree.Tree(), +rules: List<&2, Folder.Scope>, r: Result<&2, &2, Main.Refused, List<&2, Put>>) -> Bool:
+  match r:
+    case Fail{e}:
+      True{}
+    case Done{ps}:
+      puts.clear(ps, Set.from_list(directories(placed(t))), rules)
 
 # The whole
 # ---------
