@@ -2754,6 +2754,31 @@ law export_destroys_only_what_is_forgotten:
   for h: {Rev.member(Export.onto.destroys(Export.onto.of(p, here, cst, marks)), d) == True{} : Bool}
   {Bool.or(Receive.forgot.by(here, d), Receive.forgot.by(Receive.stored.bodies(cst), d)) == True{} : Bool}
 
+# Catching a copy's folder up writes over, and takes away, only bytes the
+# copy's own history can give back (decision 0030, as 0052 meets it): every
+# file one of its steps writes or links over, and every file it removes,
+# holds what `cat` of some revision of the copy reads for some file of its
+# tree, or the payload that tree names — `update`'s promise, asked of what
+# the copy's revisions record at each path the walk found there. A link it
+# takes away is read from the revisions' link statements, as the Rust tool
+# reads it, and is not asked about here; nor is a folder that is the
+# export's own last output, untouched since, which it rewrites whole.
+law export_spares_the_unrecorded:
+  for +t: Tree.Tree()
+  for +fs: List<&2, Main.Full>
+  for +ds: List<&2, Store.Doc>
+  for +id: String
+  for +pays: List<&2, T.Split>
+  for +bs: List<&2, Prune.Body>
+  for +rules: List<&2, Folder.Scope>
+  for +seen: List<&2, Export.Seen>
+  for +walk: List<&2, T.Split>
+  for +dirs: Set()
+  for +others: Set()
+  for +cfs: List<&2, Main.Full>
+  for +cds: List<&2, Store.Doc>
+  {Export.caught.spares(seen, cfs, cds, Export.caught.r(t, fs, ds, id, pays, bs, rules, seen, walk, dirs, others, False{}, Export.recs(Export.seen.paths(seen), cfs, cds))) == True{} : Bool}
+
 # Every line of an `offer` manifest names a file by the digest the store's
 # listing gives the file at that path: each payload, document, revision,
 # rule, file of `claims/` and bookmark, group by group, so a fetcher that

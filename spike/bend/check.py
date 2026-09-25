@@ -4148,6 +4148,13 @@ def check_mutations(temporary):
             "export.bend",
         ),
         (
+            "export counts a link's target as bytes the copy records",
+            "      Rec{p, maybe.push(d, ds), maybe.push(l, ls)}",
+            "      Rec{p, maybe.push(l, ds), maybe.push(d, ls)}",
+            "catchup_lemmas.member_join",
+            "export.bend",
+        ),
+        (
             "fetch files a document whose text is not the digest offered",
             "      Bool.pick(Land, String.eq(found, entry.digest(o)), text.land(root, held, o, t), Land.Refuse{TAMPERED(entry.path(o), entry.digest(o), found)})",
             "      Bool.pick(Land, True{}, text.land(root, held, o, t), Land.Refuse{TAMPERED(entry.path(o), entry.digest(o), found)})",
