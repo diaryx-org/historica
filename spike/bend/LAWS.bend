@@ -52,6 +52,8 @@ import ./manifest_lemmas.bend as ManL
 import ./fetching_lemmas.bend as FetchingL
 import ./fetchplan_lemmas.bend as FPlanL
 import ./escape_lemmas.bend as EscL
+import ./init_lemmas.bend as InitL
+import ./utf8_lemmas.bend as Utf8L
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -2436,12 +2438,13 @@ law check_reads_its_words:
   for +ws: List<&2, String>
   {Check.asked(ws) == Check.Asked{Rev.member(ws, "--complete"), Check.words.other(ws)} : Check.Asked}
 
-# What `check` gathers from the store `init` makes — the header under its
-# note, `skipped/` holding only its note, and nothing else — it finds
-# nothing wrong with, wherever the store is.
+# The store `init` lays down holds no document, and what `check` gathers
+# from it — `historica.txt` and each file of `skipped/` read back from the
+# bytes written there, as the pass reads them, and whether `skipped.txt`
+# is there — it finds nothing wrong with, wherever the store is.
 law check_finds_nothing_in_a_new_store:
   for +root: String
-  {Check.found(Check.Gathered{root, Some{Notes.HEADER_NOTE()}, Check.Walked{Nil{}, Nil{}}, Nil{}, Check.Walked{Nil{}, Nil{}}, Nil{}, Check.Texts{Nil{}, Nil{}}, False{}, Check.skipped.read(root ++ "/skipped/README.txt", Done{Notes.SKIPPED_NOTE()}), Check.Walked{Nil{}, Nil{}}, Nil{}}) == Nil{} : List<&2, Check.Finding>}
+  {InitL.passes(root, Main.init.laid()) == True{} : Bool}
 
 # `skip`'s rules are equal only when they are one rule, and each is equal
 # to itself: what `held` asks is membership.
@@ -3606,3 +3609,52 @@ law fetch_asks_in_characters_a_url_may_hold:
 # that is the whole of how a byte of a path is spelled.
 law fetch_asks_for_what_is_unreserved_as_itself:
   {List.all(~&2, ~Char, ~(c => String.eq(Fetch.escaped.byte(Char.to_u32(c)), SCon{c, SNil{}})), String.to_list("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~/")) == True{} : Bool}
+
+# `init` lays down nothing outside the store it names: every directory it
+# makes and every note it writes is the root, a `/`, and components none
+# of them empty, `.` or `..`; and each note goes in the root or in a
+# directory it makes — whatever the root is.
+law init_lays_down_only_its_store:
+  for +root: String
+  {InitL.within(root, Main.init.layout(root)) == True{} : Bool}
+
+# Every note `init` writes is text as the format holds it — `format.txt`'s
+# "UTF-8 text with Unix line endings": lines, each ended by a newline, of
+# Unicode scalar values none of which is a control character.
+law init_writes_text:
+  for +root: String
+  {InitL.texts(Main.init.layout(root)) == True{} : Bool}
+
+# `init` joins `<dir>` to the directory it runs in as `Path::join` joins
+# it. An absolute `<dir>` is where the store goes, wherever `init` runs.
+law init_takes_an_absolute_dir_as_it_is:
+  for +base: String
+  for +other: String
+  for +d: String
+  {Main.init.root(base, Some{"/" ++ d}) == Main.init.root(other, Some{"/" ++ d}) : String}
+
+# A `/` after `<dir>` is not doubled: `init sub/` makes the store
+# `init sub` makes.
+law init_doubles_no_slash:
+  for +base: String
+  for +d: String
+  for +e: {String.is_empty(d) == False{} : Bool}
+  for +f: {String.ends_with(d, "/") == False{} : Bool}
+  {Main.init.root(base, Some{d ++ "/"}) == Main.init.root(base, Some{d}) : String}
+
+# And `.` is joined, not resolved: `init .` names `<base>/./history`, as
+# the Rust tool says it.
+law init_keeps_a_dot:
+  for +base: String
+  for e: {String.is_empty(base) == False{} : Bool}
+  for f: {String.ends_with(base, "/") == False{} : Bool}
+  {Main.init.root(base, Some{"."}) == base ++ "/./history" : String}
+
+# What the port writes as bytes the store reads back as what it wrote: a
+# string of Unicode scalar values, encoded as UTF-8 and read as the store
+# reads a file as text — `read_to_string`, which refuses bytes that are not
+# UTF-8 — is itself, every character at every one of its four widths.
+law utf8_reads_back:
+  for +s: String
+  for +h: {Utf8L.scalars(s) == True{} : Bool}
+  {Store.utf8.of(Utf8.encode(s)) == Done{s} : Result<&2, &2, String, String>}

@@ -129,11 +129,15 @@ def v.second(+lead: U32, +b: U32) -> Bool:
   Bool.pick(Bool, U32.is_eq(lead, 240), v.in(b, 144, 191),
   Bool.pick(Bool, U32.is_eq(lead, 244), v.in(b, 128, 143), v.cont(b)))))
 
-def v.width(+b: U32) -> Nat:
-  Bool.pick(Nat, U32.is_lt(b, 128), 1n,
+# The width a lead byte of more than one byte gives its sequence, and 0
+# for a byte that leads none.
+def v.width.more(+b: U32) -> Nat:
   Bool.pick(Nat, v.in(b, 194, 223), 2n,
   Bool.pick(Nat, v.in(b, 224, 239), 3n,
-  Bool.pick(Nat, v.in(b, 240, 244), 4n, 0n))))
+  Bool.pick(Nat, v.in(b, 240, 244), 4n, 0n)))
+
+def v.width(+b: U32) -> Nat:
+  Bool.pick(Nat, U32.is_lt(b, 128), 1n, v.width.more(b))
 
 # What is left after one character, or why there is none.
 type V is Data:

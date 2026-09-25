@@ -939,13 +939,7 @@ def carried(+from: String, +to: String, cs: List<&2, T.Split>) -> IO(Nat):
 # `init`'s layout, and its four notes: a copy explains itself (decision
 # 0021) and states nothing of the exporter's.
 def copy.init(+root: String) -> IO(Unit):
-  do IO<Unit>:
-    m : Result<&1, &1, U32 & String, String> <- Store.made(Main.init.dirs(root, ["revisions", "operations", "names", "cache", "skipped"]))
-    done : String <- Main.init.io(String, m)
-    Main.init.write(root ++ "/historica.txt", Notes.HEADER_NOTE())
-    Main.init.write(root ++ "/skipped/README.txt", Notes.SKIPPED_NOTE())
-    Main.init.write(root ++ "/format.txt", Notes.FORMAT_NOTE())
-    Main.init.write(root ++ "/cache/README.txt", Notes.CACHE_NOTE())
+  Main.init.lay(Main.init.layout(root))
 
 # Reading
 # -------

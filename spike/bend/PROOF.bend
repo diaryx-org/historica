@@ -87,6 +87,8 @@ import ./fetching_lemmas.bend as FetchingL
 import ./manifest_lemmas.bend as ManL
 import ./fetchplan_lemmas.bend as FPlanL
 import ./escape_lemmas.bend as EscL
+import ./init_lemmas.bend as InitL
+import ./utf8_lemmas.bend as Utf8L
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -864,7 +866,7 @@ def Laws.check_reads_its_words(ws):
   CheckL.reads_words(ws)
 
 def Laws.check_finds_nothing_in_a_new_store(root):
-  CheckL.fresh(root)
+  {==}
 
 def Laws.skip_rules_equal_only_when_equal(a, b, e):
   SkipL.rule_eq_sound(a, b, e)
@@ -1207,3 +1209,21 @@ def Laws.fetch_asks_in_characters_a_url_may_hold(bs, h):
 
 def Laws.fetch_asks_for_what_is_unreserved_as_itself():
   EscL.kept_as_itself()
+
+def Laws.init_lays_down_only_its_store(root):
+  InitL.only_its_store(root)
+
+def Laws.init_writes_text(root):
+  {==}
+
+def Laws.init_takes_an_absolute_dir_as_it_is(base, other, d):
+  InitL.absolute(base, other, d)
+
+def Laws.init_doubles_no_slash(base, d, e, f):
+  InitL.slash_once(base, d, e, f)
+
+def Laws.init_keeps_a_dot(base, e, f):
+  InitL.dot_kept(base, e, f)
+
+def Laws.utf8_reads_back(s, h):
+  Utf8L.reads_back(s, h)
