@@ -722,17 +722,17 @@ def ens(ok: Bool, -msg: String, -rest: Result<&2, &2, String, Rev.Header>, -hd: 
 def scanned(+k: String, +v: String, sc: Rev.Scan, +hd: Rev.Header, e: {Rev.header_of.scanned(k, v, sc) == Done{hd} : Result<&2, &2, String, Rev.Header>}) -> {Rev.Header{k, v} == hd : Rev.Header}:
   match sc:
     case Rev.Scan{padded, control}:
-      +e1 = ens(Bool.not(padded), Rev.msg.padded(), Result.bind(&2, &2, String, Unit, Rev.Header, Rev.ensure(Bool.not(control), Rev.msg.control()), u => Done{Rev.Header{k, v}}), hd, e)
-      +e2 = ens(Bool.not(control), Rev.msg.control(), Done{Rev.Header{k, v}}, hd, e1)
+      +e1 = ens(Bool.not(padded), "the header `" ++ k ++ "` has a padded value", Result.bind(&2, &2, String, Unit, Rev.Header, Rev.ensure(Bool.not(control), "the header `" ++ k ++ "` holds a control character"), u => Done{Rev.Header{k, v}}), hd, e)
+      +e2 = ens(Bool.not(control), "the header `" ++ k ++ "` holds a control character", Done{Rev.Header{k, v}}, hd, e1)
       Equal.cong(Result<&2, &2, String, Rev.Header>, Rev.Header, y => hdone(y, Rev.Header{k, v}), Done{Rev.Header{k, v}}, Done{hd}, e2)
 
 def header_cut(+t: String, cut: Maybe<&2, T.Split>, ecut: {T.split_once(t) == cut : Maybe<&2, T.Split>}, +hd: Rev.Header, e: {Rev.header_of(t, cut) == Done{hd} : Result<&2, &2, String, Rev.Header>}, -U: String) -> {t ++ ("\n" ++ U) == Rev.write_facts([hd]) ++ U : String}:
   match cut:
     case None{}:
-      Empty.absurd({t ++ ("\n" ++ U) == Rev.write_facts([hd]) ++ U : String}, hfail(Rev.msg.empty_value(), hd, e))
+      Empty.absurd({t ++ ("\n" ++ U) == Rev.write_facts([hd]) ++ U : String}, hfail("the header `" ++ t ++ "` has no value", hd, e))
     case Some{T.Split{+k, +v}}:
-      +e1 = ens(Rev.shaped_key(k), Rev.msg.key(k), Result.bind(&2, &2, String, Unit, Rev.Header, Rev.ensure(Bool.not(String.is_empty(v)), Rev.msg.empty_value()), u => Rev.header_of.scanned(k, v, Rev.scan(v))), hd, e)
-      +e2 = ens(Bool.not(String.is_empty(v)), Rev.msg.empty_value(), Rev.header_of.scanned(k, v, Rev.scan(v)), hd, e1)
+      +e1 = ens(Rev.shaped_key(k), "a malformed key `" ++ k ++ "`", Result.bind(&2, &2, String, Unit, Rev.Header, Rev.ensure(Bool.not(String.is_empty(v)), "the header `" ++ k ++ "` has no value"), u => Rev.header_of.scanned(k, v, Rev.scan(v))), hd, e)
+      +e2 = ens(Bool.not(String.is_empty(v)), "the header `" ++ k ++ "` has no value", Rev.header_of.scanned(k, v, Rev.scan(v)), hd, e1)
       %scanned(k, v, Rev.scan(v), hd, e2) : {t ++ ("\n" ++ U) == Rev.write_facts([_]) ++ U : String}
       %Equal.sym(String, String.reverse.go(SNil{}, t), k ++ (" " ++ v), Spell.split_top(t, k, v, ecut)) : {_ ++ ("\n" ++ U) == Rev.write_facts([Rev.Header{k, v}]) ++ U : String}
       %Equal.sym(String, (k ++ (" " ++ v)) ++ ("\n" ++ U), k ++ ((" " ++ v) ++ ("\n" ++ U)), Spell.app_assoc(k, " " ++ v, "\n" ++ U)) : {_ == Rev.write_facts([Rev.Header{k, v}]) ++ U : String}
@@ -875,11 +875,11 @@ def headers_step(+acc: List<&2, Rev.Header>, +hd: Rev.Header, +t: String, +U: St
 def blank_line(term: Bool, rest: List<&2, T.Line>, h: Result<&2, &2, String, Rev.Header>, +acc: List<&2, Rev.Header>, +at: Nat, +x: Rev.Split, w: {wf(T.Line{SNil{}, term} <> rest) == True{} : Bool}, e: {Rev.headers.go(T.Line{SNil{}, term} <> rest, h, at, acc) == Done{x} : Result<&2, &2, String, Rev.Split>}) -> {Rev.write_facts(List.reverse(&2, Rev.Header, acc)) ++ Rev.unlines(T.Line{SNil{}, term} <> rest) == split_text(x) : String}:
   match term rest h:
     case False{} Nil{} _:
-      Empty.absurd({Rev.write_facts(List.reverse(&2, Rev.Header, acc)) ++ Rev.unlines([T.Line{SNil{}, False{}}]) == split_text(x) : String}, sfail("line " ++ Nat.show(at) ++ ": " ++ Rev.msg.blank(), x, e))
+      Empty.absurd({Rev.write_facts(List.reverse(&2, Rev.Header, acc)) ++ Rev.unlines([T.Line{SNil{}, False{}}]) == split_text(x) : String}, sfail("line " ++ Nat.show(at) ++ ": a blank line with no message after it", x, e))
     case True{} Nil{} Fail{m}:
-      Empty.absurd({Rev.write_facts(List.reverse(&2, Rev.Header, acc)) ++ Rev.unlines([T.Line{SNil{}, True{}}]) == split_text(x) : String}, sfail("line " ++ Nat.show(at) ++ ": " ++ Rev.msg.blank(), x, e))
+      Empty.absurd({Rev.write_facts(List.reverse(&2, Rev.Header, acc)) ++ Rev.unlines([T.Line{SNil{}, True{}}]) == split_text(x) : String}, sfail("line " ++ Nat.show(at) ++ ": a blank line with no message after it", x, e))
     case True{} Nil{} Done{d}:
-      Empty.absurd({Rev.write_facts(List.reverse(&2, Rev.Header, acc)) ++ Rev.unlines([T.Line{SNil{}, True{}}]) == split_text(x) : String}, sfail("line " ++ Nat.show(at) ++ ": " ++ Rev.msg.blank(), x, e))
+      Empty.absurd({Rev.write_facts(List.reverse(&2, Rev.Header, acc)) ++ Rev.unlines([T.Line{SNil{}, True{}}]) == split_text(x) : String}, sfail("line " ++ Nat.show(at) ++ ": a blank line with no message after it", x, e))
     case False{} l <> more _:
       Empty.absurd({Rev.write_facts(List.reverse(&2, Rev.Header, acc)) ++ Rev.unlines(T.Line{SNil{}, False{}} <> l <> more) == split_text(x) : String}, Comp.false_true(w))
     case True{} +l <> +more Fail{m}:
@@ -894,7 +894,7 @@ def blank_line(term: Bool, rest: List<&2, T.Line>, h: Result<&2, &2, String, Rev
 def header_sp(+c: Char, +tt: String, term: Bool, h: Result<&2, &2, String, Rev.Header>, +rest: List<&2, T.Line>, +acc: List<&2, Rev.Header>, +at: Nat, +x: Rev.Split, eh: {Rev.head_header(T.Line{SCon{c, tt}, term} <> rest) == h : Result<&2, &2, String, Rev.Header>}, w: {wf(T.Line{SCon{c, tt}, term} <> rest) == True{} : Bool}, e: {Rev.headers.go(T.Line{SCon{c, tt}, term} <> rest, h, at, acc) == Done{x} : Result<&2, &2, String, Rev.Split>}, ih: @hd: Rev.Header -> {wf(rest) == True{} : Bool} -> {Rev.headers.go(rest, Rev.head_header(rest), 1n+at, hd <> acc) == Done{x} : Result<&2, &2, String, Rev.Split>} -> {Rev.write_facts(List.reverse(&2, Rev.Header, hd <> acc)) ++ Rev.unlines(rest) == split_text(x) : String}) -> {Rev.write_facts(List.reverse(&2, Rev.Header, acc)) ++ Rev.unlines(T.Line{SCon{c, tt}, term} <> rest) == split_text(x) : String}:
   match term h:
     case False{} _:
-      Empty.absurd({Rev.write_facts(List.reverse(&2, Rev.Header, acc)) ++ Rev.unlines(T.Line{SCon{c, tt}, False{}} <> rest) == split_text(x) : String}, sfail("line " ++ Nat.show(at) ++ ": " ++ Rev.msg.unterminated(), x, e))
+      Empty.absurd({Rev.write_facts(List.reverse(&2, Rev.Header, acc)) ++ Rev.unlines(T.Line{SCon{c, tt}, False{}} <> rest) == split_text(x) : String}, sfail("line " ++ Nat.show(at) ++ ": unterminated line", x, e))
     case True{} Fail{msg}:
       Empty.absurd({Rev.write_facts(List.reverse(&2, Rev.Header, acc)) ++ Rev.unlines(T.Line{SCon{c, tt}, True{}} <> rest) == split_text(x) : String}, sfail("line " ++ Nat.show(at) ++ ": " ++ msg, x, e))
     case True{} Done{+hd}:
@@ -945,9 +945,9 @@ def body_sp(+rest: List<&2, T.Line>, w: {wf(rest) == True{} : Bool}, +x: Rev.Rev
 def head_sp(+t: String, term: Bool, b: Bool, +rest: List<&2, T.Line>, eb: {Bool.and(term, T.same(t, "historica")) == b : Bool}, w: {wf(T.Line{t, term} <> rest) == True{} : Bool}, +x: Rev.Rev, e: {Rev.parse.head(t, b, rest) == Done{x} : Result<&2, &2, String, Rev.Rev>}) -> {Rev.write(x) == Rev.unlines(T.Line{t, term} <> rest) : String}:
   match term b:
     case False{} False{}:
-      Empty.absurd({Rev.write(x) == Rev.unlines(T.Line{t, False{}} <> rest) : String}, fail_done("line 1: " ++ Rev.preamble.fault(t), x, e))
+      Empty.absurd({Rev.write(x) == Rev.unlines(T.Line{t, False{}} <> rest) : String}, pick_fail(String.starts_with(t, "historica-"), "line 1: an unknown version `" ++ t ++ "`, likely a newer historica", "line 1: not a historica document", x, e))
     case True{} False{}:
-      Empty.absurd({Rev.write(x) == Rev.unlines(T.Line{t, True{}} <> rest) : String}, fail_done("line 1: " ++ Rev.preamble.fault(t), x, e))
+      Empty.absurd({Rev.write(x) == Rev.unlines(T.Line{t, True{}} <> rest) : String}, pick_fail(String.starts_with(t, "historica-"), "line 1: an unknown version `" ++ t ++ "`, likely a newer historica", "line 1: not a historica document", x, e))
     case False{} True{}:
       Empty.absurd({Rev.write(x) == Rev.unlines(T.Line{t, False{}} <> rest) : String}, Comp.false_true(eb))
     case True{} True{}:
@@ -957,21 +957,21 @@ def head_sp(+t: String, term: Bool, b: Bool, +rest: List<&2, T.Line>, eb: {Bool.
 def preamble_sp(ls: List<&2, T.Line>, w: {wf(ls) == True{} : Bool}, +x: Rev.Rev, e: {Rev.parse.preamble(ls) == Done{x} : Result<&2, &2, String, Rev.Rev>}) -> {Rev.write(x) == Rev.unlines(ls) : String}:
   match ls:
     case Nil{}:
-      Empty.absurd({Rev.write(x) == Rev.unlines(Nil{}) : String}, fail_done("line 1: " ++ Rev.msg.empty(), x, e))
+      Empty.absurd({Rev.write(x) == Rev.unlines(Nil{}) : String}, fail_done("an empty document", x, e))
     case T.Line{+t, +term} <> +rest:
       head_sp(t, term, Bool.and(term, T.same(t, "historica")), rest, {==}, w, x, e)
 
-def no_cr(+s: String, c: Bool, +x: Rev.Rev, e: {Rev.parse.cr(s, c) == Done{x} : Result<&2, &2, String, Rev.Rev>}) -> {Rev.parse.preamble(T.lines(s)) == Done{x} : Result<&2, &2, String, Rev.Rev>}:
+def no_cr(+s: String, c: Bool, +x: Rev.Rev, e: {Bool.pick(Result<&2, &2, String, Rev.Rev>, c, Fail{"a carriage return"}, Rev.parse.preamble(T.lines(s))) == Done{x} : Result<&2, &2, String, Rev.Rev>}) -> {Rev.parse.preamble(T.lines(s)) == Done{x} : Result<&2, &2, String, Rev.Rev>}:
   match c:
     case True{}:
-      Empty.absurd({Rev.parse.preamble(T.lines(s)) == Done{x} : Result<&2, &2, String, Rev.Rev>}, fail_done("line " ++ Nat.show(Rev.cr_line(s, 1n)) ++ ": " ++ Rev.msg.cr(), x, e))
+      Empty.absurd({Rev.parse.preamble(T.lines(s)) == Done{x} : Result<&2, &2, String, Rev.Rev>}, fail_done("a carriage return", x, e))
     case False{}:
       e
 
 # The theorem: what the parser accepts, the writer spells back byte for byte.
 def write_parse(+s: String, +x: Rev.Rev, e: {Rev.parse(s) == Done{x} : Result<&2, &2, String, Rev.Rev>}) -> {Rev.write(x) == s : String}:
   Equal.trans(String, Rev.write(x), Rev.unlines(T.lines(s)), s,
-    preamble_sp(T.lines(s), lines_wf(s), x, no_cr(s, Bool.and(T.has_char(s, '\r'), Bool.not(Rev.starts_bom(s))), x, e)),
+    preamble_sp(T.lines(s), lines_wf(s), x, no_cr(s, T.has_char(s, '\r'), x, e)),
     Equal.trans(String, Rev.unlines(T.lines(s)), Spell.unlines(T.lines(s)), s, unlines_same(T.lines(s)), Spell.unlines_lines(s)))
 
 def main() -> Unit:
