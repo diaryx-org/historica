@@ -689,3 +689,9 @@ def Laws.carry_carries_a_held_revision(fs, bs, named, id, e):
 
 def Laws.record_moves_only_held_files(t, ats, ms, p, e):
   RecordL.placed_held(t, ats, ms, p, e)
+
+def Laws.record_names_only_what_is_there(rules, named, folder, was, placed, u, e):
+  RecordL.named_ok(rules, named, folder, was, placed, u, e)
+
+def Laws.record_restricts_no_merge_and_no_half_rename(named, ps, moves, u, e):
+  RecordL.restriction_ok(named, ps, moves, u, e)

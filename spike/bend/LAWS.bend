@@ -1447,3 +1447,29 @@ law record_moves_only_held_files:
   for p: Main.Placed
   for e: {Main.placed.r(t, ats, ms) == Done{p} : Result<&2, &2, Main.Refused, Main.Placed>}
   {Main.moved.held(T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t), Main.placed.moved(p)) == True{} : Bool}
+
+# Every path `record` is asked to record answers to something: it is in
+# the folder, in the history, or where the stated renames put a file, or
+# a directory above one of those. A path nothing answers to is refused,
+# however `history/skipped/` treats it.
+law record_names_only_what_is_there:
+  for +rules: List<&2, Folder.Scope>
+  for +named: List<&2, String>
+  for +folder: List<&2, String>
+  for +was: List<&2, String>
+  for +placed: List<&2, String>
+  for u: Unit
+  for e: {Main.named.r(rules, named, folder, was, placed) == Done{u} : Result<&2, &2, Main.Refused, Unit>}
+  {List.is_empty(&2, String, Sv.unknown(named, folder, was, placed)) == True{} : Bool}
+
+# A record restricted to some paths is no merge, since a merge states
+# every contested file, and every rename it states is among those paths
+# at both its ends, since recording one end alone would spell the other as
+# a file appearing or disappearing.
+law record_restricts_no_merge_and_no_half_rename:
+  for +named: List<&2, String>
+  for +ps: List<&2, String>
+  for +moves: List<&2, T.Split>
+  for u: Unit
+  for e: {Main.restricted.r(named, ps, moves) == Done{u} : Result<&2, &2, Main.Refused, Unit>}
+  {Main.restriction.whole(named, ps, moves) == True{} : Bool}

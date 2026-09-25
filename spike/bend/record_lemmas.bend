@@ -599,3 +599,73 @@ def placed1(+t: Tree.Tree(), +ats: List<&2, T.Split>, +ms: List<&2, T.Split>, r:
 # Every file `record` moves by a stated rename is one the position holds.
 def placed_held(+t: Tree.Tree(), +ats: List<&2, T.Split>, +ms: List<&2, T.Split>, -p: Main.Placed, e: {Main.placed.r(t, ats, ms) == Done{p} : Result<&2, &2, Main.Refused, Main.Placed>}) -> {Main.moved.held(T.map(~Tree.Entry, ~String, ~(x => Tree.entry_file(x)), t), Main.placed.moved(p)) == True{} : Bool}:
   placed1(t, ats, ms, Main.placed.at.r(ats, t, Nil{}, Main.placed.holds(t, ats)), {==}, p, e)
+
+# It restricts no merge and no half of a rename
+# ---------------------------------------------
+
+def pick_yes(-A: Data, b: Bool, -r: Result<&2, &2, Main.Refused, A>, -x: Main.Refused, -y: A, e: {Bool.pick(Result<&2, &2, Main.Refused, A>, b, r, Fail{x}) == Done{y} : Result<&2, &2, Main.Refused, A>}) -> {b == True{} : Bool}:
+  match b:
+    case True{}:
+      {==}
+    case False{}:
+      Empty.absurd({False{} == True{} : Bool}, B.fail_done(A, x, y, e))
+
+def pick_keep(-A: Data, b: Bool, -r: Result<&2, &2, Main.Refused, A>, -x: Main.Refused, -y: A, e: {Bool.pick(Result<&2, &2, Main.Refused, A>, b, r, Fail{x}) == Done{y} : Result<&2, &2, Main.Refused, A>}) -> {r == Done{y} : Result<&2, &2, Main.Refused, A>}:
+  match b:
+    case True{}:
+      e
+    case False{}:
+      Empty.absurd({r == Done{y} : Result<&2, &2, Main.Refused, A>}, B.fail_done(A, x, y, e))
+
+def half_ok(+named: List<&2, String>, moves: List<&2, T.Split>, -u: Unit, +e: {Main.restricted.half.r(named, moves) == Done{u} : Result<&2, &2, Main.Refused, Unit>}) -> {Main.renames.covered(named, moves) == True{} : Bool}:
+  match moves:
+    case Nil{}:
+      {==}
+    case T.Split{+from, +to} <> +rest:
+      +b = Bool.and(Sv.covers(named, from), Sv.covers(named, to))
+      B.and_tt(b, Main.renames.covered(named, rest), pick_yes(Unit, b, Main.restricted.half.r(named, rest), Main.Refused{1, "`" ++ from ++ "` and `" ++ to ++ "` are one rename, and only one of them is among the paths this would record, which would spell the other end as a file appearing or disappearing; name both `" ++ from ++ "` and `" ++ to ++ "`, or record with no paths named"}, u, e),
+        half_ok(named, rest, u, pick_keep(Unit, b, Main.restricted.half.r(named, rest), Main.Refused{1, "`" ++ from ++ "` and `" ++ to ++ "` are one rename, and only one of them is among the paths this would record, which would spell the other end as a file appearing or disappearing; name both `" ++ from ++ "` and `" ++ to ++ "`, or record with no paths named"}, u, e)))
+
+def not_false(b: Bool, h: {b == False{} : Bool}) -> {Bool.not(b) == True{} : Bool}:
+  %Equal.sym(Bool, b, False{}, h) : {Bool.not(_) == True{} : Bool}
+  {==}
+
+def whole_of(b0: Bool, +named: List<&2, String>, +ps: List<&2, String>, +moves: List<&2, T.Split>, -u: Unit, +e: {Bool.pick(Result<&2, &2, Main.Refused, Unit>, b0, Done{Unit{}}, Bool.pick(Result<&2, &2, Main.Refused, Unit>, Nat.is_gt(List.length(&2, String, ps), 1n), Fail{Main.Refused{1, "a merge states what every contested file is, and a merge of some of them would leave the rest joined and unstated; record the merge with no paths named, and restrict the record after it:" ++ Main.skips_held.lines(named)}}, Main.restricted.half.r(named, moves))) == Done{u} : Result<&2, &2, Main.Refused, Unit>}) -> {Bool.or(b0, Bool.and(Bool.not(Nat.is_gt(List.length(&2, String, ps), 1n)), Main.renames.covered(named, moves))) == True{} : Bool}:
+  match b0:
+    case True{}:
+      {==}
+    case False{}:
+      +g = Nat.is_gt(List.length(&2, String, ps), 1n)
+      B.and_tt(Bool.not(g), Main.renames.covered(named, moves), not_false(g, pick_no(Unit, g, Main.Refused{1, "a merge states what every contested file is, and a merge of some of them would leave the rest joined and unstated; record the merge with no paths named, and restrict the record after it:" ++ Main.skips_held.lines(named)}, Main.restricted.half.r(named, moves), u, e)),
+        half_ok(named, moves, u, pick_rest(Unit, g, Main.Refused{1, "a merge states what every contested file is, and a merge of some of them would leave the rest joined and unstated; record the merge with no paths named, and restrict the record after it:" ++ Main.skips_held.lines(named)}, Main.restricted.half.r(named, moves), u, e)))
+
+# A record restricted to some paths is no merge, and states no half of a
+# rename.
+def restriction_ok(+named: List<&2, String>, +ps: List<&2, String>, +moves: List<&2, T.Split>, -u: Unit, e: {Main.restricted.r(named, ps, moves) == Done{u} : Result<&2, &2, Main.Refused, Unit>}) -> {Main.restriction.whole(named, ps, moves) == True{} : Bool}:
+  whole_of(List.is_empty(&2, String, named), named, ps, moves, u, e)
+
+# It names only what is there
+# ---------------------------
+
+def skipped_either(sk: Bool, +rules: List<&2, Folder.Scope>, +n: String, +rest: List<&2, String>, h1: {List.is_empty(&2, String, Bool.pick(List<&2, String>, Bool.xor(sk, Bool.not(True{})), n <> Sv.kept_out(rules, rest, True{}), Sv.kept_out(rules, rest, True{}))) == True{} : Bool}, h2: {List.is_empty(&2, String, Bool.pick(List<&2, String>, Bool.xor(sk, Bool.not(False{})), n <> Sv.kept_out(rules, rest, False{}), Sv.kept_out(rules, rest, False{}))) == True{} : Bool}) -> Empty:
+  match sk:
+    case True{}:
+      S.false_true(h1)
+    case False{}:
+      S.false_true(h2)
+
+# A name neither kept out nor let through is no name at all.
+def both_empty(+rules: List<&2, Folder.Scope>, u: List<&2, String>, h1: {List.is_empty(&2, String, Sv.kept_out(rules, u, True{})) == True{} : Bool}, h2: {List.is_empty(&2, String, Sv.kept_out(rules, u, False{})) == True{} : Bool}) -> {List.is_empty(&2, String, u) == True{} : Bool}:
+  match u:
+    case Nil{}:
+      {==}
+    case +n <> +rest:
+      Empty.absurd({List.is_empty(&2, String, n <> rest) == True{} : Bool}, skipped_either(Bool.or(Folder.skips(rules, n), Folder.skips_directory(rules, n)), rules, n, rest, h1, h2))
+
+# Every path `record` is asked to record answers to something: the
+# folder, the history, or where the stated renames put a file.
+def named_ok(+rules: List<&2, Folder.Scope>, +named: List<&2, String>, +folder: List<&2, String>, +was: List<&2, String>, +placed: List<&2, String>, -u: Unit, +e: {Main.named.r(rules, named, folder, was, placed) == Done{u} : Result<&2, &2, Main.Refused, Unit>}) -> {List.is_empty(&2, String, Sv.unknown(named, folder, was, placed)) == True{} : Bool}:
+  +h1 = not_true(List.is_empty(&2, String, Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), True{})), pick_no(Unit, Bool.not(List.is_empty(&2, String, Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), True{}))), Main.Refused{1, "`history/skipped/` says history does not take " ++ Main.these(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), True{}), "this", "these") ++ ", and naming " ++ Main.these(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), True{}), "it", "them") ++ " here does not make " ++ Main.these(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), True{}), "it", "them") ++ " an exception; remove the rule if " ++ Main.these(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), True{}), "it is", "they are") ++ " to be recorded:" ++ Main.skips_held.lines(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), True{}))}, Bool.pick(Result<&2, &2, Main.Refused, Unit>, Bool.not(List.is_empty(&2, String, Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), False{}))), Fail{Main.Refused{1, Main.these(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), False{}), "this path is", "these paths are") ++ " neither in the folder nor in this history, so there is nothing there to observe; check the spelling, or name no paths at all and record everything the folder says:" ++ Main.skips_held.lines(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), False{}))}}, Done{Unit{}}), u, e))
+  +e2 = pick_rest(Unit, Bool.not(List.is_empty(&2, String, Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), True{}))), Main.Refused{1, "`history/skipped/` says history does not take " ++ Main.these(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), True{}), "this", "these") ++ ", and naming " ++ Main.these(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), True{}), "it", "them") ++ " here does not make " ++ Main.these(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), True{}), "it", "them") ++ " an exception; remove the rule if " ++ Main.these(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), True{}), "it is", "they are") ++ " to be recorded:" ++ Main.skips_held.lines(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), True{}))}, Bool.pick(Result<&2, &2, Main.Refused, Unit>, Bool.not(List.is_empty(&2, String, Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), False{}))), Fail{Main.Refused{1, Main.these(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), False{}), "this path is", "these paths are") ++ " neither in the folder nor in this history, so there is nothing there to observe; check the spelling, or name no paths at all and record everything the folder says:" ++ Main.skips_held.lines(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), False{}))}}, Done{Unit{}}), u, e)
+  +h2 = not_true(List.is_empty(&2, String, Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), False{})), pick_no(Unit, Bool.not(List.is_empty(&2, String, Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), False{}))), Main.Refused{1, Main.these(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), False{}), "this path is", "these paths are") ++ " neither in the folder nor in this history, so there is nothing there to observe; check the spelling, or name no paths at all and record everything the folder says:" ++ Main.skips_held.lines(Sv.kept_out(rules, Sv.unknown(named, folder, was, placed), False{}))}, Done{Unit{}}, u, e2))
+  both_empty(rules, Sv.unknown(named, folder, was, placed), h1, h2)

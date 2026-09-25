@@ -2231,6 +2231,20 @@ def check_mutations(temporary):
             "record_lemmas.move_held",
             "commands.bend",
         ),
+        (
+            "record lets a restriction take one end of a rename",
+            "Bool.pick(Result<&2, &2, Refused, Unit>, Bool.and(Sv.covers(named, from), Sv.covers(named, to)), restricted.half.r(named, rest),",
+            "Bool.pick(Result<&2, &2, Refused, Unit>, Bool.or(Sv.covers(named, from), Sv.covers(named, to)), restricted.half.r(named, rest),",
+            "record_lemmas.half_ok",
+            "commands.bend",
+        ),
+        (
+            "record lets a skipped name nothing answers to through",
+            "  Bool.pick(Result<&2, &2, Refused, Unit>, Bool.not(List.is_empty(&2, String, out)),",
+            "  Bool.pick(Result<&2, &2, Refused, Unit>, False{},",
+            "record_lemmas.named_ok",
+            "commands.bend",
+        ),
     )
     def mutate(index, name, before, after, proof, *source_files):
         mutant = temporary / f"mutation-{index}"

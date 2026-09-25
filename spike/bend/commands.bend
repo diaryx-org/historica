@@ -6997,6 +6997,19 @@ def restricted.r(+named: List<&2, String>, +ps: List<&2, String>, moves: List<&2
     Fail{Refused{1, "a merge states what every contested file is, and a merge of some of them would leave the rest joined and unstated; record the merge with no paths named, and restrict the record after it:" ++ skips_held.lines(named)}},
     restricted.half.r(named, moves)))
 
+# A record restricted to some paths is no merge, and every rename it
+# states is among those paths at both its ends.
+# `LAWS.record_restricts_no_merge_and_no_half_rename`.
+def renames.covered(+named: List<&2, String>, moves: List<&2, T.Split>) -> Bool:
+  match moves:
+    case Nil{}:
+      True{}
+    case T.Split{+from, +to} <> rest:
+      Bool.and(Bool.and(Sv.covers(named, from), Sv.covers(named, to)), renames.covered(named, rest))
+
+def restriction.whole(+named: List<&2, String>, +ps: List<&2, String>, +moves: List<&2, T.Split>) -> Bool:
+  Bool.or(List.is_empty(&2, String, named), Bool.and(Bool.not(Nat.is_gt(List.length(&2, String, ps), 1n)), renames.covered(named, moves)))
+
 # `--fields`'s header, and a refusal that owes it first: `historica-wrote-1`
 # goes out before any refusal but a usage error, wherever the command stops.
 def WROTE() -> String:
