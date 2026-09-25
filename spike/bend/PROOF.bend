@@ -957,6 +957,9 @@ def Laws.header_opens_under_a_note(note):
 def Laws.identity_reads_back(file, a, directory, home, h):
   IdentityL.reads_back(file, a, directory, home, h)
 
+def Laws.identity_takes_the_environment_first(env):
+  IdentityL.from_env(env)
+
 def Laws.identity_file_is_where_the_rust_tool_looks(xdg, home, profile):
   IdentityL.path_is(xdg, home, profile)
 

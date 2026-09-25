@@ -310,7 +310,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `words_lemmas.bend` | what each command reads its words as, said as plain facts about the words rather than through the command's own reading: `arrange_reads_its_words`, `prune_reads_its_words`, `receive_reads_its_words`, `offer_reads_its_words`, `export_reads_its_words` and `fetch_reads_its_words` — a command line is accepted exactly where every word starting `-` is one of the command's flags and the other words are as many as it takes, a flag counts where it is among the words, wherever it stands, and the other words, in the order typed, are what the command holds; `receive`'s and `fetch`'s single passes over their words included | `arrange`, `prune`, `receive`, `offer`, `export`, `fetch` |
 | `fetch.bend` | `fetch`: the URL cut at the manifest's directory, and refused in the Rust tool's words where it names no manifest or carries a query; the manifest read as `Offer::parse` reads it; the plan worked out against this store — what it lacks and neither side forgets, each digest once, the bookmarks it does not hold, the reserved directories it carries and the ones it declines, relatedness from the listing — and carried out in `receive`'s order, every file hashed against its line before it is filed under its digest, the manifest read again where a path has gone, three times at most | `store::fetch`, `cli`'s `fetch`, decisions 0048, 0052, 0056, 0057 |
 | `fetching_lemmas.bend` | `fetch_asks_under_the_manifests_directory`: a URL it accepts is the manifest's directory, ending with `/`, and a name with no `/` in it, put back together; `fetch_asks_only_for_what_the_manifest_names`: every path a pass asks the host for is a path of the manifest; `fetch_files_only_text_that_hashes_to_its_line`: a document is filed only where the text that arrived hashes to the digest its line gave; `fetch_lands_a_file_only_where_it_hashes_to_its_line`: a file that arrives whole is moved in from where it was staged only where the host found its bytes to hash to that digest; `fetch_files_a_payload_under_what_it_hashes_to`: and a payload is filed under the digest its bytes have | `fetch` |
-| `LAWS.bend` / `PROOF.bend` | two hundred and eighty-two claims about the code, each proven | the test suite and Verus replay helpers |
+| `LAWS.bend` / `PROOF.bend` | two hundred and eighty-three claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
@@ -363,7 +363,7 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `shell_lemmas.bend` | `dispatch_runs_no_path`: the program a word is dispatched to holds no `/`, so it is looked up on `PATH` rather than run from where a path would put it; `dispatch_runs_a_spelled_word`, `dispatch_refuses_any_other_word`: a word is looked for exactly when it is ASCII letters and digits, as Base classes them, with hyphens only between, and what runs is `historica-` and the word | decision 0072 |
 | `opening_lemmas.bend` | `header_opens_under_a_note`: a store's header opens whatever its note says, once a blank line sets the note apart — the one `init` writes among them | `Store::open`, decision 0069 |
 | `opened_lemmas.bend` | `opening_reads_what_a_revision_states`: what opening a store reads of a revision it accepts is the change, author and time its first `change`, `author` and `when` lines say, every `parent` and `supersedes` line in order, and the message after the blank line as written | `format::revision`, decision 0061 |
-| `identity_lemmas.bend` | `identity_reads_back`: the file `identity` writes reads back as its author for work in any directory, wherever that author is one a revision can hold; `identity_file_is_where_the_rust_tool_looks`, `identity_makes_the_files_directory`: the file is where `identity_path` puts it, and the directory `identity` makes is the one it is in; `identity_reads_its_blocks`: a file of blocks reads back as the default author and every directory's, in order; and nine laws, `identity_refuses_…`, one for each refusal the Rust tool makes of a file, each after any such blocks and at the line it names; `editor_file_is_in_the_temporary_directory`: the editor's file sits directly in `$TMPDIR` or `/tmp` | `record::identity`, `identity` |
+| `identity_lemmas.bend` | `identity_reads_back`: the file `identity` writes reads back as its author for work in any directory, wherever that author is one a revision can hold; `identity_takes_the_environment_first`: `$HISTORICA_AUTHOR`, set and not empty, decides before any file is read; `identity_file_is_where_the_rust_tool_looks`, `identity_makes_the_files_directory`: the file is where `identity_path` puts it, and the directory `identity` makes is the one it is in; `identity_reads_its_blocks`: a file of blocks reads back as the default author and every directory's, in order; and nine laws, `identity_refuses_…`, one for each refusal the Rust tool makes of a file, each after any such blocks and at the line it names; `editor_file_is_in_the_temporary_directory`: the editor's file sits directly in `$TMPDIR` or `/tmp` | `record::identity`, `identity` |
 | `editor_lemmas.bend` | `editor_is_the_one_chosen`: the editor is `$VISUAL`, `$EDITOR` only where `$VISUAL` is not set, and none where the one deciding is empty; `editor_is_read_only_when_it_saved`: what it leaves is read only where it exited 0 | `cli::from_an_editor` |
 | `show_lemmas.bend` | `cat_reads_a_held_file`: `cat <target> <path>` reads a revision the store holds and a file its tree holds that is not a link; `show_names_a_held_file`, `show_prints_a_held_document`, `show_prints_what_the_revision_states`: `show` names a file the target holds, and prints a document the store holds under the digest named — the revision's own, or the one it states for the file | `cat`, `show` |
 | `bookmark_lemmas.bend` | `bookmark_reads_back`: the file the Rust tool writes for a bookmark — the target line, and `private` where the name stays out of an export — parses back as that bookmark wherever its identifier is spelled as its kind is | `store::Bookmark` |
@@ -832,8 +832,10 @@ where `record`, `amend`, `abandon` and `carry` find no store, which the
 Rust tool looks for before it reads their words. `check.py`'s `shell` and
 `headless` stores hold all of it.
 
-Who records is `$HISTORICA_AUTHOR`, or else what the identity file under
-`$XDG_CONFIG_HOME` or `~/.config` says for the repository
+Who records is `$HISTORICA_AUTHOR` where it is set and not empty, refused
+where it names one no revision can hold, before any file is read
+(`identity_takes_the_environment_first`), or else what the identity file
+under `$XDG_CONFIG_HOME` or `~/.config` says for the repository
 (`identity.bend`): a block of `author` alone is the default, a block headed
 `under <dir>` — `~` for the home — the author for work beneath it, the
 deepest holding the repository winning, and every way a file is not blocks
@@ -2019,7 +2021,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-Two hundred and eighty-six mutations cover the primitive helpers, lost inserts, a lost trailing
+Two hundred and eighty-seven mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -2210,7 +2212,8 @@ breaks: `-C` counting the first directory rather than the last, `-V`
 not read as the version, and `-h` not read as help; and two
 dispatch breaks: any word looked up on `PATH`, and `[` let into the
 alphabet; and one header break: a note under the format line read as a
-layout; and six identity breaks: the default author forgotten, an empty
+layout; and seven identity breaks: the default author forgotten, an empty
+`$HISTORICA_AUTHOR` taken for an author, an empty
 `$XDG_CONFIG_HOME` taken for a directory, the directory `identity` makes
 keeping its slash, a block let state two authors, a block's refusal said
 at its last line, and a directory's second block taken; and three editor

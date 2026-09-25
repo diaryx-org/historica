@@ -2448,6 +2448,15 @@ law identity_reads_back:
   for h: {Identity.unusable(a) == False{} : Bool}
   {Identity.from_text(file, Identity.wanted(a), directory, home) == Done{a} : Result<&2, &2, String, String>}
 
+# Who records is `$HISTORICA_AUTHOR` where it is set and not empty — or,
+# where it names one no revision can hold, the refusal naming the variable
+# — before any file is read; the identity file decides only where the
+# variable is unset or empty, as decision 0010 and the Rust tool's
+# `author_for` have it.
+law identity_takes_the_environment_first:
+  for env: Result<&1, &1, U32 & String, String>
+  {Identity.from_env(env) == Maybe.map(&2, String, Result<&2, &2, String, String>, x => Identity.checked(x, None{}), EditorL.unless_empty(EditorL.set(env))) : Maybe<&2, Result<&2, &2, String, String>>}
+
 # The file is where the Rust tool's `identity_path` puts it:
 # `historica/identity` under `$XDG_CONFIG_HOME` where that is set and not
 # empty, whatever the home; otherwise under `.config` in the home —

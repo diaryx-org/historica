@@ -108,6 +108,24 @@ def path_is(xdg: Result<&1, &1, U32 & String, String>, home: Result<&1, &1, U32 
     case Fail{e}:
       path_home(home, profile)
 
+# Who records
+# -----------
+
+def env_set(+a: String) -> {Identity.from_env(Done{a}) == Maybe.map(&2, String, Result<&2, &2, String, String>, x => Identity.checked(x, None{}), EditorL.unless_empty(EditorL.set(Done{a}))) : Maybe<&2, Result<&2, &2, String, String>>}:
+  match a:
+    case SNil{}:
+      {==}
+    case SCon{c, t}:
+      {==}
+
+# `var("HISTORICA_AUTHOR").ok().filter(|a| !a.is_empty())`, then `check`.
+def from_env(env: Result<&1, &1, U32 & String, String>) -> {Identity.from_env(env) == Maybe.map(&2, String, Result<&2, &2, String, String>, x => Identity.checked(x, None{}), EditorL.unless_empty(EditorL.set(env))) : Maybe<&2, Result<&2, &2, String, String>>}:
+  match env:
+    case Done{+a}:
+      env_set(a)
+    case Fail{e}:
+      {==}
+
 # The directory `identity` makes
 # ------------------------------
 

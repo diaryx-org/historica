@@ -3775,6 +3775,13 @@ def check_mutations(temporary):
             "identity.bend",
         ),
         (
+            "an empty $HISTORICA_AUTHOR is an author",
+            "Bool.pick(Maybe<&2, Result<&2, &2, String, String>>, String.is_empty(a), None{}, Some{checked(a, None{})})",
+            "Some{checked(a, None{})}",
+            "identity_lemmas.env_set",
+            "identity.bend",
+        ),
+        (
             "-V is not read as the version",
             '  Bool.pick(Lead, Bool.or(String.eq(w, "-V"), String.eq(w, "--version")), Lead.Version{},',
             '  Bool.pick(Lead, String.eq(w, "--version"), Lead.Version{},',
