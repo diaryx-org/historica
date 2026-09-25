@@ -1190,8 +1190,8 @@ def Laws.nfc_class_misses_nothing(c):
 def Laws.nfc_leaves_separators_alone(xs, c, ys, h):
   NfcL.separators_wall(xs, c, ys, h)
 
-def Laws.the_walk_yields_a_path_once(fs):
-  NfcL.walk_once(fs)
+def Laws.the_walk_yields_a_path_once(fs, rs):
+  ListedL.walk_rising(fs, rs)
 
 def Laws.the_folder_spells_what_is_opened(ls, want):
   NfcL.spelled_there(ls, want)

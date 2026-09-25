@@ -18,6 +18,7 @@ import ./composition_lemmas.bend as Comp
 import ./anchor_lemmas.bend as AL
 import ./host_lemmas.bend as HostL
 import ./sort_lemmas.bend as SortL
+import ./nfc_lemmas.bend as NfcL
 
 # What the host lists
 # -------------------
@@ -694,6 +695,47 @@ def distinct_sorted(ys: List<&2, F.Found>, +hs: {SortL.sorted(~F.Found, ~(f => F
 # `the_walk_yields_its_files_in_path_order`.
 def finish_sorted(+fs: List<&2, F.Found>, +rs: List<&2, T.Split>) -> {SortL.sorted(~F.Found, ~(f => F.found.path(f)), F.walked.found(F.walk.finish(F.Walked{fs, rs}))) == True{} : Bool}:
   distinct_sorted(List.sort(~F.Found, ~(a => b => String.is_le(F.found.path(a), F.found.path(b))), fs), SortL.sort_sorted(~F.Found, ~(f => F.found.path(f)), fs))
+
+# Strictly rising: each file's path at or after the one before it and not
+# the same, so no path twice and every path in order.
+def rising.go(fs: List<&2, F.Found>, +last: String) -> Bool:
+  match fs:
+    case Nil{}:
+      True{}
+    case +f <> rest:
+      Bool.and(Bool.and(String.is_le(last, F.found.path(f)), Bool.not(String.eq(F.found.path(f), last))), rising.go(rest, F.found.path(f)))
+
+def rising(fs: List<&2, F.Found>) -> Bool:
+  match fs:
+    case Nil{}:
+      True{}
+    case +f <> rest:
+      rising.go(rest, F.found.path(f))
+
+# In order, and no two in a row at one path, is strictly rising.
+def rising_of(xs: List<&2, F.Found>, +k: String, +hs: {SortL.sorted.from(~F.Found, ~(f => F.found.path(f)), xs, k) == True{} : Bool}, +ha: {F.apart.go(xs, k) == True{} : Bool}) -> {rising.go(xs, k) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +f <> +rest:
+      +p = F.found.path(f)
+      NfcL.and_i(Bool.and(String.is_le(k, p), Bool.not(String.eq(p, k))), rising.go(rest, p),
+        NfcL.and_i(String.is_le(k, p), Bool.not(String.eq(p, k)),
+          NfcL.and_l(String.is_le(k, p), SortL.sorted.from(~F.Found, ~(f => F.found.path(f)), rest, p), hs),
+          NfcL.and_l(Bool.not(String.eq(p, k)), F.apart.go(rest, p), ha)),
+        rising_of(rest, p, NfcL.and_r(String.is_le(k, p), SortL.sorted.from(~F.Found, ~(f => F.found.path(f)), rest, p), hs), NfcL.and_r(Bool.not(String.eq(p, k)), F.apart.go(rest, p), ha)))
+
+def rising_top(ys: List<&2, F.Found>, +hs: {SortL.sorted(~F.Found, ~(f => F.found.path(f)), ys) == True{} : Bool}, +ha: {F.apart(ys) == True{} : Bool}) -> {rising(ys) == True{} : Bool}:
+  match ys:
+    case Nil{}:
+      {==}
+    case +f <> +rest:
+      rising_of(rest, F.found.path(f), NfcL.and_r(String.is_le(SNil{}, F.found.path(f)), SortL.sorted.from(~F.Found, ~(f => F.found.path(f)), rest, F.found.path(f)), hs), ha)
+
+# What the walk yields rises strictly by path: it is sorted, and keeping
+# one file for a path leaves no two in a row at it.
+def walk_rising(+fs: List<&2, F.Found>, +rs: List<&2, T.Split>) -> {rising(F.walked.found(F.walk.finish(F.Walked{fs, rs}))) == True{} : Bool}:
+  rising_top(F.walked.found(F.walk.finish(F.Walked{fs, rs})), finish_sorted(fs, rs), NfcL.walk_apart(List.sort(~F.Found, ~(a => b => String.is_le(F.found.path(a), F.found.path(b))), fs)))
 
 # `the_walk_keeps_the_file_it_met_last`.
 def finish_keeps(+fs: List<&2, F.Found>, +rs: List<&2, T.Split>, +p: String) -> {SortL.keyed(~F.Found, ~(f => F.found.path(f)), p, F.walked.found(F.walk.finish(F.Walked{fs, rs}))) == first(SortL.keyed(~F.Found, ~(f => F.found.path(f)), p, fs)) : List<&2, F.Found>}:

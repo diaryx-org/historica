@@ -802,8 +802,8 @@ def distinct(fs: List<&2, Found>) -> List<&2, Found>:
     case +f <> +rest:
       f <> distinct.go(rest, found.path(f), distinct.same(rest, found.path(f)))
 
-# No two files in a row at one path: what `LAWS.the_walk_yields_a_path_once`
-# says of what the walk yields.
+# No two files in a row at one path: with the walk's files sorted, what
+# makes `LAWS.the_walk_yields_a_path_once` hold of what it yields.
 def apart.go(fs: List<&2, Found>, +last: String) -> Bool:
   match fs:
     case Nil{}:
