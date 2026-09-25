@@ -73,14 +73,27 @@ def ws_at(m: Maybe<&2, Char>) -> Bool:
 def untrimmed(+v: String) -> Bool:
   Bool.or(String.is_empty(v), Bool.or(ws_at(first_char(v)), ws_at(first_char(String.reverse(v)))))
 
-def trim_slashes(s: String) -> String:
+# Whether a string opens with a `/`, asked with `Char.is_eq` so a proof can
+# follow the walk below over a character it does not know.
+def slash_first(s: String) -> Bool:
   match s:
     case SNil{}:
-      SNil{}
-    case SCon{'/', t}:
-      trim_slashes(t)
+      False{}
     case SCon{c, t}:
+      Char.is_eq(c, '/')
+
+def trim.go(s: String, slash: Bool) -> String:
+  match s slash:
+    case SNil{} _:
+      SNil{}
+    case SCon{c, +t} True{}:
+      trim.go(t, slash_first(t))
+    case SCon{c, t} False{}:
       String.reverse(SCon{c, t})
+
+# The reversed string past its leading `/`s, turned back the right way.
+def trim_slashes(+s: String) -> String:
+  trim.go(s, slash_first(s))
 
 def all_stars(s: String) -> Bool:
   match s:
@@ -95,10 +108,8 @@ def has_slash(s: String) -> Bool:
   match s:
     case SNil{}:
       False{}
-    case SCon{'/', t}:
-      True{}
     case SCon{c, t}:
-      has_slash(t)
+      Bool.or(Char.is_eq(c, '/'), has_slash(t))
 
 def pattern(+v: String) -> Result<&2, &2, String, String>:
   Bool.pick(Result<&2, &2, String, String>, String.is_empty(v), Fail{"a pattern is not empty"},
@@ -170,7 +181,8 @@ def said(+line: String) -> Said:
   Bool.pick(Said, Bool.or(String.is_empty(line), String.starts_with(line, "#")), Said.Nothing{}, said.of(scope(line)))
 
 # `str::lines`: split at each newline, a `\r` before it dropped, and no
-# empty line after a final newline.
+# empty line after a final newline. A `\r` ending the text with no newline
+# after it ends no line, and stays.
 def unreturned(+l: String) -> String:
   Bool.pick(String, String.ends_with(l, "\r"), String.take(l, Nat.sub(String.length(l), 1n)), l)
 
@@ -179,7 +191,7 @@ def lines.trimmed(ls: List<&2, String>) -> List<&2, String>:
     case Nil{}:
       Nil{}
     case +l <> Nil{}:
-      Bool.pick(List<&2, String>, String.is_empty(l), Nil{}, [unreturned(l)])
+      Bool.pick(List<&2, String>, String.is_empty(l), Nil{}, [l])
     case l <> rest:
       unreturned(l) <> lines.trimmed(rest)
 
@@ -353,6 +365,14 @@ def rules.stated(+file: String, st: Stated) -> IO(List<&2, Scope>):
     case Stated.Wrong{e}:
       die(List<&2, Scope>, 1, file ++ ": " ++ e)
 
+# A rule file whose bytes are not UTF-8 is refused before it is read.
+def rules.read(+file: String, r: Result<&2, &2, String, String>) -> IO(List<&2, Scope>):
+  match r:
+    case Fail{e}:
+      die(List<&2, Scope>, 1, file ++ ": " ++ e)
+    case Done{+text}:
+      rules.stated(file, rule_in(text))
+
 # In path order, so the file refused is the first the Rust loader reaches.
 def rules.go(+root: String, paths: List<&2, String>) -> IO(List<&2, Scope>):
   match paths:
@@ -361,8 +381,8 @@ def rules.go(+root: String, paths: List<&2, String>) -> IO(List<&2, Scope>):
     case +p <> rest:
       do IO<List<&2, Scope>>:
         +file : String = root ++ "/" ++ p
-        text : String <- Store.read_text(file)
-        here : List<&2, Scope> <- rules.stated(file, rule_in(text))
+        r : Result<&2, &2, String, String> <- Store.read_utf8(file)
+        here : List<&2, Scope> <- rules.read(file, r)
         later : List<&2, Scope> <- rules.go(root, rest)
         return List.append(&2, Scope, here, later)
 

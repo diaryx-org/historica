@@ -966,7 +966,7 @@ def preamble_sp(ls: List<&2, T.Line>, +f2: Maybe<&2, String>, +r2: Maybe<&2, Str
 def write_parse(+s: String, doc: Ops.Doc, e: {Ops.parse(s) == Done{doc} : Result<&2, &2, String, Ops.Doc>}) -> {Ops.write(doc) == s : String}:
   match doc:
     case Ops.Doc{+f, +r, +ops}:
-      Equal.trans(String, Ops.write(Ops.Doc{f, r, ops}), unlines(T.lines(s)), s, Equal.sym(String, unlines(T.lines(s)), Ops.write(Ops.Doc{f, r, ops}), preamble_sp(T.lines(s), f, r, ops, e)), unlines_lines(s))
+      Equal.trans(String, Ops.write(Ops.Doc{f, r, ops}), unlines(T.lines(s)), s, Equal.sym(String, unlines(T.lines(s)), Ops.write(Ops.Doc{f, r, ops}), preamble_sp(T.lines(s), f, r, ops, Parse.worded_done(s, Ops.parse.preamble(T.lines(s)), Ops.Doc{f, r, ops}, e))), unlines_lines(s))
 
 def main() -> Unit:
   Unit{}

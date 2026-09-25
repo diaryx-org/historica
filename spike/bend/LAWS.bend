@@ -28,6 +28,12 @@ import ./fetch_lemmas.bend as FetchL
 import ./update.bend as Upd
 import ./conflict.bend as Conflict
 import ./merging.bend as Merging
+import ./argv.bend as Argv
+import ./shell.bend as Shell
+import ./identity.bend as Identity
+import ./check.bend as Check
+import ./skip.bend as Skip
+import ./notes.bend as Notes
 
 # LAW: every digest is sixty-four characters, whatever the bytes — the
 # shape a `result`, a `parent`, or a filename in the store relies on.
@@ -1142,22 +1148,15 @@ law log_reads_its_words:
   for e: {Main.asked(args) == Done{a} : Result<&2, &2, String, Main.Asked>}
   {Main.asked.of(Main.largs.raw(args)) == Done{a} : Result<&2, &2, String, Main.Asked>}
 
-# `check` reports each payload with the digest asked for it. The store is
-# asked for one digest per payload, in the listing's order; given one for
-# each, every payload is paired with its own, in order, and no revision or
+# `check` reports each payload with the digest asked for it. The host is
+# asked for one digest per payload, in the order the walk found them; given
+# one for each, every payload is paired with its own, in order, and no
 # operation document takes one.
 law check_pairs_each_payload:
-  for ls: List<&2, String>
+  for fs: List<&2, Check.OpFiled>
   for stats: List<&2, String>
-  for h: {List.length(&2, String, stats) == List.length(&2, String, Main.payloads(ls)) : Nat}
-  {Main.payload.pairs(Main.attach(Main.filed(ls), stats)) == Main.zip.pairs(Main.payloads(ls), stats) : List<&2, T.Split>}
-
-# `check` calls a document refused exactly where it does not parse, as a
-# revision under `revisions/` and as an operation document elsewhere.
-law check_refuses_what_does_not_parse:
-  for +d: Store.Doc
-  for rev: Bool
-  {Main.check.refuses(Main.check_doc.of(d, rev)) == Main.doc.fails(d, rev) : Bool}
+  for h: {List.length(&2, String, stats) == List.length(&2, String, Check.payload.paths(fs)) : Nat}
+  {Check.payload.pairs(Check.attach(fs, stats)) == Check.zip.pairs(Check.payload.paths(fs), stats) : List<&2, T.Split>}
 
 # `cat <target> <path>` reads a revision the store holds, and a file its
 # tree holds that is not a link.
@@ -2205,3 +2204,143 @@ law merge_spares_the_unrecorded:
   for +located: Map<&2, String>
   for p: Merging.Place
   {Merging.laid.all(p, Merging.laid.acts(Merging.lay(t, cs, located, p))) == True{} : Bool}
+
+# The order `check` walks a merged file's events in places each event after
+# every event its author had seen, whatever it is given to place and
+# however many rounds it takes: what makes the walk a reading of the
+# history and not of some other one.
+law check_walks_causally:
+  for fuel: Nat
+  for +g: List<&2, Merge.Rev>
+  for +ixs: List<&2, Nat>
+  {Check.causal(g, Check.kahn(fuel, g, ixs, Nil{})) == True{} : Bool}
+
+# The command line reads `-C <dir>` as often as it is given, the last
+# counting, and hands the command word and every word after it to the
+# command as written — a `-C` after the command word is the command's.
+law argv_reads_its_words:
+  for ds: List<&2, String>
+  for +w: String
+  for +rest: List<&2, String>
+  for e: {Argv.lead.of(w) == Argv.Lead.Word{} : Argv.Lead}
+  {Argv.read(Argv.spelled(ds, w, rest)) == Argv.Asked.Command{Argv.last(ds, None{}), w, rest} : Argv.Asked}
+
+# `-V` and `--version` read as the version asked for, and `help`, `-h` and
+# `--help` as the usage, wherever the `-C`s before them point and whatever
+# follows them.
+law argv_reads_the_version:
+  for ds: List<&2, String>
+  for +v: String
+  for +rest: List<&2, String>
+  for h: {Bool.or(String.eq(v, "-V"), String.eq(v, "--version")) == True{} : Bool}
+  {Argv.read(Argv.spelled(ds, v, rest)) == Argv.Asked.Version{} : Argv.Asked}
+
+law argv_reads_help:
+  for ds: List<&2, String>
+  for +v: String
+  for +rest: List<&2, String>
+  for h: {Bool.or(String.eq(v, "help"), Bool.or(String.eq(v, "-h"), String.eq(v, "--help"))) == True{} : Bool}
+  {Argv.read(Argv.spelled(ds, v, rest)) == Argv.Asked.Usage{} : Argv.Asked}
+
+# Decision 0072: the program a word no command here has is dispatched to
+# holds no `/`, so it is looked up on `PATH` and never run from where a
+# path would put it.
+law dispatch_runs_no_path:
+  for +base: String
+  for +w: String
+  for args: List<&2, String>
+  for +d: String
+  for +p: String
+  for as: List<&2, String>
+  for e: {Shell.plan(base, w, args) == Shell.Plan.Run{d, p, as} : Shell.Plan}
+  {T.has_char(p, '/') == False{} : Bool}
+
+# A store's header opens whatever its note says, once a blank line sets the
+# note apart from the format line (decision 0069) — the header `init`
+# writes among them.
+law header_opens_under_a_note:
+  for +note: String
+  {Store.header.r("historica\n\n" ++ note) == Done{Unit{}} : Result<&2, &2, String, Unit>}
+
+# The file `identity` writes reads back as the author it was written for,
+# for work in any directory, wherever that author is one a revision can
+# hold.
+law identity_reads_back:
+  for +file: String
+  for +a: String
+  for +directory: String
+  for +home: Maybe<&2, String>
+  for h: {Identity.unusable(a) == False{} : Bool}
+  {Identity.from_text(file, Identity.wanted(a), directory, home) == Done{a} : Result<&2, &2, String, String>}
+
+# `check` reads `--complete` wherever it stands, and every other word, in
+# order, as a directory to check.
+law check_reads_its_words:
+  for +ws: List<&2, String>
+  {Check.asked(ws) == Check.Asked{Rev.member(ws, "--complete"), Check.words.other(ws)} : Check.Asked}
+
+# What `check` gathers from the store `init` makes — the header under its
+# note, `skipped/` holding only its note, and nothing else — it finds
+# nothing wrong with, wherever the store is.
+law check_finds_nothing_in_a_new_store:
+  for +root: String
+  {Check.found(Check.Gathered{root, Some{Notes.HEADER_NOTE()}, Check.Walked{Nil{}, Nil{}}, Nil{}, Check.Walked{Nil{}, Nil{}}, Nil{}, Check.Texts{Nil{}, Nil{}}, False{}, Check.skipped.read(root ++ "/skipped/README.txt", Done{Notes.SKIPPED_NOTE()}), Check.Walked{Nil{}, Nil{}}, Nil{}}) == Nil{} : List<&2, Check.Finding>}
+
+# `skip`'s rules are equal only when they are one rule, and each is equal
+# to itself: what `held` asks is membership.
+law skip_rules_equal_only_when_equal:
+  for a: Skip.Rule
+  for b: Skip.Rule
+  for e: {Skip.rule.eq(a, b) == True{} : Bool}
+  {a == b : Skip.Rule}
+
+law skip_rule_equals_itself:
+  for a: Skip.Rule
+  {Skip.rule.eq(a, a) == True{} : Bool}
+
+# The file `skip <path>` writes for a path it accepts — spelled with no
+# `/` at its end, as `skip` spells one — is read back by the reader of
+# `skipped/` as exactly the rule it meant: the path or the directory, and
+# private or not.
+law skip_path_rule_reads_back:
+  for +file: String
+  for +v: String
+  for +directory: Bool
+  for +private: Bool
+  for +sc: Folder.Scope
+  for e: {Skip.path.scoped(v, directory) == Done{sc} : Result<&2, &2, Main.Refused, Folder.Scope>}
+  for +h: {String.ends_with(v, "/") == False{} : Bool}
+  {Skip.stated.of(file, Skip.file.text(Skip.Rule{sc, private}), Folder.rule_in(Skip.file.text(Skip.Rule{sc, private}))) == [Skip.Stating{Skip.Rule{sc, private}, file}] : List<&2, Skip.Stating>}
+
+# And the file `skip --name <name>` writes for a name it accepts, the same.
+law skip_name_rule_reads_back:
+  for +file: String
+  for +n: String
+  for +private: Bool
+  for +sc: Folder.Scope
+  for e: {Skip.name.scope.r(n) == Done{sc} : Result<&2, &2, Main.Refused, Folder.Scope>}
+  {Skip.stated.of(file, Skip.file.text(Skip.Rule{sc, private}), Folder.rule_in(Skip.file.text(Skip.Rule{sc, private}))) == [Skip.Stating{Skip.Rule{sc, private}, file}] : List<&2, Skip.Stating>}
+
+# The rule `skip <path>` makes skips that file, or that directory and a
+# file under it, and nothing whose path does not start with the one named.
+law skip_path_rule_skips_under_its_path:
+  for +v: String
+  for +directory: Bool
+  for +sc: Folder.Scope
+  for e: {Skip.path.scoped(v, directory) == Done{sc} : Result<&2, &2, Main.Refused, Folder.Scope>}
+  for +x: String
+  for +q: String
+  {Bool.and(Bool.pick(Bool, directory, Bool.and(Folder.skips_directory([sc], v), Folder.skips([sc], String.append(v ++ "/", x))), Folder.skips([sc], v)), Bool.or(Bool.not(Folder.skips([sc], q)), String.starts_with(q, v))) == True{} : Bool}
+
+# `skip` with no arguments lists every rule the files of `skipped/` state,
+# and no rule twice.
+law skip_lists_each_rule_once:
+  for +ss: List<&2, Skip.Stating>
+  {Bool.and(Skip.nodup(Skip.stated.rules(Skip.once(ss, Nil{}, Skip.once.dup(ss, Nil{})))), Skip.all.held(Skip.stated.rules(ss), Skip.stated.rules(Skip.once(ss, Nil{}, Skip.once.dup(ss, Nil{}))))) == True{} : Bool}
+
+# What `skip <path>...` writes is no rule the store already states and no
+# rule twice, and every rule asked for is written or was already there.
+law skip_writes_what_is_new:
+  for +rs: List<&2, Skip.Rule>
+  for +had: List<&2, Skip.Rule>
+  {Bool.and(Bool.and(Skip.none.held(Skip.sorted.fresh(Skip.sorted.go(rs, had, Nil{}, Nil{}, Skip.sorted.dup(rs, had, Nil{}))), had), Skip.nodup(Skip.sorted.fresh(Skip.sorted.go(rs, had, Nil{}, Nil{}, Skip.sorted.dup(rs, had, Nil{}))))), Skip.all.held(rs, List.append(&2, Skip.Rule, Skip.sorted.fresh(Skip.sorted.go(rs, had, Nil{}, Nil{}, Skip.sorted.dup(rs, had, Nil{}))), had))) == True{} : Bool}

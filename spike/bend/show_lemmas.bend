@@ -116,6 +116,28 @@ def doc_r(+id: String, +d: String, m: Maybe<&2, String>, +ds: List<&2, Store.Doc
 def doc_ok(+id: String, +d: String, +ds: List<&2, Store.Doc>, +text: String, e: {Main.show.doc.r(id, d, Main.doc_by_id(ds, d)) == Done{text} : Result<&2, &2, Main.Refused, String>}) -> {Main.doc.holds(ds, d, text) == True{} : Bool}:
   doc_r(id, d, Main.doc_by_id(ds, d), ds, {==}, text, e)
 
+def rdisc2(r: Result<&2, &2, Main.Refused, String>) -> Type:
+  match r:
+    case Fail{e}:
+      Unit
+    case Done{t}:
+      Empty
+
+def fail_done2(-e: Main.Refused, -t: String, h: {Fail{e} == Done{t} : Result<&2, &2, Main.Refused, String>}) -> Empty:
+  %h : {rdisc2(_) : Type}
+  Unit{}
+
+# Reading a document before printing it only refuses more: what `show`
+# prints, the lookup under it found.
+def read_done(bad: Maybe<&2, String>, r: Result<&2, &2, Main.Refused, String>, -text: String, e: {Main.show.read(bad, r) == Done{text} : Result<&2, &2, Main.Refused, String>}) -> {r == Done{text} : Result<&2, &2, Main.Refused, String>}:
+  match bad r:
+    case _ Fail{x}:
+      e
+    case None{} Done{t}:
+      e
+    case Some{m} Done{t}:
+      Empty.absurd({Done{t} == Done{text} : Result<&2, &2, Main.Refused, String>}, fail_done2(Main.Refused{1, m}, text, e))
+
 # What stands in for a destroyed document
 # ----------------------------------------
 
@@ -229,7 +251,7 @@ def said_ok(+id: String, +file: String, +ds: List<&2, Store.Doc>, s: Main.Said, 
     case Main.Whole{+d}:
       shown_r(id, d, ds, Stand.held(ds, d), {==}, text, e)
     case Main.Edited{+d}:
-      shown_r(id, d, ds, Stand.held(ds, d), {==}, text, e)
+      shown_r(id, d, ds, Stand.held(ds, d), {==}, text, read_done(Main.unparsable.of(ds, d), Main.show.doc.r(id, d, Stand.shown(ds, d)), text, e))
 
 def sf_bind(+fs: List<&2, Main.Full>, +bs: List<&2, Bm.Bookmark>, +id: String, +p: String, r: Result<&2, &2, Main.Refused, Tree.Tree()>, +er: {Main.tree.r(fs, id) == r : Result<&2, &2, Main.Refused, Tree.Tree()>}, +file: String, e: {Result.bind(&2, &2, Main.Refused, Tree.Tree(), String, r, t => Main.file_in.r(id, bs, p, t)) == Done{file} : Result<&2, &2, Main.Refused, String>}) -> {Main.tree.holds.r(Main.tree.r(fs, id), file) == True{} : Bool}:
   match r:

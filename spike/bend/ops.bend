@@ -8,6 +8,7 @@ import Base
 import ./text.bend as T
 import ./utf8.bend as Utf8
 import ./sha256.bend as Sha
+import ./words.bend as W
 
 # The model
 # ---------
@@ -460,9 +461,400 @@ def parse.preamble(ls: List<&2, T.Line>) -> Result<&2, &2, String, Doc>:
     case _:
       fail(Doc, 1n, "not a historica document")
 
+# The Rust tool's words
+# ---------------------
+#
+# `OperationDocument::parse` read over again in its own order, for what the
+# parser above does not say the way the Rust tool does: which line a
+# refused document is refused on, and why. The parser above decides whether
+# a document is accepted; this only words a refusal. A `delete` reads the
+# items it counts and no more, the headers are tried before the blank line,
+# and every line is numbered as `Lines` numbers it — what a person reading
+# the message and the file side by side needs to agree.
+
+def w.fail(-A: Data, +line: Nat, +kind: String) -> Result<&2, &2, String, A>:
+  Fail{W.at(line, kind)}
+
+# What is left, and how many lines have been read.
+type WAt is Data:
+  WAt{rest: List<&2, T.Line>, n: Nat}
+
+def w.header.value(+key: String, +forgetting: Bool, +term: Bool, +t: String, +value: String, +rest: List<&2, T.Line>, +at: Nat) -> Result<&2, &2, String, WAt>:
+  Bool.pick(Result<&2, &2, String, WAt>, Bool.not(term), w.fail(WAt, at, W.unterminated()),
+  Bool.pick(Result<&2, &2, String, WAt>, T.has_char(t, '\r'), w.fail(WAt, at, W.carriage_return_in_operation()),
+  Bool.pick(Result<&2, &2, String, WAt>, forgetting, w.fail(WAt, at, W.result_of_forgetting()),
+  Bool.pick(Result<&2, &2, String, WAt>, T.is_digest(value), Done{WAt{rest, at}}, w.fail(WAt, at, W.malformed_digest(key, value))))))
+
+def w.header.of(+key: String, +forgetting: Bool, +t: String, +term: Bool, +rest: List<&2, T.Line>, +n: Nat, v: Maybe<&2, String>) -> Result<&2, &2, String, WAt>:
+  match v:
+    case None{}:
+      Done{WAt{T.Line{t, term} <> rest, n}}
+    case Some{+value}:
+      w.header.value(key, forgetting, term, t, value, rest, 1n+n)
+
+# `forgets` or `result`, if the next line is one; `forgetting` refuses a
+# `result` beside a `forgets`.
+def w.header(ls: List<&2, T.Line>, +n: Nat, +key: String, +forgetting: Bool) -> Result<&2, &2, String, WAt>:
+  match ls:
+    case Nil{}:
+      Done{WAt{Nil{}, n}}
+    case T.Line{+t, +term} <> +rest:
+      w.header.of(key, forgetting, t, term, rest, n, T.strip_prefix(t, key ++ " "))
+
+def w.stated(a: WAt, +n: Nat) -> Bool:
+  match a:
+    case WAt{r, m}:
+      Bool.not(Nat.is_eq(m, n))
+
+# The blank line, terminated or not.
+def w.separator(ls: List<&2, T.Line>, +n: Nat) -> Result<&2, &2, String, WAt>:
+  match ls:
+    case Nil{}:
+      w.fail(WAt, n, W.missing_separator())
+    case T.Line{t, term} <> rest:
+      Bool.pick(Result<&2, &2, String, WAt>, String.is_empty(t), Done{WAt{rest, 1n+n}}, w.fail(WAt, 1n+n, W.missing_separator()))
+
+# An operation as ordering asks after it, and a `\ no newline` where it was.
+type WOp is Data:
+  WOp{delete: Bool, at: Nat, count: Nat}
+
+type WMark is Data:
+  WMark{op: Nat, item: Nat, line: Nat, prefix: Char}
+
+# What a line under an operation is.
+type WItem is Data:
+  WItem.End{}
+  WItem.Marker{}
+  WItem.Item{term: Bool}
+
+def w.item.of(ls: List<&2, T.Line>, +prefix: Char) -> WItem:
+  match ls:
+    case Nil{}:
+      WItem.End{}
+    case T.Line{+t, +term} <> rest:
+      Bool.pick(WItem, T.same(t, "\\ no newline"), WItem.Marker{},
+        Bool.pick(WItem, Bool.or(T.same(t, "\\ forgotten"), String.starts_with(t, String.from_list([prefix]))), WItem.Item{term}, WItem.End{}))
+
+# Reading the items of one operation: what is left, the lines read, the
+# items read, the markers so far, and whether the reading has stopped.
+type WItems is Data:
+  WItems{rest: List<&2, T.Line>, n: Nat, count: Nat, marks: List<&2, WMark>, done: Bool}
+
+def w.marker.of(+t: String, +term: Bool, +rest: List<&2, T.Line>, +n: Nat, +count: Nat, +op: Nat, +prefix: Char, +marks: List<&2, WMark>) -> Result<&2, &2, String, WItems>:
+  Bool.pick(Result<&2, &2, String, WItems>, T.same(t, "\\ no newline"),
+    Bool.pick(Result<&2, &2, String, WItems>, term, Done{WItems{rest, 1n+n, 1n+count, List.append(&2, WMark, marks, [WMark{op, count, 1n+n, prefix}]), False{}}}, w.fail(WItems, 1n+n, W.unterminated())),
+    Done{WItems{T.Line{t, term} <> rest, n, 1n+count, marks, False{}}})
+
+# An item read, and the `\ no newline` under it if there is one.
+def w.marker(ls: List<&2, T.Line>, +n: Nat, +count: Nat, +op: Nat, +prefix: Char, +marks: List<&2, WMark>) -> Result<&2, &2, String, WItems>:
+  match ls:
+    case Nil{}:
+      Done{WItems{Nil{}, n, 1n+count, marks, False{}}}
+    case T.Line{+t, +term} <> +rest:
+      w.marker.of(t, term, rest, n, count, op, prefix, marks)
+
+def w.tail(ls: List<&2, T.Line>) -> List<&2, T.Line>:
+  match ls:
+    case Nil{}:
+      Nil{}
+    case l <> rest:
+      rest
+
+def w.item.read(+ls: List<&2, T.Line>, +n: Nat, +count: Nat, +op: Nat, +prefix: Char, +marks: List<&2, WMark>, k: WItem) -> Result<&2, &2, String, WItems>:
+  match k:
+    case WItem.End{}:
+      Done{WItems{ls, n, count, marks, True{}}}
+    case WItem.Marker{}:
+      w.fail(WItems, 1n+n, W.no_newline_without_item())
+    case WItem.Item{term}:
+      Bool.pick(Result<&2, &2, String, WItems>, term, w.marker(w.tail(ls), 1n+n, count, op, prefix, marks), w.fail(WItems, 1n+n, W.unterminated()))
+
+def w.enough(expected: Maybe<&2, Nat>, +count: Nat) -> Bool:
+  match expected:
+    case None{}:
+      False{}
+    case Some{c}:
+      Nat.is_eq(c, count)
+
+def w.item.step(+prefix: Char, +expected: Maybe<&2, Nat>, +op: Nat, st: WItems) -> Result<&2, &2, String, WItems>:
+  match st:
+    case WItems{+ls, +n, +count, +marks, done}:
+      Bool.pick(Result<&2, &2, String, WItems>, Bool.or(done, w.enough(expected, count)), Done{WItems{ls, n, count, marks, True{}}},
+        w.item.read(ls, n, count, op, prefix, marks, w.item.of(ls, prefix)))
+
+def w.items.go(fuel: Nat, +prefix: Char, +expected: Maybe<&2, Nat>, +op: Nat, r: Result<&2, &2, String, WItems>) -> Result<&2, &2, String, WItems>:
+  match fuel r:
+    case _ Fail{e}:
+      Fail{e}
+    case 0n Done{st}:
+      Done{st}
+    case 1n+p Done{st}:
+      w.items.go(p, prefix, expected, op, w.item.step(prefix, expected, op, st))
+
+# `items`: a `delete` reads the count it states and stops; an `insert`
+# reads while the lines are its own. A count the lines do not reach is
+# refused where the reading stopped.
+def w.counted(expected: Maybe<&2, Nat>, r: Result<&2, &2, String, WItems>) -> Result<&2, &2, String, WItems>:
+  match expected r:
+    case _ Fail{e}:
+      Fail{e}
+    case None{} Done{st}:
+      Done{st}
+    case Some{+c} Done{WItems{+ls, +n, +count, marks, done}}:
+      Bool.pick(Result<&2, &2, String, WItems>, Nat.is_eq(c, count), Done{WItems{ls, n, count, marks, done}}, w.fail(WItems, n, W.delete_count_disagrees(c, count)))
+
+def w.items(+ls: List<&2, T.Line>, +n: Nat, +prefix: Char, +expected: Maybe<&2, Nat>, +op: Nat, +marks: List<&2, WMark>) -> Result<&2, &2, String, WItems>:
+  w.counted(expected, w.items.go(1n+List.length(&2, T.Line, ls), prefix, expected, op, Done{WItems{ls, n, 0n, marks, False{}}}))
+
+# One operation read: what it is, and where the reading got to.
+type WRead is Data:
+  WRead{op: WOp, rest: List<&2, T.Line>, n: Nat, marks: List<&2, WMark>}
+
+def w.read.delete(+pos: Nat, r: Result<&2, &2, String, WItems>) -> Result<&2, &2, String, WRead>:
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{WItems{ls, n, count, marks, done}}:
+      Done{WRead{WOp{True{}, pos, count}, ls, n, marks}}
+
+def w.read.insert(+pos: Nat, +at: Nat, r: Result<&2, &2, String, WItems>) -> Result<&2, &2, String, WRead>:
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{WItems{ls, n, +count, marks, done}}:
+      Bool.pick(Result<&2, &2, String, WRead>, Nat.is_eq(count, 0n), w.fail(WRead, at, W.empty_insert()), Done{WRead{WOp{False{}, pos, count}, ls, n, marks}})
+
+def w.delete.numbers(+rest: List<&2, T.Line>, +at: Nat, +index: Nat, +marks: List<&2, WMark>, +pos: String, +cnt: String, p: Maybe<&2, Nat>, c: Maybe<&2, Nat>) -> Result<&2, &2, String, WRead>:
+  match p c:
+    case None{} _:
+      w.fail(WRead, at, W.malformed_number(pos))
+    case Some{x} None{}:
+      w.fail(WRead, at, W.malformed_number(cnt))
+    case Some{+x} Some{+y}:
+      Bool.pick(Result<&2, &2, String, WRead>, Nat.is_eq(y, 0n), w.fail(WRead, at, W.empty_delete()),
+        w.read.delete(x, w.items(rest, at, '-', Some{y}, index, marks)))
+
+def w.delete.fields(+rest: List<&2, T.Line>, +at: Nat, +index: Nat, +marks: List<&2, WMark>, f: Maybe<&2, T.Split>) -> Result<&2, &2, String, WRead>:
+  match f:
+    case None{}:
+      w.fail(WRead, at, W.malformed_delete())
+    case Some{T.Split{+pos, +cnt}}:
+      Bool.pick(Result<&2, &2, String, WRead>, T.has_char(cnt, ' '), w.fail(WRead, at, W.malformed_delete()),
+        w.delete.numbers(rest, at, index, marks, pos, cnt, T.number(pos), T.number(cnt)))
+
+def w.insert.number(+rest: List<&2, T.Line>, +at: Nat, +index: Nat, +marks: List<&2, WMark>, +args: String, p: Maybe<&2, Nat>) -> Result<&2, &2, String, WRead>:
+  match p:
+    case None{}:
+      w.fail(WRead, at, W.malformed_number(args))
+    case Some{+x}:
+      w.read.insert(x, at, w.items(rest, at, '+', None{}, index, marks))
+
+def w.first(t: String) -> Char:
+  match t:
+    case SNil{}:
+      ' '
+    case SCon{c, r}:
+      c
+
+# `operation`: the keyword, then what it takes.
+def w.op(+t: String, +kw: String, +args: String, +rest: List<&2, T.Line>, +at: Nat, +index: Nat, +marks: List<&2, WMark>) -> Result<&2, &2, String, WRead>:
+  +cr = T.has_char(t, '\r')
+  Bool.pick(Result<&2, &2, String, WRead>, T.same(kw, "delete"),
+    Bool.pick(Result<&2, &2, String, WRead>, cr, w.fail(WRead, at, W.carriage_return_in_operation()), w.delete.fields(rest, at, index, marks, T.split_once(args))),
+  Bool.pick(Result<&2, &2, String, WRead>, T.same(kw, "insert"),
+    Bool.pick(Result<&2, &2, String, WRead>, cr, w.fail(WRead, at, W.carriage_return_in_operation()),
+      Bool.pick(Result<&2, &2, String, WRead>, Bool.or(String.is_empty(args), T.has_char(args, ' ')), w.fail(WRead, at, W.malformed_insert()), w.insert.number(rest, at, index, marks, args, T.number(args)))),
+  Bool.pick(Result<&2, &2, String, WRead>, Bool.or(String.starts_with(t, "-"), String.starts_with(t, "+")), w.fail(WRead, at, W.content_without_operation(w.first(t))),
+  Bool.pick(Result<&2, &2, String, WRead>, T.same(t, "\\ no newline"), w.fail(WRead, at, W.no_newline_without_item()),
+  Bool.pick(Result<&2, &2, String, WRead>, cr, w.fail(WRead, at, W.carriage_return_in_operation()), w.fail(WRead, at, W.unknown_operation(t)))))))
+
+def w.op.cut(+t: String, +rest: List<&2, T.Line>, +at: Nat, +index: Nat, +marks: List<&2, WMark>, cut: Maybe<&2, T.Split>) -> Result<&2, &2, String, WRead>:
+  match cut:
+    case None{}:
+      w.op(t, t, SNil{}, rest, at, index, marks)
+    case Some{T.Split{+kw, +args}}:
+      w.op(t, kw, args, rest, at, index, marks)
+
+# `ordered`: one operation held against the one before it.
+def w.op.at(o: WOp) -> Nat:
+  match o:
+    case WOp{d, a, c}:
+      a
+
+def w.ordered.same(prev: WOp, next: WOp) -> Maybe<&2, String>:
+  match prev next:
+    case WOp{True{}, a, c} WOp{False{}, b, d}:
+      None{}
+    case WOp{True{}, a, c} WOp{True{}, +b, d}:
+      Some{W.overlapping(b)}
+    case WOp{False{}, a, c} WOp{True{}, +b, d}:
+      Some{W.delete_after_insert(b)}
+    case WOp{False{}, a, c} WOp{False{}, +b, d}:
+      Some{W.inserts_at_one_position(b)}
+
+def w.ordered.after(prev: WOp, next: WOp) -> Maybe<&2, String>:
+  match prev next:
+    case WOp{False{}, a, c} _:
+      None{}
+    case WOp{True{}, +a, +c} WOp{nd, +b, +d}:
+      +end = Nat.add(a, c)
+      Bool.pick(Maybe<&2, String>, Nat.is_lt(b, end), Some{W.overlapping(b)},
+        Bool.pick(Maybe<&2, String>, Bool.and(Nat.is_eq(b, end), nd), Some{W.adjacent_deletes(a, Nat.add(c, d))}, None{}))
+
+def w.ordered.cmp(+prev: WOp, +next: WOp, c: Cmp) -> Maybe<&2, String>:
+  match c:
+    case LT{}:
+      Some{W.operations_out_of_order(w.op.at(next), w.op.at(prev))}
+    case EQ{}:
+      w.ordered.same(prev, next)
+    case GT{}:
+      w.ordered.after(prev, next)
+
+def w.ordered(prev: Maybe<&2, WOp>, +next: WOp) -> Maybe<&2, String>:
+  match prev:
+    case None{}:
+      None{}
+    case Some{+p}:
+      w.ordered.cmp(p, next, Nat.cmp(w.op.at(next), w.op.at(p)))
+
+# Reading the operations: what is left, the lines read, the operations in
+# order, the last `delete`, the markers, and whether the reading stopped.
+type WOps is Data:
+  WOps{rest: List<&2, T.Line>, n: Nat, ops: List<&2, WOp>, last_delete: Maybe<&2, WOp>, marks: List<&2, WMark>, done: Bool}
+
+def w.last(os: List<&2, WOp>) -> Maybe<&2, WOp>:
+  match os:
+    case Nil{}:
+      None{}
+    case o <> Nil{}:
+      Some{o}
+    case o <> rest:
+      w.last(rest)
+
+def w.is_delete(o: WOp) -> Bool:
+  match o:
+    case WOp{d, a, c}:
+      d
+
+def w.op.added(+at: Nat, +ops: List<&2, WOp>, +last_delete: Maybe<&2, WOp>, r: Result<&2, &2, String, WRead>) -> Result<&2, &2, String, WOps>:
+  match r:
+    case Fail{e}:
+      Fail{e}
+    case Done{WRead{+o, rest, n, marks}}:
+      Maybe.default(&2, Result<&2, &2, String, WOps>,
+        Maybe.map(&2, String, Result<&2, &2, String, WOps>, e => Fail{W.at(at, e)}, Maybe.or(&2, String, w.ordered(w.last(ops), o), w.ordered(last_delete, o))),
+        Done{WOps{rest, n, List.append(&2, WOp, ops, [o]), Bool.pick(Maybe<&2, WOp>, w.is_delete(o), Some{o}, last_delete), marks, False{}}})
+
+def w.ops.line(+ops: List<&2, WOp>, +last_delete: Maybe<&2, WOp>, +marks: List<&2, WMark>, ls: List<&2, T.Line>, +n: Nat) -> Result<&2, &2, String, WOps>:
+  match ls:
+    case Nil{}:
+      Done{WOps{Nil{}, n, ops, last_delete, marks, True{}}}
+    case T.Line{+t, term} <> +rest:
+      Bool.pick(Result<&2, &2, String, WOps>, term,
+        w.op.added(1n+n, ops, last_delete, w.op.cut(t, rest, 1n+n, List.length(&2, WOp, ops), marks, T.split_once(t))),
+        w.fail(WOps, 1n+n, W.unterminated()))
+
+def w.ops.step(st: WOps) -> Result<&2, &2, String, WOps>:
+  match st:
+    case WOps{+ls, +n, +ops, +ld, +marks, done}:
+      Bool.pick(Result<&2, &2, String, WOps>, done, Done{WOps{ls, n, ops, ld, marks, True{}}}, w.ops.line(ops, ld, marks, ls, n))
+
+def w.ops.go(fuel: Nat, r: Result<&2, &2, String, WOps>) -> Result<&2, &2, String, WOps>:
+  match fuel r:
+    case _ Fail{e}:
+      Fail{e}
+    case 0n Done{st}:
+      Done{st}
+    case 1n+p Done{st}:
+      w.ops.go(p, w.ops.step(st))
+
+# `check_markers`: a marker marks its kind's last item.
+def w.kind.in(os: List<&2, WOp>, +delete: Bool) -> Bool:
+  match os:
+    case Nil{}:
+      False{}
+    case o <> rest:
+      Bool.or(Bool.not(Bool.xor(w.is_delete(o), delete)), w.kind.in(rest, delete))
+
+def w.later(os: List<&2, WOp>, +i: Nat, +delete: Bool) -> Bool:
+  match os i:
+    case Nil{} _:
+      False{}
+    case o <> rest 0n:
+      w.kind.in(rest, delete)
+    case o <> rest 1n+j:
+      w.later(rest, j, delete)
+
+def w.count(o: Maybe<&2, WOp>) -> Nat:
+  match o:
+    case None{}:
+      0n
+    case Some{WOp{d, a, c}}:
+      c
+
+def w.marks(+os: List<&2, WOp>, ms: List<&2, WMark>) -> Maybe<&2, String>:
+  match ms:
+    case Nil{}:
+      None{}
+    case WMark{+op, +item, +line, +prefix} <> rest:
+      +o = List.get(&2, WOp, os, op)
+      +last = Bool.and(Nat.is_eq(1n+item, w.count(o)), Bool.not(w.later(os, op, Maybe.default(&2, Bool, Maybe.map(&2, WOp, Bool, x => w.is_delete(x), o), False{}))))
+      Bool.pick(Maybe<&2, String>, last, w.marks(os, rest), Some{W.at(line, W.no_newline_not_last(prefix))})
+
+def w.body(r: Result<&2, &2, String, WOps>) -> Maybe<&2, String>:
+  match r:
+    case Fail{e}:
+      Some{e}
+    case Done{WOps{ls, +n, +ops, ld, marks, done}}:
+      Bool.pick(Maybe<&2, String>, List.is_empty(&2, WOp, ops), Some{W.at(n, W.no_operations())}, w.marks(ops, marks))
+
+def w.after(r: Result<&2, &2, String, WAt>) -> Maybe<&2, String>:
+  match r:
+    case Fail{e}:
+      Some{e}
+    case Done{WAt{+ls, +n}}:
+      w.body(w.ops.go(1n+List.length(&2, T.Line, ls), Done{WOps{ls, n, Nil{}, None{}, Nil{}, False{}}}))
+
+def w.separator.at(a: WAt) -> Result<&2, &2, String, WAt>:
+  match a:
+    case WAt{ls, n}:
+      w.separator(ls, n)
+
+def w.results(r: Result<&2, &2, String, WAt>, +forgetting: Bool) -> Maybe<&2, String>:
+  match r:
+    case Fail{e}:
+      Some{e}
+    case Done{WAt{+ls, +n}}:
+      w.after(Result.bind(&2, &2, String, WAt, WAt, w.header(ls, n, "result", forgetting), a => w.separator.at(a)))
+
+def w.forgets(ls: List<&2, T.Line>) -> Maybe<&2, String>:
+  +h = w.header(ls, 1n, "forgets", False{})
+  w.results(h, Result.default(&2, &2, String, Bool, Result.map(&2, &2, String, WAt, Bool, a => w.stated(a, 1n), h), False{}))
+
+def w.first.line(ls: List<&2, T.Line>) -> Maybe<&2, String>:
+  match ls:
+    case Nil{}:
+      Some{W.at(1n, W.empty())}
+    case T.Line{+t, +term} <> rest:
+      Bool.pick(Maybe<&2, String>, T.has_char(t, '\r'), Some{W.at(1n, W.carriage_return_in_operation())},
+        Maybe.or(&2, String, W.preamble(t, term), w.forgets(rest)))
+
+# Why the Rust tool refuses these bytes as an operation document, in its
+# words: none where it would not.
+def refusal(+s: String) -> Maybe<&2, String>:
+  Bool.pick(Maybe<&2, String>, W.bom(s), Some{W.at(1n, W.byte_order_mark())}, w.first.line(T.lines(s)))
+
+# A refusal from the parser above, worded as the Rust tool words it.
+def worded(+s: String, r: Result<&2, &2, String, Doc>) -> Result<&2, &2, String, Doc>:
+  match r:
+    case Done{d}:
+      Done{d}
+    case Fail{e}:
+      Fail{Maybe.default(&2, String, refusal(s), e)}
+
 # An operation document, from its text.
-def parse(s: String) -> Result<&2, &2, String, Doc>:
-  parse.preamble(T.lines(s))
+def parse(+s: String) -> Result<&2, &2, String, Doc>:
+  worded(s, parse.preamble(T.lines(s)))
 
 # Writing
 # -------

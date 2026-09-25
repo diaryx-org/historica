@@ -101,6 +101,94 @@ def decode.sized(bs: List<&2, U32>, n: Nat) -> String:
 # Encoding
 # --------
 
+# Validating
+# ----------
+#
+# `str::from_utf8`'s refusal, in `Utf8Error`'s words: the index the valid
+# prefix runs to, and how many bytes past it are no character — or, where
+# the bytes stop inside one, that the sequence is incomplete. A file of
+# names or rules, and the identity file, are read as text and refused so.
+
+def v.cont(+b: U32) -> Bool:
+  Bool.and(U32.is_ge(b, 128), U32.is_le(b, 191))
+
+def v.in(+b: U32, +lo: U32, +hi: U32) -> Bool:
+  Bool.and(U32.is_ge(b, lo), U32.is_le(b, hi))
+
+def v.invalid(+n: Nat, +i: Nat) -> Maybe<&2, String>:
+  Some{"invalid utf-8 sequence of " ++ Nat.show(n) ++ " bytes from index " ++ Nat.show(i)}
+
+def v.incomplete(+i: Nat) -> Maybe<&2, String>:
+  Some{"incomplete utf-8 byte sequence from index " ++ Nat.show(i)}
+
+# The second byte a lead byte allows, which is narrower than any
+# continuation byte for `E0`, `ED`, `F0` and `F4`.
+def v.second(+lead: U32, +b: U32) -> Bool:
+  Bool.pick(Bool, U32.is_eq(lead, 224), v.in(b, 160, 191),
+  Bool.pick(Bool, U32.is_eq(lead, 237), v.in(b, 128, 159),
+  Bool.pick(Bool, U32.is_eq(lead, 240), v.in(b, 144, 191),
+  Bool.pick(Bool, U32.is_eq(lead, 244), v.in(b, 128, 143), v.cont(b)))))
+
+def v.width(+b: U32) -> Nat:
+  Bool.pick(Nat, U32.is_lt(b, 128), 1n,
+  Bool.pick(Nat, v.in(b, 194, 223), 2n,
+  Bool.pick(Nat, v.in(b, 224, 239), 3n,
+  Bool.pick(Nat, v.in(b, 240, 244), 4n, 0n))))
+
+# What is left after one character, or why there is none.
+type V is Data:
+  V.Next{rest: List<&2, U32>, width: Nat}
+  V.Bad{why: String}
+
+def v.tail3(+w: Nat, +i: Nat, bs: List<&2, U32>) -> V:
+  match bs:
+    case Nil{}:
+      Bool.pick(V, Nat.is_ge(w, 4n), V.Bad{Maybe.default(&2, String, v.incomplete(i), SNil{})}, V.Next{Nil{}, 3n})
+    case +c3 <> +rest3:
+      Bool.pick(V, Nat.is_lt(w, 4n), V.Next{c3 <> rest3, 3n},
+        Bool.pick(V, Bool.not(v.cont(c3)), V.Bad{Maybe.default(&2, String, v.invalid(3n, i), SNil{})}, V.Next{rest3, 4n}))
+
+def v.tail2(+w: Nat, +i: Nat, bs: List<&2, U32>) -> V:
+  match bs:
+    case Nil{}:
+      Bool.pick(V, Nat.is_ge(w, 3n), V.Bad{Maybe.default(&2, String, v.incomplete(i), SNil{})}, V.Next{Nil{}, 2n})
+    case +c2 <> +rest2:
+      Bool.pick(V, Nat.is_lt(w, 3n), V.Next{c2 <> rest2, 2n},
+        Bool.pick(V, Bool.not(v.cont(c2)), V.Bad{Maybe.default(&2, String, v.invalid(2n, i), SNil{})}, v.tail3(w, i, rest2)))
+
+def v.tail(+lead: U32, +w: Nat, +i: Nat, bs: List<&2, U32>) -> V:
+  match bs:
+    case Nil{}:
+      Bool.pick(V, Nat.is_ge(w, 2n), V.Bad{Maybe.default(&2, String, v.incomplete(i), SNil{})}, V.Next{Nil{}, 1n})
+    case +c1 <> +rest1:
+      Bool.pick(V, Nat.is_lt(w, 2n), V.Next{c1 <> rest1, 1n},
+        Bool.pick(V, Bool.not(Bool.pick(Bool, Nat.is_eq(w, 2n), v.cont(c1), v.second(lead, c1))), V.Bad{Maybe.default(&2, String, v.invalid(1n, i), SNil{})},
+          v.tail2(w, i, rest1)))
+
+def v.step(+i: Nat, bs: List<&2, U32>) -> Maybe<&2, V>:
+  match bs:
+    case Nil{}:
+      None{}
+    case +b <> rest:
+      +w = v.width(b)
+      Some{Bool.pick(V, Nat.is_eq(w, 0n), V.Bad{Maybe.default(&2, String, v.invalid(1n, i), SNil{})}, v.tail(b, w, i, rest))}
+
+def v.go(fuel: Nat, +i: Nat, s: Maybe<&2, V>) -> Maybe<&2, String>:
+  match fuel s:
+    case _ None{}:
+      None{}
+    case _ Some{V.Bad{why}}:
+      Some{why}
+    case 0n _:
+      None{}
+    case 1n+p Some{V.Next{rest, +w}}:
+      v.go(p, Nat.add(i, w), v.step(Nat.add(i, w), rest))
+
+# Why these bytes are not UTF-8, as the Rust tool says it; none where they
+# are.
+def invalid(+bs: List<&2, U32>) -> Maybe<&2, String>:
+  v.go(List.length(&2, U32, bs), 0n, v.step(0n, bs))
+
 def encode.char(+c: U32, rest: List<&2, U32>, one: Bool, two: Bool, three: Bool) -> List<&2, U32>:
   match one:
     case True{}:
