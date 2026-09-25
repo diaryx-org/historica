@@ -891,6 +891,9 @@ def Laws.skip_lists_each_rule_once(ss):
 def Laws.skip_writes_what_is_new(rs, had):
   SkipL.writes_new(rs, had)
 
+def Laws.update_holds_only_a_head(fs, bs, t, id, u, e1, e2):
+  UpdL.only_heads(fs, bs, t, id, u, e1, e2)
+
 def Laws.update_lands(fs, id, t, rs, walked, found, dg, ls, located, ds, more, p, e):
   UpdL.plan_holds(fs, id, t, rs, walked, found, dg, ls, located, ds, more, p, e)
 
@@ -900,11 +903,35 @@ def Laws.update_spares_the_unrecorded(fs, id, t, rs, walked, found, dg, ls, loca
 def Laws.update_again_keeps(w, h, rs, rs2, e):
   UpdL.again_keeps(w, h, rs, rs2, e)
 
-def Laws.update_settles_only_what_stays(p, e):
-  UpdL.settled_same(p, e)
+def Laws.update_settles_exactly_what_stays(fs, id, t, rs, walked, found, dg, ls, located, ds, more, p, e):
+  UpdL.plan_settled(fs, id, t, rs, walked, found, dg, ls, located, ds, more, p, e)
+
+def Laws.update_touches_only_the_target(fs, id, t, rs, walked, found, dg, ls, located, ds, more, p, e):
+  UpdL.plan_confined(fs, id, t, rs, walked, found, dg, ls, located, ds, more, p, e)
+
+def Laws.update_says_settled_as_its_dry_run(p, s, e):
+  UpdL.settled_says(p, s, e)
+
+def Laws.update_dry_run_names_what_it_does(p, s):
+  UpdL.dry_names(p, s)
 
 def Laws.merge_spares_the_unrecorded(fs, ds, heads, bs, t, dg, texts, ls, cs, located, es):
   MergingL.spares(fs, ds, heads, bs, t, dg, texts, ls, cs, located, es)
+
+def Laws.merge_rewrites_nothing_merged(fs, ds, heads, t, dg, texts, ls, located, es, h):
+  MergingL.merged_all(fs, ds, heads, t, dg, texts, ls, located, es, h)
+
+def Laws.merge_counts_what_it_fences(j, x, a, h1, h2, h3):
+  MergingL.fences_counted(j, x, a, h1, h2, h3)
+
+def Laws.merge_counts_nothing_unfenced(j):
+  MergingL.plain_unmarked(j)
+
+def Laws.merge_prints_the_record_that_records_it(typed, bs, h):
+  MergingL.record_back(typed, bs, h)
+
+def Laws.merge_counts_the_files_that_met(fs, ds, heads, bs, t, dg, texts, ls, cs, located, es):
+  MergingL.met_all(fs, ds, heads, bs, t, dg, texts, ls, cs, located, es)
 
 def Laws.merge_sets_aside_the_claims(cs):
   MergingL.aside(cs)
