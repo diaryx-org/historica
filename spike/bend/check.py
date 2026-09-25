@@ -4862,7 +4862,32 @@ def check_mutations(temporary):
             "offer names a file by its path rather than its digest",
             "      Offered{kind, d, None{}, addressed(prefix, p)} <> splits.offered(rest, kind, prefix)",
             "      Offered{kind, p, None{}, addressed(prefix, p)} <> splits.offered(rest, kind, prefix)",
-            "offer_lemmas.splits_from",
+            # And `offer_lemmas.sound_splits`, after it: the line neither
+            # lists the file's digest nor names a digest the listing gives.
+            "offer_lemmas.covers_splits",
+            "offer.bend",
+        ),
+        (
+            "offer addresses a label with no slash before history",
+            'prefix ++ "/history/" ++ label)',
+            'prefix ++ "history/" ++ label)',
+            "offer_lemmas.filed_at",
+            "offer.bend",
+        ),
+        (
+            "offer lists a document as a payload",
+            'Offered{"operation", d, f, addressed(prefix, p)}',
+            'Offered{"payload", d, f, addressed(prefix, p)}',
+            # And `offer_lemmas.sound_bodies`, after it: no line of the
+            # document's kind, and a payload line the payloads do not list.
+            "offer_lemmas.covers_bodies",
+            "offer.bend",
+        ),
+        (
+            "offer leaves the revisions out of its manifest",
+            '        by_path(splits.offered(revs, "revision", prefix))])',
+            '        Nil{}])',
+            "offer_lemmas.complete",
             "offer.bend",
         ),
         (
@@ -6180,21 +6205,21 @@ def check_mutations(temporary):
             "a read opens whatever name the listing has, normal form or not",
             "Bool.and(Bool.not(String.starts_with(line, \"u \")), String.eq(Nfc.nfc(name), want))",
             "Bool.not(String.starts_with(line, \"u \"))",
-            "spelt_lemmas.read_back",
+            "walked_lemmas.read_back",
             "folder.bend",
         ),
         (
             "a read opens the first name that spells the path, not the last",
             'got: Maybe<&2, String>) -> Maybe<&2, String>:\n  +name = entry.name(line)\n  Bool.pick(Maybe<&2, String>, Bool.and(Bool.not(String.starts_with(line, "u ")), String.eq(Nfc.nfc(name), want)), Some{name}, got)',
             '+got: Maybe<&2, String>) -> Maybe<&2, String>:\n  +name = entry.name(line)\n  Bool.pick(Maybe<&2, String>, Bool.and(Bool.not(String.starts_with(line, "u ")), String.eq(Nfc.nfc(name), want)), Maybe.or(&2, String, got, Some{name}), got)',
-            "spelt_lemmas.read_back",
+            "walked_lemmas.read_back",
             "folder.bend",
         ),
         (
             "a read takes a link's target for a name",
             "      spelling.go(rest, want, got, False{})",
             "      spelling.go(rest, want, spelling.take(line, want, got), False{})",
-            "spelt_lemmas.read_back",
+            "walked_lemmas.read_back",
             "folder.bend",
         ),
         (

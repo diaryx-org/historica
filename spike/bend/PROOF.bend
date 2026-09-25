@@ -102,7 +102,7 @@ import ./listed_lemmas.bend as ListedL
 import ./pattern_lemmas.bend as PatL
 import ./stats_lemmas.bend as StatsL
 import ./standing_lemmas.bend as StandingL
-import ./spelt_lemmas.bend as SpeltL
+import ./walked_lemmas.bend as WalkedL
 
 # show_hash builds its string from eight words of eight digits, so its
 # length is 64 whatever the words are; digest is show_hash of something.
@@ -1173,8 +1173,8 @@ def Laws.export_settles_only_on_what_it_laid_out(t, fs, ds, id, pays, bs, rules,
 def Laws.export_spares_the_unrecorded(t, fs, ds, id, pays, bs, rules, seen, walk, dirs, others, cfs, cds):
   CatchL.spares(t, fs, ds, id, pays, bs, rules, seen, walk, dirs, others, cfs, cds)
 
-def Laws.offer_names_each_file_by_its_digest(prefix, s, marks, claims, rids, nids):
-  OfferL.digests(prefix, s, marks, claims, rids, nids)
+def Laws.offer_names_each_file_by_its_digest(prefix, s, marks, claims, rids, nids, hp, hh):
+  OfferL.digests(prefix, s, marks, claims, rids, nids, hp, hh)
 
 def Laws.nfc_leaves_ascii(s, h):
   NfcL.leaves_ascii(s, h)
@@ -1192,10 +1192,10 @@ def Laws.nfc_leaves_separators_alone(xs, c, ys, h):
   NfcL.separators_wall(xs, c, ys, h)
 
 def Laws.the_walk_yields_a_path_once(fs, rs):
-  ListedL.walk_rising(fs, rs)
+  WalkedL.walk_rising(fs, rs)
 
 def Laws.the_folder_spells_what_is_opened(es, want, h):
-  SpeltL.spelled_there(es, want, h)
+  WalkedL.spelled_there(es, want, h)
 
 def Laws.a_name_that_cannot_be_spelled_is_refused(es, prefix, dir):
   NfcL.all_refused(es, prefix, dir)

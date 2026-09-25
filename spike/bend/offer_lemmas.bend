@@ -22,6 +22,7 @@ import ./bookmark_lemmas.bend as BmL
 import ./spelling_lemmas.bend as Spell
 import ./arrange_lemmas.bend as ArrangeL
 import ./revision.bend as Rev
+import ./sort_lemmas.bend as SortL
 
 # Bookmarks
 # ---------
@@ -95,52 +96,12 @@ def or_r(a: Bool, -b: Bool, e: {b == True{} : Bool}) -> {Bool.or(a, b) == True{}
     case False{}:
       e
 
-def some_inj(+a: String, -b: String, e: {Some{a} == Some{b} : Maybe<&2, String>}) -> {a == b : String}:
-  Equal.cong(Maybe<&2, String>, String, m => Maybe.default(&2, String, m, a), Some{a}, Some{b}, e)
-
-# What was listed stays listed with one more file in front.
-def from_more(os: List<&2, Offer.Offered>, +x: T.Split, +rest: List<&2, T.Split>, +prefix: String, +h: {Offer.offered.from(os, rest, prefix) == True{} : Bool}) -> {Offer.offered.from(os, x <> rest, prefix) == True{} : Bool}:
-  match os:
-    case Nil{}:
-      {==}
-    case Offer.Offered{k, +d, f, +p} <> +more:
-      match x:
-        case T.Split{+l, +dd}:
-          and_tt(Offer.listed(T.Split{l, dd} <> rest, prefix, p, d), Offer.offered.from(more, T.Split{l, dd} <> rest, prefix),
-            or_r(Bool.and(String.eq(Offer.addressed(prefix, l), p), String.eq(dd, d)), Offer.listed(rest, prefix, p, d), PruneL.and_l(Offer.listed(rest, prefix, p, d), Offer.offered.from(more, rest, prefix), h)),
-            from_more(more, T.Split{l, dd}, rest, prefix, PruneL.and_r(Offer.listed(rest, prefix, p, d), Offer.offered.from(more, rest, prefix), h)))
-
-def self_listed(+l: String, +d: String, +rest: List<&2, T.Split>, +prefix: String) -> {Offer.listed(T.Split{l, d} <> rest, prefix, Offer.addressed(prefix, l), d) == True{} : Bool}:
-  %Equal.sym(Bool, String.eq(Offer.addressed(prefix, l), Offer.addressed(prefix, l)), True{}, S.eq_refl(Offer.addressed(prefix, l))) : {Bool.or(Bool.and(_, String.eq(d, d)), Offer.listed(rest, prefix, Offer.addressed(prefix, l), d)) == True{} : Bool}
-  %Equal.sym(Bool, String.eq(d, d), True{}, S.eq_refl(d)) : {Bool.or(Bool.and(True{}, _), Offer.listed(rest, prefix, Offer.addressed(prefix, l), d)) == True{} : Bool}
+def or_l(a: Bool, -b: Bool, e: {a == True{} : Bool}) -> {Bool.or(a, b) == True{} : Bool}:
+  %Equal.sym(Bool, a, True{}, e) : {Bool.or(_, b) == True{} : Bool}
   {==}
 
-def splits_from(ss: List<&2, T.Split>, +kind: String, +prefix: String) -> {Offer.offered.from(Offer.splits.offered(ss, kind, prefix), ss, prefix) == True{} : Bool}:
-  match ss:
-    case Nil{}:
-      {==}
-    case T.Split{+p, +d} <> +rest:
-      and_tt(Offer.listed(T.Split{p, d} <> rest, prefix, Offer.addressed(prefix, p), d), Offer.offered.from(Offer.splits.offered(rest, kind, prefix), T.Split{p, d} <> rest, prefix),
-        self_listed(p, d, rest, prefix),
-        from_more(Offer.splits.offered(rest, kind, prefix), T.Split{p, d}, rest, prefix, splits_from(rest, kind, prefix)))
-
-def bodies_from(bs: List<&2, Prune.Body>, +prefix: String) -> {Offer.offered.from(Offer.bodies.offered(bs, prefix), Offer.body.splits(bs), prefix) == True{} : Bool}:
-  match bs:
-    case Nil{}:
-      {==}
-    case Prune.Body{+p, +d, ok, f} <> +rest:
-      and_tt(Offer.listed(T.Split{p, d} <> Offer.body.splits(rest), prefix, Offer.addressed(prefix, p), d), Offer.offered.from(Offer.bodies.offered(rest, prefix), T.Split{p, d} <> Offer.body.splits(rest), prefix),
-        self_listed(p, d, Offer.body.splits(rest), prefix),
-        from_more(Offer.bodies.offered(rest, prefix), T.Split{p, d}, Offer.body.splits(rest), prefix, bodies_from(rest, prefix)))
-
-def lookup_step(c: Bool, +k: String, +v: String, +rest: List<&2, T.Split>, +label: String, +d: String, +prefix: String, ec: {String.eq(k, label) == c : Bool}, e: {Bool.pick(Maybe<&2, String>, c, Some{v}, Arrange.lookup(rest, label)) == Some{d} : Maybe<&2, String>}, ih: {Arrange.lookup(rest, label) == Some{d} : Maybe<&2, String>} -> {Offer.listed(rest, prefix, Offer.addressed(prefix, label), d) == True{} : Bool}) -> {Offer.listed(T.Split{k, v} <> rest, prefix, Offer.addressed(prefix, label), d) == True{} : Bool}:
-  match c:
-    case True{}:
-      %S.eq_true(k, label, ec) : {Offer.listed(T.Split{k, v} <> rest, prefix, Offer.addressed(prefix, _), d) == True{} : Bool}
-      %some_inj(v, d, e) : {Offer.listed(T.Split{k, v} <> rest, prefix, Offer.addressed(prefix, k), _) == True{} : Bool}
-      self_listed(k, v, rest, prefix)
-    case False{}:
-      or_r(Bool.and(String.eq(Offer.addressed(prefix, k), Offer.addressed(prefix, label)), String.eq(v, d)), Offer.listed(rest, prefix, Offer.addressed(prefix, label), d), ih(e))
+def some_inj(+a: String, -b: String, e: {Some{a} == Some{b} : Maybe<&2, String>}) -> {a == b : String}:
+  Equal.cong(Maybe<&2, String>, String, m => Maybe.default(&2, String, m, a), Some{a}, Some{b}, e)
 
 def m_none(m: Maybe<&2, String>) -> Type:
   match m:
@@ -153,55 +114,461 @@ def none_some(-x: String, e: {None{} == Some{x} : Maybe<&2, String>}) -> Empty:
   %e : {m_none(_) : Type}
   Unit{}
 
+# The store's listing as `offer` was handed it: its payloads, documents
+# and revisions, the rule files and bookmark files read from disk, each by
+# its label and digest, and the files of `claims/`.
+type Listing is Data:
+  Listing{payloads: List<&2, T.Split>, documents: List<&2, T.Split>, revisions: List<&2, T.Split>, rules: List<&2, T.Split>, claims: List<&2, T.Split>, names: List<&2, T.Split>}
+
+def body.splits(bs: List<&2, Prune.Body>) -> List<&2, T.Split>:
+  match bs:
+    case Nil{}:
+      Nil{}
+    case Prune.Body{+p, +d, ok, f} <> rest:
+      T.Split{p, d} <> body.splits(rest)
+
+def listing.of(s: Prune.Stored, +claims: List<&2, T.Split>, +rids: List<&2, T.Split>, +nids: List<&2, T.Split>) -> Listing:
+  match s:
+    case Prune.Stored{docs, revs, od, bs, ps, names, rules}:
+      Listing{ps, body.splits(bs), revs, rids, claims, nids}
+
+# The part of the listing a line of each kind is drawn from.
+def group(g: Listing, +k: String) -> List<&2, T.Split>:
+  match g:
+    case Listing{ps, ds, vs, rs, cs, ns}:
+      Bool.pick(List<&2, T.Split>, String.eq(k, "payload"), ps,
+      Bool.pick(List<&2, T.Split>, String.eq(k, "operation"), ds,
+      Bool.pick(List<&2, T.Split>, String.eq(k, "revision"), vs,
+      Bool.pick(List<&2, T.Split>, String.eq(k, "rule"), rs,
+      Bool.pick(List<&2, T.Split>, String.eq(k, "reserved"), cs,
+      Bool.pick(List<&2, T.Split>, String.eq(k, "name"), ns, Nil{}))))))
+
+# Whether `ss` lists label `l` with digest `d`.
+def has(ss: List<&2, T.Split>, +l: String, +d: String) -> Bool:
+  match ss:
+    case Nil{}:
+      False{}
+    case T.Split{+k, +v} <> rest:
+      Bool.or(Bool.and(String.eq(k, l), String.eq(v, d)), has(rest, l, d))
+
+def at(ss: List<&2, T.Split>, m: Maybe<&2, String>, +d: String) -> Bool:
+  match m:
+    case None{}:
+      False{}
+    case Some{+l}:
+      has(ss, l, d)
+
+# A line names a file of the listing: where `fetch` files the path it
+# gives, the listing of its kind holds that label with that digest.
+def names_file(g: Listing, o: Offer.Offered) -> Bool:
+  match o:
+    case Offer.Offered{+k, +d, f, +p}:
+      at(group(g, k), Fetch.filed_under(p), d)
+
+# Whether a list of lines holds one of kind `k` for digest `d`.
+def offers(os: List<&2, Offer.Offered>, +k: String, +d: String) -> Bool:
+  match os:
+    case Nil{}:
+      False{}
+    case Offer.Offered{+k2, +d2, f, p} <> rest:
+      Bool.or(Bool.and(String.eq(k2, k), String.eq(d2, d)), offers(rest, k, d))
+
+# Every file of `ss` has a line of kind `k` at the path a fetcher asks for
+# it at, naming its digest.
+def covers(ss: List<&2, T.Split>, +os: List<&2, Offer.Offered>, +k: String, +prefix: String) -> Bool:
+  match ss:
+    case Nil{}:
+      True{}
+    case T.Split{+l, +d} <> rest:
+      Bool.and(offers(SortL.keyed(~Offer.Offered, ~(o => Offer.offered.path(o)), Offer.addressed(prefix, l), os), k, d), covers(rest, os, k, prefix))
+
+# Every file the store lists has its line
+# ---------------------------------------
+
+def offers_more(os: List<&2, Offer.Offered>, +x: Offer.Offered, +k: String, +d: String, h: {offers(os, k, d) == True{} : Bool}) -> {offers(x <> os, k, d) == True{} : Bool}:
+  match x:
+    case Offer.Offered{+k2, +d2, f, p}:
+      or_r(Bool.and(String.eq(k2, k), String.eq(d2, d)), offers(os, k, d), h)
+
+def offers_pick(c: Bool, +x: Offer.Offered, +os: List<&2, Offer.Offered>, +k: String, +d: String, h: {offers(os, k, d) == True{} : Bool}) -> {offers(Bool.pick(List<&2, Offer.Offered>, c, x <> os, os), k, d) == True{} : Bool}:
+  match c:
+    case True{}:
+      offers_more(os, x, k, d, h)
+    case False{}:
+      h
+
+def offers_app_l.at(a: Bool, -r: Bool, -s: Bool, h: {Bool.or(a, r) == True{} : Bool}, ih: {r == True{} : Bool} -> {s == True{} : Bool}) -> {Bool.or(a, s) == True{} : Bool}:
+  match a:
+    case True{}:
+      {==}
+    case False{}:
+      ih(h)
+
+def offers_app_l(xs: List<&2, Offer.Offered>, +ys: List<&2, Offer.Offered>, +k: String, +d: String, h: {offers(xs, k, d) == True{} : Bool}) -> {offers(List.append(&2, Offer.Offered, xs, ys), k, d) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      Empty.absurd({offers(ys, k, d) == True{} : Bool}, S.false_true(h))
+    case Offer.Offered{+k2, +d2, f, p} <> +rest:
+      offers_app_l.at(Bool.and(String.eq(k2, k), String.eq(d2, d)), offers(rest, k, d), offers(List.append(&2, Offer.Offered, rest, ys), k, d), h, x => offers_app_l(rest, ys, k, d, x))
+
+def offers_app_r(xs: List<&2, Offer.Offered>, +ys: List<&2, Offer.Offered>, +k: String, +d: String, +h: {offers(ys, k, d) == True{} : Bool}) -> {offers(List.append(&2, Offer.Offered, xs, ys), k, d) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      h
+    case +x <> +rest:
+      offers_more(List.append(&2, Offer.Offered, rest, ys), x, k, d, offers_app_r(rest, ys, k, d, h))
+
+def covers_app_l(ss: List<&2, T.Split>, +xs: List<&2, Offer.Offered>, +ys: List<&2, Offer.Offered>, +k: String, +prefix: String, +h: {covers(ss, xs, k, prefix) == True{} : Bool}) -> {covers(ss, List.append(&2, Offer.Offered, xs, ys), k, prefix) == True{} : Bool}:
+  match ss:
+    case Nil{}:
+      {==}
+    case T.Split{+l, +d} <> +rest:
+      +q : String = Offer.addressed(prefix, l)
+      +hd = PruneL.and_l(offers(SortL.keyed(~Offer.Offered, ~(o => Offer.offered.path(o)), q, xs), k, d), covers(rest, xs, k, prefix), h)
+      +tl = PruneL.and_r(offers(SortL.keyed(~Offer.Offered, ~(o => Offer.offered.path(o)), q, xs), k, d), covers(rest, xs, k, prefix), h)
+      %Equal.sym(List<&2, Offer.Offered>, SortL.keyed(~Offer.Offered, ~(o => Offer.offered.path(o)), q, List.append(&2, Offer.Offered, xs, ys)), List.append(&2, Offer.Offered, SortL.keyed(~Offer.Offered, ~(o => Offer.offered.path(o)), q, xs), SortL.keyed(~Offer.Offered, ~(o => Offer.offered.path(o)), q, ys)), SortL.keyed_app(~Offer.Offered, ~(o => Offer.offered.path(o)), q, xs, ys)) : {Bool.and(offers(_, k, d), covers(rest, List.append(&2, Offer.Offered, xs, ys), k, prefix)) == True{} : Bool}
+      and_tt(offers(List.append(&2, Offer.Offered, SortL.keyed(~Offer.Offered, ~(o => Offer.offered.path(o)), q, xs), SortL.keyed(~Offer.Offered, ~(o => Offer.offered.path(o)), q, ys)), k, d), covers(rest, List.append(&2, Offer.Offered, xs, ys), k, prefix),
+        offers_app_l(SortL.keyed(~Offer.Offered, ~(o => Offer.offered.path(o)), q, xs), SortL.keyed(~Offer.Offered, ~(o => Offer.offered.path(o)), q, ys), k, d, hd),
+        covers_app_l(rest, xs, ys, k, prefix, tl))
+
+def covers_app_r(ss: List<&2, T.Split>, +xs: List<&2, Offer.Offered>, +ys: List<&2, Offer.Offered>, +k: String, +prefix: String, +h: {covers(ss, ys, k, prefix) == True{} : Bool}) -> {covers(ss, List.append(&2, Offer.Offered, xs, ys), k, prefix) == True{} : Bool}:
+  match ss:
+    case Nil{}:
+      {==}
+    case T.Split{+l, +d} <> +rest:
+      +q : String = Offer.addressed(prefix, l)
+      +hd = PruneL.and_l(offers(SortL.keyed(~Offer.Offered, ~(o => Offer.offered.path(o)), q, ys), k, d), covers(rest, ys, k, prefix), h)
+      +tl = PruneL.and_r(offers(SortL.keyed(~Offer.Offered, ~(o => Offer.offered.path(o)), q, ys), k, d), covers(rest, ys, k, prefix), h)
+      %Equal.sym(List<&2, Offer.Offered>, SortL.keyed(~Offer.Offered, ~(o => Offer.offered.path(o)), q, List.append(&2, Offer.Offered, xs, ys)), List.append(&2, Offer.Offered, SortL.keyed(~Offer.Offered, ~(o => Offer.offered.path(o)), q, xs), SortL.keyed(~Offer.Offered, ~(o => Offer.offered.path(o)), q, ys)), SortL.keyed_app(~Offer.Offered, ~(o => Offer.offered.path(o)), q, xs, ys)) : {Bool.and(offers(_, k, d), covers(rest, List.append(&2, Offer.Offered, xs, ys), k, prefix)) == True{} : Bool}
+      and_tt(offers(List.append(&2, Offer.Offered, SortL.keyed(~Offer.Offered, ~(o => Offer.offered.path(o)), q, xs), SortL.keyed(~Offer.Offered, ~(o => Offer.offered.path(o)), q, ys)), k, d), covers(rest, List.append(&2, Offer.Offered, xs, ys), k, prefix),
+        offers_app_r(SortL.keyed(~Offer.Offered, ~(o => Offer.offered.path(o)), q, xs), SortL.keyed(~Offer.Offered, ~(o => Offer.offered.path(o)), q, ys), k, d, hd),
+        covers_app_r(rest, xs, ys, k, prefix, tl))
+
+def covers_sort(ss: List<&2, T.Split>, +xs: List<&2, Offer.Offered>, +k: String, +prefix: String, +h: {covers(ss, xs, k, prefix) == True{} : Bool}) -> {covers(ss, Offer.by_path(xs), k, prefix) == True{} : Bool}:
+  match ss:
+    case Nil{}:
+      {==}
+    case T.Split{+l, +d} <> +rest:
+      +q : String = Offer.addressed(prefix, l)
+      %Equal.sym(List<&2, Offer.Offered>, SortL.keyed(~Offer.Offered, ~(o => Offer.offered.path(o)), q, Offer.by_path(xs)), SortL.keyed(~Offer.Offered, ~(o => Offer.offered.path(o)), q, xs), SortL.sort_keyed(~Offer.Offered, ~(o => Offer.offered.path(o)), xs, q)) : {Bool.and(offers(_, k, d), covers(rest, Offer.by_path(xs), k, prefix)) == True{} : Bool}
+      and_tt(offers(SortL.keyed(~Offer.Offered, ~(o => Offer.offered.path(o)), q, xs), k, d), covers(rest, Offer.by_path(xs), k, prefix),
+        PruneL.and_l(offers(SortL.keyed(~Offer.Offered, ~(o => Offer.offered.path(o)), q, xs), k, d), covers(rest, xs, k, prefix), h),
+        covers_sort(rest, xs, k, prefix, PruneL.and_r(offers(SortL.keyed(~Offer.Offered, ~(o => Offer.offered.path(o)), q, xs), k, d), covers(rest, xs, k, prefix), h)))
+
+def covers_more(ss: List<&2, T.Split>, +x: Offer.Offered, +xs: List<&2, Offer.Offered>, +k: String, +prefix: String, +h: {covers(ss, xs, k, prefix) == True{} : Bool}) -> {covers(ss, x <> xs, k, prefix) == True{} : Bool}:
+  match ss:
+    case Nil{}:
+      {==}
+    case T.Split{+l, +d} <> +rest:
+      +q : String = Offer.addressed(prefix, l)
+      and_tt(offers(SortL.keyed(~Offer.Offered, ~(o => Offer.offered.path(o)), q, x <> xs), k, d), covers(rest, x <> xs, k, prefix),
+        offers_pick(String.eq(Offer.offered.path(x), q), x, SortL.keyed(~Offer.Offered, ~(o => Offer.offered.path(o)), q, xs), k, d, PruneL.and_l(offers(SortL.keyed(~Offer.Offered, ~(o => Offer.offered.path(o)), q, xs), k, d), covers(rest, xs, k, prefix), h)),
+        covers_more(rest, x, xs, k, prefix, PruneL.and_r(offers(SortL.keyed(~Offer.Offered, ~(o => Offer.offered.path(o)), q, xs), k, d), covers(rest, xs, k, prefix), h)))
+
+# A file's own line, at the path a fetcher asks for it at.
+def own_line(+k: String, +d: String, +f: Maybe<&2, String>, +q: String, +rest: List<&2, Offer.Offered>) -> {offers(SortL.keyed(~Offer.Offered, ~(o => Offer.offered.path(o)), q, Offer.Offered{k, d, f, q} <> rest), k, d) == True{} : Bool}:
+  %Equal.sym(Bool, String.eq(q, q), True{}, S.eq_refl(q)) : {offers(Bool.pick(List<&2, Offer.Offered>, _, Offer.Offered{k, d, f, q} <> SortL.keyed(~Offer.Offered, ~(o => Offer.offered.path(o)), q, rest), SortL.keyed(~Offer.Offered, ~(o => Offer.offered.path(o)), q, rest)), k, d) == True{} : Bool}
+  %Equal.sym(Bool, String.eq(k, k), True{}, S.eq_refl(k)) : {Bool.or(Bool.and(_, String.eq(d, d)), offers(SortL.keyed(~Offer.Offered, ~(o => Offer.offered.path(o)), q, rest), k, d)) == True{} : Bool}
+  %Equal.sym(Bool, String.eq(d, d), True{}, S.eq_refl(d)) : {Bool.or(Bool.and(True{}, _), offers(SortL.keyed(~Offer.Offered, ~(o => Offer.offered.path(o)), q, rest), k, d)) == True{} : Bool}
+  {==}
+
+def covers_splits(ss: List<&2, T.Split>, +k: String, +prefix: String) -> {covers(ss, Offer.splits.offered(ss, k, prefix), k, prefix) == True{} : Bool}:
+  match ss:
+    case Nil{}:
+      {==}
+    case T.Split{+l, +d} <> +rest:
+      and_tt(offers(SortL.keyed(~Offer.Offered, ~(o => Offer.offered.path(o)), Offer.addressed(prefix, l), Offer.Offered{k, d, None{}, Offer.addressed(prefix, l)} <> Offer.splits.offered(rest, k, prefix)), k, d), covers(rest, Offer.Offered{k, d, None{}, Offer.addressed(prefix, l)} <> Offer.splits.offered(rest, k, prefix), k, prefix),
+        own_line(k, d, None{}, Offer.addressed(prefix, l), Offer.splits.offered(rest, k, prefix)),
+        covers_more(rest, Offer.Offered{k, d, None{}, Offer.addressed(prefix, l)}, Offer.splits.offered(rest, k, prefix), k, prefix, covers_splits(rest, k, prefix)))
+
+def covers_bodies(bs: List<&2, Prune.Body>, +prefix: String) -> {covers(body.splits(bs), Offer.bodies.offered(bs, prefix), "operation", prefix) == True{} : Bool}:
+  match bs:
+    case Nil{}:
+      {==}
+    case Prune.Body{+l, +d, ok, +f} <> +rest:
+      and_tt(offers(SortL.keyed(~Offer.Offered, ~(o => Offer.offered.path(o)), Offer.addressed(prefix, l), Offer.Offered{"operation", d, f, Offer.addressed(prefix, l)} <> Offer.bodies.offered(rest, prefix)), "operation", d), covers(body.splits(rest), Offer.Offered{"operation", d, f, Offer.addressed(prefix, l)} <> Offer.bodies.offered(rest, prefix), "operation", prefix),
+        own_line("operation", d, f, Offer.addressed(prefix, l), Offer.bodies.offered(rest, prefix)),
+        covers_more(body.splits(rest), Offer.Offered{"operation", d, f, Offer.addressed(prefix, l)}, Offer.bodies.offered(rest, prefix), "operation", prefix, covers_bodies(rest, prefix)))
+
+# Every payload, document, revision and file of `claims/` the listing
+# holds has a line of its kind, at the path a fetcher asks for it at,
+# naming its digest.
+def lists_all(g: Listing, +prefix: String, +os: List<&2, Offer.Offered>) -> Bool:
+  match g:
+    case Listing{ps, ds, vs, rs, cs, ns}:
+      Bool.and(covers(ps, os, "payload", prefix), Bool.and(covers(ds, os, "operation", prefix), Bool.and(covers(vs, os, "revision", prefix), covers(cs, os, "reserved", prefix))))
+
+def complete(+prefix: String, s: Prune.Stored, +marks: List<&2, Bm.Bookmark>, +claims: List<&2, T.Split>, +rids: List<&2, T.Split>, +nids: List<&2, T.Split>) -> {lists_all(listing.of(s, claims, rids, nids), prefix, Offer.entries(prefix, s, marks, claims, rids, nids)) == True{} : Bool}:
+  match s:
+    case Prune.Stored{docs, +revs, od, +bs, +ps, names, +rules}:
+      +bp : List<&2, Offer.Offered> = Offer.by_path(Offer.splits.offered(ps, "payload", prefix))
+      +bb : List<&2, Offer.Offered> = Offer.by_path(Offer.bodies.offered(bs, prefix))
+      +bv : List<&2, Offer.Offered> = Offer.by_path(Offer.splits.offered(revs, "revision", prefix))
+      +br : List<&2, Offer.Offered> = Offer.by_path(Offer.rules.offered(Receive.ruled(rules), rids, prefix))
+      +bc : List<&2, Offer.Offered> = Offer.by_path(Offer.splits.offered(claims, "reserved", prefix))
+      +bn : List<&2, Offer.Offered> = Offer.by_path(Offer.names.offered(marks, nids, prefix))
+      +front : List<&2, Offer.Offered> = List.append(&2, Offer.Offered, bp, List.append(&2, Offer.Offered, bb, List.append(&2, Offer.Offered, bv, Nil{})))
+      +back : List<&2, Offer.Offered> = List.append(&2, Offer.Offered, br, List.append(&2, Offer.Offered, bc, List.append(&2, Offer.Offered, bn, Nil{})))
+      and_tt(covers(ps, List.append(&2, Offer.Offered, front, back), "payload", prefix), Bool.and(covers(body.splits(bs), List.append(&2, Offer.Offered, front, back), "operation", prefix), Bool.and(covers(revs, List.append(&2, Offer.Offered, front, back), "revision", prefix), covers(claims, List.append(&2, Offer.Offered, front, back), "reserved", prefix))),
+        covers_app_l(ps, front, back, "payload", prefix,
+          covers_app_l(ps, bp, List.append(&2, Offer.Offered, bb, List.append(&2, Offer.Offered, bv, Nil{})), "payload", prefix,
+            covers_sort(ps, Offer.splits.offered(ps, "payload", prefix), "payload", prefix, covers_splits(ps, "payload", prefix)))),
+        and_tt(covers(body.splits(bs), List.append(&2, Offer.Offered, front, back), "operation", prefix), Bool.and(covers(revs, List.append(&2, Offer.Offered, front, back), "revision", prefix), covers(claims, List.append(&2, Offer.Offered, front, back), "reserved", prefix)),
+          covers_app_l(body.splits(bs), front, back, "operation", prefix,
+            covers_app_r(body.splits(bs), bp, List.append(&2, Offer.Offered, bb, List.append(&2, Offer.Offered, bv, Nil{})), "operation", prefix,
+              covers_app_l(body.splits(bs), bb, List.append(&2, Offer.Offered, bv, Nil{}), "operation", prefix,
+                covers_sort(body.splits(bs), Offer.bodies.offered(bs, prefix), "operation", prefix, covers_bodies(bs, prefix))))),
+          and_tt(covers(revs, List.append(&2, Offer.Offered, front, back), "revision", prefix), covers(claims, List.append(&2, Offer.Offered, front, back), "reserved", prefix),
+            covers_app_l(revs, front, back, "revision", prefix,
+              covers_app_r(revs, bp, List.append(&2, Offer.Offered, bb, List.append(&2, Offer.Offered, bv, Nil{})), "revision", prefix,
+                covers_app_r(revs, bb, List.append(&2, Offer.Offered, bv, Nil{}), "revision", prefix,
+                  covers_app_l(revs, bv, Nil{}, "revision", prefix,
+                    covers_sort(revs, Offer.splits.offered(revs, "revision", prefix), "revision", prefix, covers_splits(revs, "revision", prefix)))))),
+            covers_app_r(claims, front, back, "reserved", prefix,
+              covers_app_r(claims, br, List.append(&2, Offer.Offered, bc, List.append(&2, Offer.Offered, bn, Nil{})), "reserved", prefix,
+                covers_app_l(claims, bc, List.append(&2, Offer.Offered, bn, Nil{}), "reserved", prefix,
+                  covers_sort(claims, Offer.splits.offered(claims, "reserved", prefix), "reserved", prefix, covers_splits(claims, "reserved", prefix))))))))
+
+# Where `fetch` files what a manifest names
+# -----------------------------------------
+
+def sw_nil(z: String) -> {String.starts_with(z, SNil{}) == True{} : Bool}:
+  match z:
+    case SNil{}:
+      {==}
+    case SCon{h, t}:
+      {==}
+
+def drop_zero(t: String) -> {String.drop(t, 0n) == t : String}:
+  match t:
+    case SNil{}:
+      {==}
+    case SCon{h, r}:
+      {==}
+
+def char_refl(c: Char) -> {Char.is_eq(c, c) == True{} : Bool}:
+  match c:
+    case Chr{U32{w}}:
+      (%Equal.sym(Cmp, Word.cmp(32n, w, w), EQ{}, S.word_refl(32n, w)) : {Cmp.is_eq(_) == True{} : Bool}
+        {==})
+
+def ne_sym.at(+x: Char, +y: Char, b: Bool, eb: {Char.is_eq(y, x) == b : Bool}, e: {Char.is_eq(x, y) == False{} : Bool}) -> {b == False{} : Bool}:
+  match b:
+    case False{}:
+      {==}
+    case True{}:
+      Empty.absurd({True{} == False{} : Bool}, S.true_false(Equal.trans(Bool, True{}, Char.is_eq(x, x), False{}, Equal.sym(Bool, Char.is_eq(x, x), True{}, char_refl(x)),
+        (%BmL.chr_eq(y, x, eb) : {Char.is_eq(x, _) == False{} : Bool}
+          e))))
+
+# Two characters that are not one are not one either way round.
+def ne_sym(+x: Char, +y: Char, e: {Char.is_eq(x, y) == False{} : Bool}) -> {Char.is_eq(y, x) == False{} : Bool}:
+  ne_sym.at(x, y, Char.is_eq(y, x), {==}, e)
+
+def or_false_l(a: Bool, -b: Bool, e: {Bool.or(a, b) == False{} : Bool}) -> {a == False{} : Bool}:
+  match a:
+    case True{}:
+      Empty.absurd({True{} == False{} : Bool}, S.true_false(e))
+    case False{}:
+      {==}
+
+def or_false_r(a: Bool, -b: Bool, e: {Bool.or(a, b) == False{} : Bool}) -> {b == False{} : Bool}:
+  match a:
+    case True{}:
+      Empty.absurd({b == False{} : Bool}, S.true_false(e))
+    case False{}:
+      e
+
+def sw_if_false(+x: String, +y: String, b: Bool, e: {b == False{} : Bool}) -> {String.starts_with.if(x, y, b) == False{} : Bool}:
+  %Equal.sym(Bool, b, False{}, e) : {String.starts_with.if(x, y, _) == False{} : Bool}
+  {==}
+
+def sw_slash.at(b: Bool, +a: Char, +p: String, +r: String, +c: Char, +u: String, eb: {Char.is_eq(a, c) == b : Bool}, ih: {String.starts_with(p ++ "/" ++ r, u ++ "/") == String.starts_with(p ++ "/", u ++ "/") : Bool}) -> {String.starts_with.if(p ++ "/" ++ r, u ++ "/", b) == String.starts_with.if(p ++ "/", u ++ "/", b) : Bool}:
+  match b:
+    case True{}:
+      ih
+    case False{}:
+      {==}
+
+# A name with no `/` in it, a `/` and anything, starts with another such
+# name and a `/` exactly where the name and its `/` alone do.
+def sw_slash(p: String, u: String, +r: String, +hp: {T.has_char(p, '/') == False{} : Bool}, +hu: {T.has_char(u, '/') == False{} : Bool}) -> {String.starts_with(p ++ "/" ++ r, u ++ "/") == String.starts_with(p ++ "/", u ++ "/") : Bool}:
+  match p u:
+    case SNil{} SNil{}:
+      %Equal.sym(Bool, String.starts_with(r, SNil{}), True{}, sw_nil(r)) : {_ == True{} : Bool}
+      {==}
+    case SNil{} SCon{+c, +ut}:
+      +nc = ne_sym(c, '/', or_false_l(Char.is_eq(c, '/'), T.has_char(ut, '/'), hu))
+      Equal.trans(Bool, String.starts_with.if(r, ut ++ "/", Char.is_eq('/', c)), False{}, String.starts_with.if(SNil{}, ut ++ "/", Char.is_eq('/', c)),
+        sw_if_false(r, ut ++ "/", Char.is_eq('/', c), nc), Equal.sym(Bool, String.starts_with.if(SNil{}, ut ++ "/", Char.is_eq('/', c)), False{}, sw_if_false(SNil{}, ut ++ "/", Char.is_eq('/', c), nc)))
+    case SCon{+a, +pt} SNil{}:
+      +na = or_false_l(Char.is_eq(a, '/'), T.has_char(pt, '/'), hp)
+      Equal.trans(Bool, String.starts_with.if(pt ++ "/" ++ r, SNil{}, Char.is_eq(a, '/')), False{}, String.starts_with.if(pt ++ "/", SNil{}, Char.is_eq(a, '/')),
+        sw_if_false(pt ++ "/" ++ r, SNil{}, Char.is_eq(a, '/'), na), Equal.sym(Bool, String.starts_with.if(pt ++ "/", SNil{}, Char.is_eq(a, '/')), False{}, sw_if_false(pt ++ "/", SNil{}, Char.is_eq(a, '/'), na)))
+    case SCon{+a, +pt} SCon{+c, +ut}:
+      sw_slash.at(Char.is_eq(a, c), a, pt, r, c, ut, {==}, sw_slash(pt, ut, r, or_false_r(Char.is_eq(a, '/'), T.has_char(pt, '/'), hp), or_false_r(Char.is_eq(c, '/'), T.has_char(ut, '/'), hu)))
+
+def ah.at(b: Bool, +c: Char, +t: String, +l: String, eb: {Char.is_eq(c, '/') == b : Bool}, hb: {b == False{} : Bool}, ih: {Fetch.after.history(t ++ "/history/" ++ l) == Some{l} : Maybe<&2, String>}) -> {Bool.pick(Maybe<&2, String>, String.starts_with.if(t ++ "/history/" ++ l, "history/", b), Some{String.drop(t ++ "/history/" ++ l, 8n)}, Fetch.after.history(t ++ "/history/" ++ l)) == Some{l} : Maybe<&2, String>}:
+  %Equal.sym(Bool, b, False{}, hb) : {Bool.pick(Maybe<&2, String>, String.starts_with.if(t ++ "/history/" ++ l, "history/", _), Some{String.drop(t ++ "/history/" ++ l, 8n)}, Fetch.after.history(t ++ "/history/" ++ l)) == Some{l} : Maybe<&2, String>}
+  ih
+
+# Past a name with no `/` in it, the first `/history/` is the one after it.
+def after_name(p: String, +l: String, +hp: {T.has_char(p, '/') == False{} : Bool}) -> {Fetch.after.history(p ++ "/history/" ++ l) == Some{l} : Maybe<&2, String>}:
+  match p:
+    case SNil{}:
+      %Equal.sym(Bool, String.starts_with(l, SNil{}), True{}, sw_nil(l)) : {Bool.pick(Maybe<&2, String>, _, Some{String.drop(l, 0n)}, Fetch.after.history("history/" ++ l)) == Some{l} : Maybe<&2, String>}
+      %Equal.sym(String, String.drop(l, 0n), l, drop_zero(l)) : {Some{_} == Some{l} : Maybe<&2, String>}
+      {==}
+    case SCon{+c, +t}:
+      ah.at(Char.is_eq(c, '/'), c, t, l, {==}, or_false_l(Char.is_eq(c, '/'), T.has_char(t, '/'), hp), after_name(t, l, or_false_r(Char.is_eq(c, '/'), T.has_char(t, '/'), hp)))
+
+# `fetch` files what `offer` names a label at under that label, for a copy
+# whose directory's name has no `/` in it and is not `history`.
+def filed_at(prefix: String, +l: String, +hp: {T.has_char(prefix, '/') == False{} : Bool}, hh: {String.starts_with(prefix ++ "/", "history/") == False{} : Bool}) -> {Fetch.filed_under(Offer.addressed(prefix, l)) == Some{l} : Maybe<&2, String>}:
+  match prefix:
+    case SNil{}:
+      %Equal.sym(Bool, String.starts_with(l, SNil{}), True{}, sw_nil(l)) : {Bool.pick(Maybe<&2, String>, _, Some{String.drop(l, 0n)}, Fetch.after.history("history/" ++ l)) == Some{l} : Maybe<&2, String>}
+      %Equal.sym(String, String.drop(l, 0n), l, drop_zero(l)) : {Some{_} == Some{l} : Maybe<&2, String>}
+      {==}
+    case SCon{+c, +t}:
+      +no = Equal.trans(Bool, String.starts_with(SCon{c, t} ++ "/" ++ ("history/" ++ l), "history" ++ "/"), String.starts_with(SCon{c, t} ++ "/", "history" ++ "/"), False{}, sw_slash(SCon{c, t}, "history", "history/" ++ l, hp, {==}), hh)
+      %Equal.sym(Bool, String.starts_with(SCon{c, t} ++ "/history/" ++ l, "history/"), False{}, no) : {Bool.pick(Maybe<&2, String>, _, Some{String.drop(SCon{c, t} ++ "/history/" ++ l, 8n)}, Fetch.after.history(SCon{c, t} ++ "/history/" ++ l)) == Some{l} : Maybe<&2, String>}
+      after_name(SCon{c, t}, l, hp)
+
+# Every line names a file of the listing
+# --------------------------------------
+
+def self_has(+l: String, +d: String, +rest: List<&2, T.Split>) -> {has(T.Split{l, d} <> rest, l, d) == True{} : Bool}:
+  %Equal.sym(Bool, String.eq(l, l), True{}, S.eq_refl(l)) : {Bool.or(Bool.and(_, String.eq(d, d)), has(rest, l, d)) == True{} : Bool}
+  %Equal.sym(Bool, String.eq(d, d), True{}, S.eq_refl(d)) : {Bool.or(Bool.and(True{}, _), has(rest, l, d)) == True{} : Bool}
+  {==}
+
+# Every file of `ss` is in `gs`.
+def within(ss: List<&2, T.Split>, +gs: List<&2, T.Split>) -> Bool:
+  match ss:
+    case Nil{}:
+      True{}
+    case T.Split{+l, +d} <> rest:
+      Bool.and(has(gs, l, d), within(rest, gs))
+
+def within_more(ss: List<&2, T.Split>, +x: T.Split, +gs: List<&2, T.Split>, +h: {within(ss, gs) == True{} : Bool}) -> {within(ss, x <> gs) == True{} : Bool}:
+  match ss:
+    case Nil{}:
+      {==}
+    case T.Split{+l, +d} <> +rest:
+      match x:
+        case T.Split{+k, +v}:
+          and_tt(has(T.Split{k, v} <> gs, l, d), within(rest, T.Split{k, v} <> gs),
+            or_r(Bool.and(String.eq(k, l), String.eq(v, d)), has(gs, l, d), PruneL.and_l(has(gs, l, d), within(rest, gs), h)),
+            within_more(rest, T.Split{k, v}, gs, PruneL.and_r(has(gs, l, d), within(rest, gs), h)))
+
+def within_self(ss: List<&2, T.Split>) -> {within(ss, ss) == True{} : Bool}:
+  match ss:
+    case Nil{}:
+      {==}
+    case T.Split{+l, +d} <> +rest:
+      and_tt(has(T.Split{l, d} <> rest, l, d), within(rest, T.Split{l, d} <> rest), self_has(l, d, rest), within_more(rest, T.Split{l, d}, rest, within_self(rest)))
+
+# A file's line names it where the listing of its kind holds it.
+def named_at(+g: Listing, +k: String, +gs: List<&2, T.Split>, +prefix: String, +l: String, +d: String, +f: Maybe<&2, String>, eg: {group(g, k) == gs : List<&2, T.Split>}, hp: {T.has_char(prefix, '/') == False{} : Bool}, hh: {String.starts_with(prefix ++ "/", "history/") == False{} : Bool}, hl: {has(gs, l, d) == True{} : Bool}) -> {names_file(g, Offer.Offered{k, d, f, Offer.addressed(prefix, l)}) == True{} : Bool}:
+  %Equal.sym(List<&2, T.Split>, group(g, k), gs, eg) : {at(_, Fetch.filed_under(Offer.addressed(prefix, l)), d) == True{} : Bool}
+  %Equal.sym(Maybe<&2, String>, Fetch.filed_under(Offer.addressed(prefix, l)), Some{l}, filed_at(prefix, l, hp, hh)) : {at(gs, _, d) == True{} : Bool}
+  hl
+
+def sound_splits(ss: List<&2, T.Split>, +k: String, +prefix: String, +g: Listing, +gs: List<&2, T.Split>, +eg: {group(g, k) == gs : List<&2, T.Split>}, +hp: {T.has_char(prefix, '/') == False{} : Bool}, +hh: {String.starts_with(prefix ++ "/", "history/") == False{} : Bool}, +hw: {within(ss, gs) == True{} : Bool}) -> {SortL.all_at(~Offer.Offered, ~Listing, ~(c => o => names_file(c, o)), g, Offer.splits.offered(ss, k, prefix)) == True{} : Bool}:
+  match ss:
+    case Nil{}:
+      {==}
+    case T.Split{+l, +d} <> +rest:
+      and_tt(names_file(g, Offer.Offered{k, d, None{}, Offer.addressed(prefix, l)}), SortL.all_at(~Offer.Offered, ~Listing, ~(c => o => names_file(c, o)), g, Offer.splits.offered(rest, k, prefix)),
+        named_at(g, k, gs, prefix, l, d, None{}, eg, hp, hh, PruneL.and_l(has(gs, l, d), within(rest, gs), hw)),
+        sound_splits(rest, k, prefix, g, gs, eg, hp, hh, PruneL.and_r(has(gs, l, d), within(rest, gs), hw)))
+
+def sound_bodies(bs: List<&2, Prune.Body>, +prefix: String, +g: Listing, +gs: List<&2, T.Split>, +eg: {group(g, "operation") == gs : List<&2, T.Split>}, +hp: {T.has_char(prefix, '/') == False{} : Bool}, +hh: {String.starts_with(prefix ++ "/", "history/") == False{} : Bool}, +hw: {within(body.splits(bs), gs) == True{} : Bool}) -> {SortL.all_at(~Offer.Offered, ~Listing, ~(c => o => names_file(c, o)), g, Offer.bodies.offered(bs, prefix)) == True{} : Bool}:
+  match bs:
+    case Nil{}:
+      {==}
+    case Prune.Body{+l, +d, ok, +f} <> +rest:
+      and_tt(names_file(g, Offer.Offered{"operation", d, f, Offer.addressed(prefix, l)}), SortL.all_at(~Offer.Offered, ~Listing, ~(c => o => names_file(c, o)), g, Offer.bodies.offered(rest, prefix)),
+        named_at(g, "operation", gs, prefix, l, d, f, eg, hp, hh, PruneL.and_l(has(gs, l, d), within(body.splits(rest), gs), hw)),
+        sound_bodies(rest, prefix, g, gs, eg, hp, hh, PruneL.and_r(has(gs, l, d), within(body.splits(rest), gs), hw)))
+
+def lookup_step(c: Bool, +k: String, +v: String, +rest: List<&2, T.Split>, +label: String, +d: String, ec: {String.eq(k, label) == c : Bool}, e: {Bool.pick(Maybe<&2, String>, c, Some{v}, Arrange.lookup(rest, label)) == Some{d} : Maybe<&2, String>}, ih: {Arrange.lookup(rest, label) == Some{d} : Maybe<&2, String>} -> {has(rest, label, d) == True{} : Bool}) -> {has(T.Split{k, v} <> rest, label, d) == True{} : Bool}:
+  match c:
+    case True{}:
+      %S.eq_true(k, label, ec) : {has(T.Split{k, v} <> rest, _, d) == True{} : Bool}
+      %some_inj(v, d, e) : {has(T.Split{k, v} <> rest, k, _) == True{} : Bool}
+      self_has(k, v, rest)
+    case False{}:
+      or_r(Bool.and(String.eq(k, label), String.eq(v, d)), has(rest, label, d), ih(e))
+
 # A file found by its label is listed at that label, with that digest.
-def lookup_listed(ids: List<&2, T.Split>, +label: String, +d: String, +prefix: String, e: {Arrange.lookup(ids, label) == Some{d} : Maybe<&2, String>}) -> {Offer.listed(ids, prefix, Offer.addressed(prefix, label), d) == True{} : Bool}:
+def lookup_has(ids: List<&2, T.Split>, +label: String, +d: String, e: {Arrange.lookup(ids, label) == Some{d} : Maybe<&2, String>}) -> {has(ids, label, d) == True{} : Bool}:
   match ids:
     case Nil{}:
       Empty.absurd({False{} == True{} : Bool}, none_some(d, e))
     case T.Split{+k, +v} <> +rest:
-      lookup_step(String.eq(k, label), k, v, rest, label, d, prefix, {==}, e, x => lookup_listed(rest, label, d, prefix, x))
+      lookup_step(String.eq(k, label), k, v, rest, label, d, {==}, e, x => lookup_has(rest, label, d, x))
 
-def found_from(keep: Bool, found: Maybe<&2, String>, +label: String, +kind: String, +prefix: String, +rest: List<&2, Offer.Offered>, +ids: List<&2, T.Split>, ef: {Arrange.lookup(ids, label) == found : Maybe<&2, String>}, ih: {Offer.offered.from(rest, ids, prefix) == True{} : Bool}) -> {Offer.offered.from(Offer.offered.found(keep, found, label, kind, prefix, rest), ids, prefix) == True{} : Bool}:
+def sound_found(keep: Bool, found: Maybe<&2, String>, +label: String, +kind: String, +prefix: String, +rest: List<&2, Offer.Offered>, +g: Listing, +ids: List<&2, T.Split>, eg: {group(g, kind) == ids : List<&2, T.Split>}, hp: {T.has_char(prefix, '/') == False{} : Bool}, hh: {String.starts_with(prefix ++ "/", "history/") == False{} : Bool}, ef: {Arrange.lookup(ids, label) == found : Maybe<&2, String>}, ih: {SortL.all_at(~Offer.Offered, ~Listing, ~(c => o => names_file(c, o)), g, rest) == True{} : Bool}) -> {SortL.all_at(~Offer.Offered, ~Listing, ~(c => o => names_file(c, o)), g, Offer.offered.found(keep, found, label, kind, prefix, rest)) == True{} : Bool}:
   match keep:
     case True{}:
       match found:
         case Some{+d}:
-          and_tt(Offer.listed(ids, prefix, Offer.addressed(prefix, label), d), Offer.offered.from(rest, ids, prefix), lookup_listed(ids, label, d, prefix, ef), ih)
+          and_tt(names_file(g, Offer.Offered{kind, d, None{}, Offer.addressed(prefix, label)}), SortL.all_at(~Offer.Offered, ~Listing, ~(c => o => names_file(c, o)), g, rest), named_at(g, kind, ids, prefix, label, d, None{}, eg, hp, hh, lookup_has(ids, label, d, ef)), ih)
         case None{}:
           ih
     case False{}:
       ih
 
-def rules_from(rs: List<&2, Receive.Ruled>, +ids: List<&2, T.Split>, +prefix: String) -> {Offer.offered.from(Offer.rules.offered(rs, ids, prefix), ids, prefix) == True{} : Bool}:
+def sound_rules(rs: List<&2, Receive.Ruled>, +ids: List<&2, T.Split>, +prefix: String, +g: Listing, +eg: {group(g, "rule") == ids : List<&2, T.Split>}, +hp: {T.has_char(prefix, '/') == False{} : Bool}, +hh: {String.starts_with(prefix ++ "/", "history/") == False{} : Bool}) -> {SortL.all_at(~Offer.Offered, ~Listing, ~(c => o => names_file(c, o)), g, Offer.rules.offered(rs, ids, prefix)) == True{} : Bool}:
   match rs:
     case Nil{}:
       {==}
     case Receive.Ruled{+file, +line, l} <> +rest:
-      found_from(Bool.not(String.starts_with(line, "private")), Arrange.lookup(ids, "skipped/" ++ file), "skipped/" ++ file, "rule", prefix, Offer.rules.offered(rest, ids, prefix), ids, {==}, rules_from(rest, ids, prefix))
+      sound_found(Bool.not(String.starts_with(line, "private")), Arrange.lookup(ids, "skipped/" ++ file), "skipped/" ++ file, "rule", prefix, Offer.rules.offered(rest, ids, prefix), g, ids, eg, hp, hh, {==}, sound_rules(rest, ids, prefix, g, eg, hp, hh))
 
-def names_from(bs: List<&2, Bm.Bookmark>, +ids: List<&2, T.Split>, +prefix: String) -> {Offer.offered.from(Offer.names.offered(bs, ids, prefix), ids, prefix) == True{} : Bool}:
+def sound_names(bs: List<&2, Bm.Bookmark>, +ids: List<&2, T.Split>, +prefix: String, +g: Listing, +eg: {group(g, "name") == ids : List<&2, T.Split>}, +hp: {T.has_char(prefix, '/') == False{} : Bool}, +hh: {String.starts_with(prefix ++ "/", "history/") == False{} : Bool}) -> {SortL.all_at(~Offer.Offered, ~Listing, ~(c => o => names_file(c, o)), g, Offer.names.offered(bs, ids, prefix)) == True{} : Bool}:
   match bs:
     case Nil{}:
       {==}
     case Bm.Bookmark{+n, t, +p} <> +rest:
-      found_from(Bool.not(p), Arrange.lookup(ids, "names/" ++ n ++ ".txt"), "names/" ++ n ++ ".txt", "name", prefix, Offer.names.offered(rest, ids, prefix), ids, {==}, names_from(rest, ids, prefix))
+      sound_found(Bool.not(p), Arrange.lookup(ids, "names/" ++ n ++ ".txt"), "names/" ++ n ++ ".txt", "name", prefix, Offer.names.offered(rest, ids, prefix), g, ids, eg, hp, hh, {==}, sound_names(rest, ids, prefix, g, eg, hp, hh))
 
-# Every line of a manifest names a file by the digest the store's listing
-# gives it.
-def digests(+prefix: String, s: Prune.Stored, +marks: List<&2, Bm.Bookmark>, +claims: List<&2, T.Split>, +rids: List<&2, T.Split>, +nids: List<&2, T.Split>) -> {Offer.manifest.from(prefix, s, marks, claims, rids, nids) == True{} : Bool}:
+def sound_sorted(+g: Listing, +os: List<&2, Offer.Offered>, +h: {SortL.all_at(~Offer.Offered, ~Listing, ~(c => o => names_file(c, o)), g, os) == True{} : Bool}) -> {SortL.all_at(~Offer.Offered, ~Listing, ~(c => o => names_file(c, o)), g, Offer.by_path(os)) == True{} : Bool}:
+  SortL.all_sort_at(~Offer.Offered, ~(a => b => Offer.offered_le(a, b)), ~Listing, ~(c => o => names_file(c, o)), g, os, h)
+
+def sound_app(+g: Listing, +xs: List<&2, Offer.Offered>, +ys: List<&2, Offer.Offered>, +hx: {SortL.all_at(~Offer.Offered, ~Listing, ~(c => o => names_file(c, o)), g, xs) == True{} : Bool}, +hy: {SortL.all_at(~Offer.Offered, ~Listing, ~(c => o => names_file(c, o)), g, ys) == True{} : Bool}) -> {SortL.all_at(~Offer.Offered, ~Listing, ~(c => o => names_file(c, o)), g, List.append(&2, Offer.Offered, xs, ys)) == True{} : Bool}:
+  SortL.all_app_at(~Offer.Offered, ~Listing, ~(c => o => names_file(c, o)), g, xs, ys, hx, hy)
+
+# Three groups, each by path, one after another.
+def sound_three(+g: Listing, +a: List<&2, Offer.Offered>, +b: List<&2, Offer.Offered>, +c: List<&2, Offer.Offered>, +ha: {SortL.all_at(~Offer.Offered, ~Listing, ~(c => o => names_file(c, o)), g, a) == True{} : Bool}, +hb: {SortL.all_at(~Offer.Offered, ~Listing, ~(c => o => names_file(c, o)), g, b) == True{} : Bool}, +hc: {SortL.all_at(~Offer.Offered, ~Listing, ~(c => o => names_file(c, o)), g, c) == True{} : Bool}) -> {SortL.all_at(~Offer.Offered, ~Listing, ~(c => o => names_file(c, o)), g, List.concat(&2, Offer.Offered, [Offer.by_path(a), Offer.by_path(b), Offer.by_path(c)])) == True{} : Bool}:
+  sound_app(g, Offer.by_path(a), List.concat(&2, Offer.Offered, [Offer.by_path(b), Offer.by_path(c)]), sound_sorted(g, a, ha),
+    sound_app(g, Offer.by_path(b), List.concat(&2, Offer.Offered, [Offer.by_path(c)]), sound_sorted(g, b, hb),
+      sound_app(g, Offer.by_path(c), Nil{}, sound_sorted(g, c, hc), {==})))
+
+# Every line of the manifest names a file of the store's listing.
+def sound(+prefix: String, s: Prune.Stored, +marks: List<&2, Bm.Bookmark>, +claims: List<&2, T.Split>, +rids: List<&2, T.Split>, +nids: List<&2, T.Split>, +hp: {T.has_char(prefix, '/') == False{} : Bool}, +hh: {String.starts_with(prefix ++ "/", "history/") == False{} : Bool}) -> {SortL.all_at(~Offer.Offered, ~Listing, ~(c => o => names_file(c, o)), listing.of(s, claims, rids, nids), Offer.entries(prefix, s, marks, claims, rids, nids)) == True{} : Bool}:
   match s:
     case Prune.Stored{docs, +revs, od, +bs, +ps, names, +rules}:
-      and_tt(Offer.offered.from(Offer.splits.offered(ps, "payload", prefix), ps, prefix), Bool.and(Offer.offered.from(Offer.bodies.offered(bs, prefix), Offer.body.splits(bs), prefix), Bool.and(Offer.offered.from(Offer.splits.offered(revs, "revision", prefix), revs, prefix), Bool.and(Offer.offered.from(Offer.rules.offered(Receive.ruled(rules), rids, prefix), rids, prefix), Bool.and(Offer.offered.from(Offer.splits.offered(claims, "reserved", prefix), claims, prefix), Offer.offered.from(Offer.names.offered(marks, nids, prefix), nids, prefix))))),
-        splits_from(ps, "payload", prefix),
-        and_tt(Offer.offered.from(Offer.bodies.offered(bs, prefix), Offer.body.splits(bs), prefix), Bool.and(Offer.offered.from(Offer.splits.offered(revs, "revision", prefix), revs, prefix), Bool.and(Offer.offered.from(Offer.rules.offered(Receive.ruled(rules), rids, prefix), rids, prefix), Bool.and(Offer.offered.from(Offer.splits.offered(claims, "reserved", prefix), claims, prefix), Offer.offered.from(Offer.names.offered(marks, nids, prefix), nids, prefix)))),
-          bodies_from(bs, prefix),
-          and_tt(Offer.offered.from(Offer.splits.offered(revs, "revision", prefix), revs, prefix), Bool.and(Offer.offered.from(Offer.rules.offered(Receive.ruled(rules), rids, prefix), rids, prefix), Bool.and(Offer.offered.from(Offer.splits.offered(claims, "reserved", prefix), claims, prefix), Offer.offered.from(Offer.names.offered(marks, nids, prefix), nids, prefix))),
-            splits_from(revs, "revision", prefix),
-            and_tt(Offer.offered.from(Offer.rules.offered(Receive.ruled(rules), rids, prefix), rids, prefix), Bool.and(Offer.offered.from(Offer.splits.offered(claims, "reserved", prefix), claims, prefix), Offer.offered.from(Offer.names.offered(marks, nids, prefix), nids, prefix)),
-              rules_from(Receive.ruled(rules), rids, prefix),
-              and_tt(Offer.offered.from(Offer.splits.offered(claims, "reserved", prefix), claims, prefix), Offer.offered.from(Offer.names.offered(marks, nids, prefix), nids, prefix),
-                splits_from(claims, "reserved", prefix),
-                names_from(marks, nids, prefix))))))
+      +g : Listing = Listing{ps, body.splits(bs), revs, rids, claims, nids}
+      sound_app(g, List.concat(&2, Offer.Offered, [Offer.by_path(Offer.splits.offered(ps, "payload", prefix)), Offer.by_path(Offer.bodies.offered(bs, prefix)), Offer.by_path(Offer.splits.offered(revs, "revision", prefix))]),
+        List.concat(&2, Offer.Offered, [Offer.by_path(Offer.rules.offered(Receive.ruled(rules), rids, prefix)), Offer.by_path(Offer.splits.offered(claims, "reserved", prefix)), Offer.by_path(Offer.names.offered(marks, nids, prefix))]),
+        sound_three(g, Offer.splits.offered(ps, "payload", prefix), Offer.bodies.offered(bs, prefix), Offer.splits.offered(revs, "revision", prefix),
+          sound_splits(ps, "payload", prefix, g, ps, {==}, hp, hh, within_self(ps)),
+          sound_bodies(bs, prefix, g, body.splits(bs), {==}, hp, hh, within_self(body.splits(bs))),
+          sound_splits(revs, "revision", prefix, g, revs, {==}, hp, hh, within_self(revs))),
+        sound_three(g, Offer.rules.offered(Receive.ruled(rules), rids, prefix), Offer.splits.offered(claims, "reserved", prefix), Offer.names.offered(marks, nids, prefix),
+          sound_rules(Receive.ruled(rules), rids, prefix, g, {==}, hp, hh),
+          sound_splits(claims, "reserved", prefix, g, claims, {==}, hp, hh, within_self(claims)),
+          sound_names(marks, nids, prefix, g, {==}, hp, hh)))
+
+# The manifest names every file of the store's listing it lists by the
+# digest the listing gives it, and lists every payload, document, revision
+# and file of `claims/`.
+def digests(+prefix: String, +s: Prune.Stored, +marks: List<&2, Bm.Bookmark>, +claims: List<&2, T.Split>, +rids: List<&2, T.Split>, +nids: List<&2, T.Split>, +hp: {T.has_char(prefix, '/') == False{} : Bool}, +hh: {String.starts_with(prefix ++ "/", "history/") == False{} : Bool}) -> {Bool.and(SortL.all_at(~Offer.Offered, ~Listing, ~(c => o => names_file(c, o)), listing.of(s, claims, rids, nids), Offer.entries(prefix, s, marks, claims, rids, nids)), lists_all(listing.of(s, claims, rids, nids), prefix, Offer.entries(prefix, s, marks, claims, rids, nids))) == True{} : Bool}:
+  and_tt(SortL.all_at(~Offer.Offered, ~Listing, ~(c => o => names_file(c, o)), listing.of(s, claims, rids, nids), Offer.entries(prefix, s, marks, claims, rids, nids)), lists_all(listing.of(s, claims, rids, nids), prefix, Offer.entries(prefix, s, marks, claims, rids, nids)),
+    sound(prefix, s, marks, claims, rids, nids, hp, hh), complete(prefix, s, marks, claims, rids, nids))
 
 # What a document forgets
 # -----------------------

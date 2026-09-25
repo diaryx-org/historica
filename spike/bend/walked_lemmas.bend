@@ -1,4 +1,5 @@
-# What a read opens: the name a directory's listing spells a path with,
+# What the walk yields and what a read opens. The walk yields each path
+# once, in path order. The name a directory's listing spells a path with,
 # read back from the lines the host writes for it, is the last entry name
 # whose normal form is the path, and the path itself where there is none.
 import Base
@@ -7,6 +8,8 @@ import ./nfc.bend as N
 import ./text.bend as T
 import ./nfc_lemmas.bend as NfcL
 import ./finding_lemmas.bend as FindL
+import ./listed_lemmas.bend as ListedL
+import ./sort_lemmas.bend as SortL
 
 # The names a listing's entries have, in order: every entry's but a name
 # that is not UTF-8, which nothing can spell a path with, and never a
@@ -118,3 +121,47 @@ def or_none(m: Maybe<&2, String>, +want: String) -> {Maybe.default(&2, String, M
 def spelled_there(+es: List<&2, NfcL.Listed>, +want: String, +h: {sized(es) == True{} : Bool}) -> {F.spelling(NfcL.listed.lines(es), want) == Maybe.default(&2, String, last_spelling(names(es), want), want) : String}:
   %Equal.sym(Maybe<&2, String>, F.spelling.go(NfcL.listed.lines(es), want, None{}, False{}), Maybe.or(&2, String, last_spelling(names(es), want), None{}), read_back(es, want, None{}, h)) : {Maybe.default(&2, String, _, want) == Maybe.default(&2, String, last_spelling(names(es), want), want) : String}
   or_none(last_spelling(names(es), want), want)
+
+# The walk
+# --------
+
+# Strictly rising: each file's path at or after the one before it and not
+# the same, so no path twice and every path in order.
+def rising.go(fs: List<&2, F.Found>, +last: String) -> Bool:
+  match fs:
+    case Nil{}:
+      True{}
+    case +f <> rest:
+      Bool.and(Bool.and(String.is_le(last, F.found.path(f)), Bool.not(String.eq(F.found.path(f), last))), rising.go(rest, F.found.path(f)))
+
+def rising(fs: List<&2, F.Found>) -> Bool:
+  match fs:
+    case Nil{}:
+      True{}
+    case +f <> rest:
+      rising.go(rest, F.found.path(f))
+
+# In order, and no two in a row at one path, is strictly rising.
+def rising_of(xs: List<&2, F.Found>, +k: String, +hs: {SortL.sorted.from(~F.Found, ~(f => F.found.path(f)), xs, k) == True{} : Bool}, +ha: {F.apart.go(xs, k) == True{} : Bool}) -> {rising.go(xs, k) == True{} : Bool}:
+  match xs:
+    case Nil{}:
+      {==}
+    case +f <> +rest:
+      +p = F.found.path(f)
+      NfcL.and_i(Bool.and(String.is_le(k, p), Bool.not(String.eq(p, k))), rising.go(rest, p),
+        NfcL.and_i(String.is_le(k, p), Bool.not(String.eq(p, k)),
+          NfcL.and_l(String.is_le(k, p), SortL.sorted.from(~F.Found, ~(f => F.found.path(f)), rest, p), hs),
+          NfcL.and_l(Bool.not(String.eq(p, k)), F.apart.go(rest, p), ha)),
+        rising_of(rest, p, NfcL.and_r(String.is_le(k, p), SortL.sorted.from(~F.Found, ~(f => F.found.path(f)), rest, p), hs), NfcL.and_r(Bool.not(String.eq(p, k)), F.apart.go(rest, p), ha)))
+
+def rising_top(ys: List<&2, F.Found>, +hs: {SortL.sorted(~F.Found, ~(f => F.found.path(f)), ys) == True{} : Bool}, +ha: {F.apart(ys) == True{} : Bool}) -> {rising(ys) == True{} : Bool}:
+  match ys:
+    case Nil{}:
+      {==}
+    case +f <> +rest:
+      rising_of(rest, F.found.path(f), NfcL.and_r(String.is_le(SNil{}, F.found.path(f)), SortL.sorted.from(~F.Found, ~(f => F.found.path(f)), rest, F.found.path(f)), hs), ha)
+
+# What the walk yields rises strictly by path: it is sorted, and keeping
+# one file for a path leaves no two in a row at it.
+def walk_rising(+fs: List<&2, F.Found>, +rs: List<&2, T.Split>) -> {rising(F.walked.found(F.walk.finish(F.Walked{fs, rs}))) == True{} : Bool}:
+  rising_top(F.walked.found(F.walk.finish(F.Walked{fs, rs})), ListedL.finish_sorted(fs, rs), NfcL.walk_apart(List.sort(~F.Found, ~(a => b => String.is_le(F.found.path(a), F.found.path(b))), fs)))
