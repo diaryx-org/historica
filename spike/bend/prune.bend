@@ -612,23 +612,51 @@ def removed(+r: String, fs: List<&2, String>) -> IO(Unit):
         removed(r, rest)
 
 # The name a `Store.folder` line gives a file: after `f`, the execute bit
-# and the length.
-def entry_name(+line: String) -> String:
-  String.join(List.drop(&2, String, String.split(line, ' '), 3n), " ")
+# and the length. A line of any other kind gives none.
+def file.named(cut: Maybe<&2, T.Split>) -> Maybe<&2, String>:
+  match cut:
+    case None{}:
+      None{}
+    case Some{T.Split{size, +name}}:
+      Some{name}
+
+def file.sized(cut: Maybe<&2, T.Split>) -> Maybe<&2, String>:
+  match cut:
+    case None{}:
+      None{}
+    case Some{T.Split{x, +rest}}:
+      file.named(T.split_once(rest))
+
+def file.line(cut: Maybe<&2, T.Split>) -> Maybe<&2, String>:
+  match cut:
+    case None{}:
+      None{}
+    case Some{T.Split{+kind, +rest}}:
+      Bool.pick(Maybe<&2, String>, String.eq(kind, "f"), file.sized(T.split_once(rest)), None{})
+
+def digest.push(n: Maybe<&2, String>, rest: List<&2, String>) -> List<&2, String>:
+  match n:
+    case None{}:
+      rest
+    case Some{+x}:
+      Rev.keep(T.is_digest(x), x, rest)
 
 # The files of `cache/` named by a digest: what any reader rebuilds, and
 # what may hold content pruning has just destroyed. Anything else there —
-# the note `init` writes — is somebody's.
-def cached(ls: List<&2, String>) -> List<&2, String>:
-  match ls:
-    case Nil{}:
+# the note `init` writes, a directory, a link — is somebody's. A link's
+# target is the line after it, and is no entry of its own.
+def cached(ls: List<&2, String>, skip: Bool) -> List<&2, String>:
+  match ls skip:
+    case Nil{} _:
       Nil{}
-    case +l <> rest:
-      Rev.keep(Bool.and(String.starts_with(l, "f "), T.is_digest(entry_name(l))), entry_name(l), cached(rest))
+    case l <> rest True{}:
+      cached(rest, False{})
+    case +l <> rest False{}:
+      digest.push(file.line(T.split_once(l)), cached(rest, String.starts_with(l, "l ")))
 
 # What clearing `cache/` removes, given the directory's listing.
 def cleared.paths(+text: String) -> List<&2, String>:
-  T.map(~String, ~String, ~(n => "cache/" ++ n), cached(String.lines(text)))
+  T.map(~String, ~String, ~(n => "cache/" ++ n), cached(String.lines(text), False{}))
 
 def cleared.of(+r: String, listed: Result<&1, &1, U32 & String, String>) -> IO(Unit):
   match listed:
