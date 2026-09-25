@@ -266,16 +266,16 @@ cc -O3 -w -o historica-bend main.c ffi/target/release/libhistorica_bend_ffi.a -l
 | `survey.bend` | what `status` says of the folder against the position: facts, refusals, claimed paths, bytes to accept, links resolved against the tree the revision would state, and renames noticed; and what `record --dry-run` adds — the paths named, `--at` and `--move` placing files, a `moved` line, and what recording refuses that `status` describes | `record::survey`, `record::plan` |
 | `revision.bend` | the revision document: parse, write; and `History` — heads, superseded, missing parents, change state | `format`, `core` |
 | `tree.bend` | the file set at a revision: `apply`/`replay` along a chain, `merge` over the graph with decision 0008's contests, and the seven faults a store can contradict itself with | `tree.rs` |
-| `store.bend`, `ffi/` | where the store is, what it holds — `cache/` included, when asked — where a digest's bytes are, or which documents stand in for them, what a file weighs, what one directory of the folder holds, and whether output is a terminal; where a path really is; what time it is and random bytes, each pinnable; and the writes — a rename `record --move` states, a bookmark written, a bookmark or what `forget` destroys removed, `init`'s directories, and a document or a payload filed once: fifteen effects, a C adapter, a Rust static library |
+| `store.bend`, `ffi/` | where the store is, what it holds — `cache/` included, when asked — where a digest's bytes are and which documents the catalogue says forget it, what a file weighs, what one directory of the folder holds, and whether output is a terminal; where a path really is; what time it is and random bytes, each pinnable; and the writes — a rename `record --move` states, a bookmark written, a bookmark, what `forget` destroys or a directory it leaves empty removed, `init`'s directories, and a document or a payload filed once: fifteen effects, a C adapter, a Rust static library |
 | `naming.bend` | what a record's files are called: a revision under its month and day and its message's first line, cut where a filesystem would balk, and made distinct where another revision has the name; each file of content under that at the path it had; and a timestamp as an instant, for the clock warning | `naming` |
 | `notes.bend`, `notes.py` | the four texts `init` writes — `historica.txt`'s note, `skipped/README.txt`, `format.txt` and `cache/README.txt` — taken from what the Rust tool's `init` lays down | `HEADER_NOTE`, `SKIPPED_NOTE`, `FORMAT_NOTE`, `CACHE_NOTE` | `Store::discover`, `store::catalogue`, `std::fs` |
 | `bookmark.bend` | a bookmark file's grammar, and which files under `names/` are bookmarks | `store::{Bookmark, Name}`, `check_name` |
 | `resolution.bend` | the resolution document: a merge's file stated by `keep` and `insert`, parsed as strictly as the Rust reader parses it | `format::resolution` |
-| `standin.bend` | what stands in for a forgotten document (decisions 0014, 0050, 0066): the two headers that stand in for a payload, parsed as strictly as the Rust reader parses them; which of a digest's stand-ins agree in shape with the first of its grammar and how they fold into one, a line forgotten in any being forgotten; what a digest reads as once only stand-ins are left, and what `show` prints of them; and `like`, the relation a replay through a stand-in keeps | `format::payload`, `format::{operations, resolution}::stand_in`, `Store::forgetting` |
-| `forget.bend` | `forget`: its arguments; the documents that quote a span — the edit that wrote each line, every delete of it, every resolution that copied it, followed through the walk — and the stand-in written for each; the originals found by their bytes and destroyed, and their copies in `cache/` with them; and every message and refusal | `store::forget`, `cli`'s `forget`, `Store::clear_cache` |
-| `forget_lemmas.bend` | what `forget` writes keeps its original's shape and destroys only text, and a replay through it reads the forgotten lines as forgotten and every other line as it was; what it rewrites is the file's own documents, one payload for a file of bytes, and the versions it counts are the others; what it destroys is only what it forgets, in `operations/` and in `cache/`; and it reads its words as their plain reading says | `cli/tests/forget.rs`, `cli/tests/cache.rs` |
+| `standin.bend` | what stands in for a forgotten document (decisions 0014, 0050, 0066): the two headers that stand in for a payload, parsed as strictly as the Rust reader parses them; which of a digest's stand-ins agree in shape with the first of its grammar and how they fold into one, a line forgotten in any being forgotten; what a digest reads as once only stand-ins are left, and what `show` prints of them; what a held document reads as with stand-ins beside it; and `like` and `covers`, the relations a replay through a stand-in keeps and what is read owes one | `format::payload`, `format::{operations, resolution}::stand_in`, `Store::forgetting` |
+| `forget.bend` | `forget`: its arguments; the documents that quote a span — the edit that wrote each line, every delete of it, every resolution that copied it, followed through the walk — and the stand-in written for each; the originals found by their bytes and destroyed, their copies in `cache/` with them, and every directory `operations/` holds empty; and every message and refusal | `store::forget`, `cli`'s `forget`, `Store::clear_cache` |
+| `forget_lemmas.bend` | what `forget` writes keeps its original's shape and destroys only text, and a replay through it reads the forgotten lines as forgotten and every other line as it was; what it rewrites is the file's own documents, one payload for a file of bytes, and the versions it counts are the others; what it destroys is only what it forgets, in `operations/` and in `cache/`; it reads its words as their plain reading says; and stand-ins beside a held original only forget, forget all they say, and fold alike in any order | `cli/tests/forget.rs`, `cli/tests/cache.rs` |
 | `main.bend`, `commands.bend` | the entry point, which reads the command line and dispatches; and `log`, `show`, `files`, `cat`, `check`, `names`, `diff`, `blame`, `status`, `record`, `amend`, `abandon`, `carry` and `name` over the store it finds, reading what stands in for a forgotten document wherever it reads one, and `init` where there is none, and a resolution assembled from what it keeps; `replay` and `opdiff` over named files | `cli`, `replay::assemble` |
-| `LAWS.bend` / `PROOF.bend` | a hundred and eighty-six claims about the code, each proven | the test suite and Verus replay helpers |
+| `LAWS.bend` / `PROOF.bend` | a hundred and eighty-nine claims about the code, each proven | the test suite and Verus replay helpers |
 | `replay_spec.bend` | independent position-based replay specification | `spike/verus/replay.rs` |
 | `semantic_replay.bend`, `position_lemmas.bend` | positional semantics for an arbitrary insertion, deletion or replacement block; coordinate translation | first semantic replay bridge |
 | `composition_lemmas.bend` | a script of blocks, composed: the cursor over a whole document is the positional result | the multi-block theorem |
@@ -771,7 +771,7 @@ prints and `cat` refuses in the Rust tool's words: how many bytes went and
 which document stands where they were. `status`, `diff` and `record` over
 the folder settle a file by the digest its nearest statement leaves; a
 stand-in states no `result`, so where any of a file's documents is
-forgotten the file is replayed instead. `check.py`'s `forgotten` store has
+forgotten, or stood in for, the file is replayed instead. `check.py`'s `forgotten` store has
 the Rust tool's `forget` destroy a line of a file added whole as `text`,
 two lines of an edit, a line a merge's resolution copied, a payload of
 bytes, and a second span of the first document, so that two stand-ins name
@@ -779,6 +779,37 @@ one digest; forty-five commands read it — `log`, `files`, `cat`, `show`,
 `diff`, `blame` and `status` at the revisions it touched, and `record`,
 `amend` and `carry` over it, with the store compared after — and ten
 `forget`s run over what is already forgotten.
+
+A stand-in can also sit beside the original it forgets: one a sync that
+copies files brought, or one that arrived while a replica kept its bytes.
+The Rust store reads the original through it, and so does the port. The
+Rust catalogue records what each document forgets, and `Store.at`, asked
+in its `forgets` form, answers from that catalogue — its `forgets` column
+where it accounts for a path, a document's first header where it does not
+— and the port reads each document it names and asks it again. An
+operation document is read with every item any stand-in of its shape
+forgets forgotten, and a `text` payload as the document inserting every
+line at 0, read the same way; what is read is the original with items
+forgotten and nothing else (`standins_beside_only_forget`), everything a
+stand-in of its shape forgets is forgotten in it
+(`standins_beside_forget_all_they_say`), and the order stand-ins arrive in
+changes nothing (`standins_fold_in_any_order`). `show` prints the held
+document, a held payload of bytes is its bytes, and `forget` counts a
+version with a stand-in as forgotten whether or not its bytes are still
+here. A held resolution is read as held: the Rust catalogue records
+nothing a resolution forgets, so the Rust store finds a resolution's
+stand-in only once something has made it read every document — which
+assembling a resolution that keeps from a payload does. Within one Rust
+command, then, the first reading of such a resolution ignores the
+stand-in beside it and a later one applies it, and `diff head` over a
+store like that says the revision after the merge turned a line into
+`\ forgotten` in a file it did not touch. The port reads it as the first
+reading does, everywhere. `check.py`'s `resurrected` store copies the
+stand-ins the Rust tool's `forget` wrote in a copy of the history in
+beside the originals, and holds forty-two commands to the Rust tool —
+every reader, `record`, `amend` and `carry`, and `forget` over what
+already stands beside — leaving out `diff head`, whose answer is that
+inconsistency.
 
 `forget <target> <path> --lines <first>..<last>` destroys a span's text
 everywhere history quotes it (`forget.bend`). The lines are those the
@@ -802,7 +833,12 @@ of the file counted and left alone (decision 0066,
 `forget_counts_only_other_versions`). Every entry of `cache/` named by a
 digest goes with it, since an entry is some file's content and may be a
 copy of what went; the note and the catalogues stay
-(`forget_clears_only_copies`). `--dry-run` says what would be written and
+(`forget_clears_only_copies`). Last, every directory under `operations/`
+holding nothing is removed, `operations/` itself kept, whether this
+forgetting emptied it or it was empty before, as the Rust store sweeps
+them: the port lists `operations/` a directory at a time through
+`Store.folder` and asks `Store.remove` for each empty one, which takes the
+directories above it that it leaves empty too. `--dry-run` says what would be written and
 destroyed and does neither; `--fields` states each digest `gone` under
 `historica-wrote-1`, the header left behind by a refusal as `name`'s is.
 `check.py`'s `forgetting` store is the same history with nothing forgotten
@@ -812,7 +848,8 @@ span of an edit, of a `text` payload, of a line a resolution copied and of
 one it inserted, a payload with other versions beside it, `file:` and a
 signed span, and every refusal and usage error — are each run on a copy of
 the store of their own, per tool, and the whole store after compared,
-`cache/` and all.
+`cache/` and all, and with two directories under `operations/` that were
+empty before it.
 
 ### What the laws say
 
@@ -1336,7 +1373,17 @@ named by a digest (`forget_clears_only_copies`); and its arguments are
 read as their plain reading says (`forget_reads_its_words`). No law says
 the converse of the first of these — that the documents found are *every*
 document quoting the span; that walk is held to the Rust tool by the
-stores, not proven complete.
+stores, not proven complete. Where stand-ins sit beside a held original,
+three laws say what is read, over the union the reader folds them with:
+it is the original with each item as it was or forgotten
+(`standins_beside_only_forget`), so a stand-in from another replica
+redacts and never rewrites; every item a stand-in of the held shape
+forgets is forgotten in it, whatever is folded in after
+(`standins_beside_forget_all_they_say`, stated over `covers`, which asks
+only that a forgotten item stay forgotten); and two stand-ins swapped fold
+to the same document (`standins_fold_in_any_order`), so any order does,
+and a stale replica's narrower redaction, arriving last, brings nothing
+back.
 
 Trying to prove the round trip found two ways the port accepted what it
 could not write back: a `\ no newline` or `\ forgotten` line, and a header line, with no
@@ -1346,7 +1393,7 @@ newline after it. Both are refused now, as the Rust parser already did, and
 The tests compare both specifications for the ordered examples, and
 compare the cursor specification with the implementation for raw reversed
 positions, repeated inserts, overlapping deletes and competing errors.
-A hundred and seventy-four mutations cover the primitive helpers, lost inserts, a lost trailing
+A hundred and seventy-seven mutations cover the primitive helpers, lost inserts, a lost trailing
 suffix, an overwritten earlier error, a public replay that skips the
 digest check, a positional model that drops the trailing gap, an
 inclusive deletion endpoint, a script that never advances past what a
@@ -1470,7 +1517,10 @@ stand-in written for the revision that wrote it rather than the document it
 names, a payload's length written where its digest goes, a file destroyed
 without asking whether its bytes are forgotten, the span after `--lines`
 taken as a word too, every file of `cache/` but its note cleared, and the
-version forgotten counted among the others. The
+version forgotten counted among the others; and three breaks of a
+stand-in beside a held original: one that rewrites a line it does not
+forget, the text of a forgotten line taken from whichever stand-in folds
+in last, and one that forgets nothing. The
 proof gate rejects
 each at its expected proof location. The script tests run both sides on multi-block
 documents: a replacement, an insert and a delete in one document, adjacent
@@ -1577,13 +1627,14 @@ is under 5k. Not ported:
   Rust walk does, but `status` does not list it, since the host's listing
   carries no spelling of it.
 - **Forgetting** as `check` sees it: the port's `check` is not the Rust
-  tool's and says nothing of what was forgotten. A stand-in filed while its
-  original is still held — one that arrived from another replica — is not
-  folded into the reading, since the port reads stand-ins only for a digest
-  the store holds nothing for. And a directory under `operations/` already
-  empty before `forget` ran is left there, where the Rust tool removes
-  every empty directory it finds there; the port removes only the ones its
-  own removals empty.
+  tool's and says nothing of what was forgotten, or of an original held
+  beside what forgets it. A resolution's stand-in beside a held resolution
+  is not read, which is the Rust tool's first reading of it and not its
+  later ones (above). And where the Rust tool's catalogue in `cache/` is
+  stale — a stand-in copied in after it was written — the Rust store
+  believes it for a document it holds and misses the stand-in, where the
+  host here reads every path the catalogue does not account for and finds
+  it.
 - **Writing the store**: `record --merge`, whose resolutions nothing here
   writes; `arrange`, `fetch`, `export`. `record` and `abandon` without
   `-m` do not open an editor — with no `$VISUAL` or `$EDITOR` both refuse

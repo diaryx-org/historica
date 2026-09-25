@@ -2330,6 +2330,27 @@ def check_mutations(temporary):
             "forget.bend",
         ),
         (
+            "a stand-in beside the original rewrites a line it does not forget",
+            "      Ops.Item{t, n, f}\n",
+            "      Ops.Item{t2, n, f}\n",
+            "forget_lemmas.item_union_like",
+            "standin.bend",
+        ),
+        (
+            "the stand-in folded last names a forgotten line's text",
+            "      Ops.Item{SNil{}, n, True{}}\n",
+            "      Ops.Item{t2, n, True{}}\n",
+            "forget_lemmas.item_union_comm",
+            "standin.bend",
+        ),
+        (
+            "a stand-in beside the original forgets nothing",
+            "      Ops.Item{SNil{}, n, True{}}\n",
+            "      Ops.Item{t, n, f}\n",
+            "forget_lemmas.item_cover_union",
+            "standin.bend",
+        ),
+        (
             "forget counts the version it forgets among the others",
             "      Rev.keep(Bool.not(String.eq(d, target)), d, others.of(rest, target))",
             "      Rev.keep(True{}, d, others.of(rest, target))",
