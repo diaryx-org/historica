@@ -27,6 +27,13 @@ use crate::core::RevisionId;
 use crate::format::{
     Item, Operation, OperationDocument, OperationKind, Piece, ResolutionDocument, digest,
 };
+use crate::trusted;
+
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+#[cfg(verus_keep_ghost)]
+pub(crate) mod proof;
 
 /// The operation document a `text` payload is exactly equivalent to.
 ///
@@ -56,6 +63,7 @@ pub fn creation(text: &str) -> Option<OperationDocument> {
 /// a line. A state is derived and disposable: every one of them is replayable
 /// from the operations that produced it, which is what lets `cache/` be
 /// genuinely deletable rather than nominally so.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct State {
     items: Vec<Item>,
@@ -176,7 +184,10 @@ impl State {
     pub fn apply(&self, document: &OperationDocument) -> Result<Self, ReplayError> {
         self.clone().applied(document)
     }
+}
 
+#[cfg_attr(verus_keep_ghost, cfg_eval, verus_verify)]
+impl State {
     /// The same, consuming the state it counts into.
     ///
     /// [`State::apply`] is this with a clone in front of it. Materialising a
@@ -186,64 +197,235 @@ impl State {
     /// unchanged. Given the state by value, those items are moved into the
     /// result rather than copied out of it, so replaying a long history stops
     /// reallocating the whole file once per revision.
-    pub fn applied(mut self, document: &OperationDocument) -> Result<Self, ReplayError> {
-        let length = self.items.len();
+    ///
+    /// Proved, by Verus, of this code as it runs: the document replays exactly
+    /// when nothing is a cause to refuse it — an operation past the end, a
+    /// `delete` quoting what the parent does not hold, an unterminated line
+    /// before the last, a stated digest the result does not have — and then
+    /// to exactly the file its operations describe, read position by position
+    /// against the parent; and every refusal names a cause that holds. The
+    /// statement and the proof are in `replay/proof.rs`, and SHA-256 is taken
+    /// on trust in `trusted.rs`.
+    ///
+    /// It is written in the part of Rust Verus reads: loops where iterator
+    /// adapters would take closures, `copy` where a derived `Clone` has no
+    /// specification, and a run taken out of the map and put back where
+    /// `entry` has none either.
+    #[cfg_attr(verus_keep_ghost, verus_spec(r =>
+        ensures
+            r is Ok <==> !proof::cause(self@, document.operations.deep_view(), document.result),
+            r is Ok ==> r->Ok_0@ == proof::result(self@, document.operations.deep_view()),
+            r is Err ==> proof::names(r->Err_0, self@, document.operations.deep_view(), document.result),
+    ))]
+    #[cfg_attr(verus_keep_ghost, verifier::loop_isolation(false))]
+    // Each is the tidier spelling Verus has no specification for, or cannot
+    // read: `unwrap_or_default`, `enumerate`, and a `let` chain.
+    #[allow(
+        clippy::manual_unwrap_or_default,
+        clippy::explicit_counter_loop,
+        clippy::collapsible_if
+    )]
+    pub fn applied(self, document: &OperationDocument) -> Result<Self, ReplayError> {
+        #[cfg(verus_keep_ghost)]
+        proof_decl! {
+            let ghost ops = document.operations.deep_view();
+            let ghost start = self@;
+        }
+        let State { items: parent } = self;
+        let length = parent.len();
+
+        // Pass one: what the document says about each parent position.
         let mut deleted = vec![false; length];
         let mut inserted: BTreeMap<usize, Vec<Item>> = BTreeMap::new();
-
-        for operation in &document.operations {
+        // How many items the inserts add, for the one allocation below.
+        let mut added: usize = 0;
+        let mut k: usize = 0;
+        #[cfg_attr(verus_keep_ghost, verus_spec(
+            invariant
+                k <= document.operations.len(),
+                ops == document.operations.deep_view(),
+                ops.len() == document.operations.len(),
+                start == parent.deep_view(),
+                length == parent.len(),
+                deleted.len() == length,
+                forall|q: int| 0 <= q < length ==> #[trigger] deleted@[q] == proof::deleted_at(ops.take(k as int), q),
+                forall|q: int| 0 <= q <= length ==> #[trigger] proof::gap(inserted@, q) == proof::inserts_at(ops.take(k as int), q),
+                forall|q: usize| #[trigger] inserted@.contains_key(q) ==> q <= length,
+                forall|j: int| 0 <= j < k && (#[trigger] ops[j]).delete ==> ops[j].at + ops[j].items.len() <= length,
+                forall|j: int| 0 <= j < k && !(#[trigger] ops[j]).delete ==> ops[j].at <= length,
+                forall|j: int, o: int| 0 <= j < k && ops[j].delete && 0 <= o < ops[j].items.len()
+                    ==> crate::format::proof::matches(ops[j].items[o], start[ops[j].at + o]),
+            decreases document.operations.len() - k,
+        ))]
+        while k < document.operations.len() {
+            let operation = &document.operations[k];
+            #[cfg(verus_keep_ghost)]
+            proof_decl! {
+                assert(ops[k as int] == operation.deep_view());
+                let ghost before = inserted@;
+                proof::lemma_steps(ops, k as int);
+            }
             match operation.kind {
                 OperationKind::Delete => {
-                    let end = operation.at.saturating_add(operation.items.len());
-                    if end > length {
+                    // The run does not fit: `at + count > length`, asked
+                    // so that it cannot overflow.
+                    let count = operation.items.len();
+                    if count > length || operation.at > length - count {
+                        #[cfg(verus_keep_ghost)]
+                        proof! { proof::lemma_delete_out_of_range(start, ops, k as int); }
                         return Err(ReplayError::OutOfRange {
-                            position: end,
+                            position: operation.at.saturating_add(count),
                             length,
                         });
                     }
-                    for (offset, recorded) in operation.items.iter().enumerate() {
+                    let mut offset: usize = 0;
+                    #[cfg_attr(verus_keep_ghost, verus_spec(
+                        invariant
+                            offset <= operation.items.len(),
+                            operation.at + operation.items.len() <= length,
+                            ops == document.operations.deep_view(),
+                            ops[k as int] == operation.deep_view(),
+                            start == parent.deep_view(),
+                            length == parent.len(),
+                            deleted.len() == length,
+                            forall|q: int| 0 <= q < length ==> #[trigger] deleted@[q] ==
+                                (proof::deleted_at(ops.take(k as int), q) || (operation.at <= q < operation.at + offset)),
+                            forall|o: int| 0 <= o < offset ==> crate::format::proof::matches(ops[k as int].items[o], start[operation.at + o]),
+                        decreases operation.items.len() - offset,
+                    ))]
+                    while offset < operation.items.len() {
                         let position = operation.at + offset;
-                        agrees(position, recorded, &self.items[position])?;
+                        #[cfg(verus_keep_ghost)]
+                        proof! {
+                            proof::lemma_disagreement(start, ops, k as int, offset as int);
+                            assert(ops[k as int].items[offset as int] == operation.items@[offset as int]@);
+                            assert(start[position as int] == parent@[position as int]@);
+                        }
+                        agrees(position, &operation.items[offset], &parent[position])?;
                         deleted[position] = true;
+                        offset += 1;
                     }
                 }
                 OperationKind::Insert => {
                     if operation.at > length {
+                        #[cfg(verus_keep_ghost)]
+                        proof! { proof::lemma_insert_out_of_range(start, ops, k as int); }
                         return Err(ReplayError::OutOfRange {
                             position: operation.at,
                             length,
                         });
                     }
-                    inserted
-                        .entry(operation.at)
-                        .or_default()
-                        .extend(operation.items.iter().cloned());
+                    let mut run = match inserted.remove(&operation.at) {
+                        Some(run) => run,
+                        None => Vec::new(),
+                    };
+                    #[cfg(verus_keep_ghost)]
+                    proof! {
+                        assert(run.deep_view() =~= proof::gap(before, operation.at as int));
+                        assert(ops[k as int].items == operation.items.deep_view());
+                    }
+                    extend(&mut run, &operation.items);
+                    inserted.insert(operation.at, run);
+                    #[cfg(verus_keep_ghost)]
+                    proof! {
+                        assert forall|q: int| 0 <= q <= length implies
+                            #[trigger] proof::gap(inserted@, q) == proof::inserts_at(ops.take(k + 1), q) by {
+                            if q != operation.at as int {
+                                assert(proof::gap(inserted@, q) == proof::gap(before, q));
+                            }
+                        }
+                    }
+                    added = added.saturating_add(operation.items.len());
                 }
             }
+            k += 1;
+        }
+        #[cfg(verus_keep_ghost)]
+        proof! {
+            proof::lemma_take_all(ops);
+            proof::lemma_no_early_cause(start, ops);
         }
 
-        let mut items = Vec::with_capacity(length + inserted.values().map(Vec::len).sum::<usize>());
-        for (position, item) in std::mem::take(&mut self.items).into_iter().enumerate() {
-            if let Some(new) = inserted.remove(&position) {
-                items.extend(new);
+        // Pass two: walk the parent once, moving what survives.
+        let mut items = Vec::with_capacity(length.saturating_add(added));
+        let mut position: usize = 0;
+        #[cfg_attr(verus_keep_ghost, verus_spec(iter =>
+            invariant
+                position == iter.index(),
+                position <= length,
+                iter.seq().len() == length,
+                forall|q: int| 0 <= q < length ==> #[trigger] iter.seq()[q]@ == start[q],
+                length == start.len(),
+                deleted.len() == length,
+                forall|q: int| 0 <= q < length ==> #[trigger] deleted@[q] == proof::deleted_at(ops, q),
+                forall|q: int| position <= q <= length ==> #[trigger] proof::gap(inserted@, q) == proof::inserts_at(ops, q),
+                items.deep_view() == proof::result_to(start, ops, position as int),
+        ))]
+        for item in parent {
+            #[cfg(verus_keep_ghost)]
+            proof_decl! {
+                let ghost p = position as int;
+                let ghost pre = items.deep_view();
+                let ghost runs = inserted@;
+                assert(item@ == start[p]);
+            }
+            if let Some(mut new) = inserted.remove(&position) {
+                #[cfg(verus_keep_ghost)]
+                proof_decl! {
+                    let ghost run = new.deep_view();
+                    assert(runs.contains_key(position) && run == proof::gap(runs, p));
+                }
+                items.append(&mut new);
+                #[cfg(verus_keep_ghost)]
+                proof! { assert(items.deep_view() =~= pre + run); }
+            }
+            #[cfg(verus_keep_ghost)]
+            proof! {
+                if !runs.contains_key(position) {
+                    assert(pre + proof::inserts_at(ops, p) =~= pre);
+                }
+                assert(items.deep_view() == pre + proof::inserts_at(ops, p));
+                assert forall|q: int| p < q <= length implies #[trigger] proof::gap(inserted@, q) == proof::gap(runs, q) by {}
             }
             if !deleted[position] {
+                #[cfg(verus_keep_ghost)]
+                proof_decl! { let ghost gapped = items.deep_view(); }
                 items.push(item);
+                #[cfg(verus_keep_ghost)]
+                proof! { assert(items.deep_view() =~= gapped.push(start[p])); }
             }
+            position += 1;
         }
         // An insert at the end names the gap past the last item, which the
         // walk above never reaches.
-        if let Some(new) = inserted.remove(&length) {
-            items.extend(new);
+        #[cfg(verus_keep_ghost)]
+        proof_decl! {
+            let ghost pre = items.deep_view();
+            let ghost runs = inserted@;
+            assert(proof::gap(runs, length as int) == proof::inserts_at(ops, length as int));
+            assert(pre == proof::result_to(start, ops, length as int));
+        }
+        if let Some(mut new) = inserted.remove(&length) {
+            #[cfg(verus_keep_ghost)]
+            proof_decl! {
+                let ghost run = new.deep_view();
+                assert(runs.contains_key(length) && run == proof::gap(runs, length as int));
+            }
+            items.append(&mut new);
+            #[cfg(verus_keep_ghost)]
+            proof! { assert(items.deep_view() =~= pre + run); }
+        }
+        #[cfg(verus_keep_ghost)]
+        proof! {
+            if !runs.contains_key(length) {
+                assert(pre + proof::inserts_at(ops, length as int) =~= pre);
+            }
+            assert(items.deep_view() == proof::result(start, ops));
         }
 
         // Only a file's last line may lack a terminator. Appending past one is
         // the ordinary way to break that, and the fix is to rewrite that line.
-        if let Some(position) = items
-            .iter()
-            .take(items.len().saturating_sub(1))
-            .position(|item| !item.terminated)
-        {
+        if let Some(position) = unterminated_before_last(&items) {
             return Err(ReplayError::UnterminatedItemNotLast { position });
         }
 
@@ -255,20 +437,118 @@ impl State {
         // stops where forgetting begins, because a state showing markers has
         // bytes the recorder never hashed: 0014's structure-not-content
         // sentence, collecting one more thing.
-        if let Some(stated) = &document.result
-            && !produced.items.iter().any(|item| item.forgotten)
-        {
-            let found = produced.digest();
-            if found != *stated {
-                return Err(ReplayError::ResultDisagrees {
-                    stated: *stated,
-                    found,
-                });
+        if let Some(stated) = document.result {
+            if !forgotten_in(&produced.items) {
+                let found = trusted::digest(&produced);
+                if found != stated {
+                    return Err(ReplayError::ResultDisagrees { stated, found });
+                }
             }
         }
 
         Ok(produced)
     }
+}
+
+/// An item with its own copy of the text: the derived `Clone`, spelled out
+/// so that the proof knows what it made.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
+#[cfg_attr(verus_keep_ghost, verus_spec(r =>
+    ensures r@ == item@,
+))]
+fn copy(item: &Item) -> Item {
+    Item {
+        text: item.text.clone(),
+        terminated: item.terminated,
+        forgotten: item.forgotten,
+    }
+}
+
+/// Copies of `items`, after what `run` already holds.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
+#[cfg_attr(verus_keep_ghost, verus_spec(
+    ensures final(run).deep_view() == old(run).deep_view() + items.deep_view(),
+))]
+fn extend(run: &mut Vec<Item>, items: &[Item]) {
+    run.reserve(items.len());
+    let mut i: usize = 0;
+    #[cfg_attr(verus_keep_ghost, verus_spec(
+        invariant
+            i <= items.len(),
+            run.deep_view() == old(run).deep_view() + items.deep_view().take(i as int),
+        decreases items.len() - i,
+    ))]
+    while i < items.len() {
+        let item = copy(&items[i]);
+        #[cfg(verus_keep_ghost)]
+        proof_decl! {
+            let ghost pre = run.deep_view();
+            assert(item@ == items.deep_view()[i as int]);
+        }
+        run.push(item);
+        #[cfg(verus_keep_ghost)]
+        proof! {
+            assert(run.deep_view() =~= pre.push(items.deep_view()[i as int]));
+            assert(items.deep_view().take(i + 1) =~= items.deep_view().take(i as int).push(items.deep_view()[i as int]));
+        }
+        i += 1;
+    }
+    #[cfg(verus_keep_ghost)]
+    proof! { assert(items.deep_view().take(items.len() as int) =~= items.deep_view()); }
+}
+
+/// The first item before the last that has no terminator, if there is one.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
+#[cfg_attr(verus_keep_ghost, verus_spec(r =>
+    ensures r is None <==> proof::well_terminated(items.deep_view()),
+))]
+fn unterminated_before_last(items: &[Item]) -> Option<usize> {
+    let last = items.len().saturating_sub(1);
+    let mut i: usize = 0;
+    #[cfg_attr(verus_keep_ghost, verus_spec(
+        invariant
+            i <= last,
+            last == if items.len() == 0 { 0 } else { items.len() - 1 },
+            forall|j: int| 0 <= j < i ==> #[trigger] items.deep_view()[j].terminated,
+        decreases last - i,
+    ))]
+    while i < last {
+        #[cfg(verus_keep_ghost)]
+        proof! { assert(items.deep_view()[i as int] == items@[i as int]@); }
+        if !items[i].terminated {
+            #[cfg(verus_keep_ghost)]
+            proof! { assert(!items.deep_view()[i as int].terminated); }
+            return Some(i);
+        }
+        i += 1;
+    }
+    None
+}
+
+/// Whether any item's text was destroyed.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
+#[cfg_attr(verus_keep_ghost, verus_spec(r =>
+    ensures r == proof::any_forgotten(items.deep_view()),
+))]
+fn forgotten_in(items: &[Item]) -> bool {
+    let mut i: usize = 0;
+    #[cfg_attr(verus_keep_ghost, verus_spec(
+        invariant
+            i <= items.len(),
+            forall|j: int| 0 <= j < i ==> !(#[trigger] items.deep_view()[j]).forgotten,
+        decreases items.len() - i,
+    ))]
+    while i < items.len() {
+        #[cfg(verus_keep_ghost)]
+        proof! { assert(items.deep_view()[i as int] == items@[i as int]@); }
+        if items[i].forgotten {
+            #[cfg(verus_keep_ghost)]
+            proof! { assert(items.deep_view()[i as int].forgotten); }
+            return true;
+        }
+        i += 1;
+    }
+    false
 }
 
 /// The file a resolution states, assembled.
@@ -359,6 +639,12 @@ pub fn replay<'a>(
 /// A forgotten item on either side matches, per decision 0014: the
 /// redundancy the text paid for is exactly what was destroyed. The
 /// terminator is still held, because that is shape.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
+#[cfg_attr(verus_keep_ghost, verus_spec(r =>
+    ensures
+        r is Ok <==> crate::format::proof::matches(recorded@, found@),
+        r is Err ==> (r->Err_0 is ItemDisagrees || r->Err_0 is TerminatorDisagrees),
+))]
 fn agrees(position: usize, recorded: &Item, found: &Item) -> Result<(), ReplayError> {
     if recorded.terminated != found.terminated {
         return Err(ReplayError::TerminatorDisagrees {
@@ -381,6 +667,7 @@ fn agrees(position: usize, recorded: &Item, found: &Item) -> Result<(), ReplayEr
 /// None of these mean the algorithm failed. They mean the store contradicts
 /// itself: a document was applied to a state it was not written against, and
 /// the redundancy decision 0007 kept on purpose is what noticed.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ReplayError {
@@ -510,6 +797,21 @@ impl fmt::Display for ReplayError {
 }
 
 impl std::error::Error for ReplayError {}
+
+#[cfg(verus_keep_ghost)]
+verus! {
+
+broadcast use vstd::std_specs::btree::group_btree_axioms, vstd::laws_cmp::group_laws_cmp;
+
+impl View for State {
+    type V = Seq<crate::format::proof::ItemS>;
+
+    closed spec fn view(&self) -> Seq<crate::format::proof::ItemS> {
+        self.items.deep_view()
+    }
+}
+
+} // verus!
 
 #[cfg(test)]
 mod tests {

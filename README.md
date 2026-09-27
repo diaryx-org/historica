@@ -192,9 +192,15 @@ compiles. An ordinary build sees none of it and gains no dependency.
   pairwise, every operation against every one before it, and an operation is
   refused exactly when admitting it would break that
   ([`src/format/order.rs`](src/format/order.rs)).
+- **Replay.** `State::applied`, which every materialised file passes through,
+  replays a document exactly when nothing is a cause to refuse it, and then
+  to exactly the file its operations describe, read position by position
+  against the parent; every refusal names a cause that holds
+  ([`src/replay.rs`](src/replay.rs)).
 
-Nothing in `src/` is taken on trust by the proofs, and a test fails if that
-changes. [Decision 0076](docs/decisions/0076-proofs-on-the-code-that-runs.md)
+What the proofs take on trust beyond Verus is in one file,
+[`src/trusted.rs`](src/trusted.rs) — today, that SHA-256 is a function — and a
+test fails if anything elsewhere in `src/` asks for more. [Decision 0076](docs/decisions/0076-proofs-on-the-code-that-runs.md)
 is how this is arranged and what it costs. To check the proofs:
 
 ```console

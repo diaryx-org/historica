@@ -1,13 +1,12 @@
-//! What the Verus proofs take on trust, which in this crate is nothing.
+//! What the Verus proofs take on trust lives in one file.
 //!
 //! A proof rests on whatever Verus is told without checking it: a body it
 //! does not verify, a specification assumed of a function it cannot see, an
 //! assumed fact, an admitted goal. Decision 0076 keeps all of that out of the
-//! library's source, so that what the proofs rest on is Verus, Z3 and the
-//! specifications `vstd` gives the standard library — and nothing written
-//! here. When a proof does need one, it goes in one file, that file is named
-//! in [`TRUSTED`], and reviewing it is reviewing everything the proofs rest
-//! on.
+//! library's source but for one file, `src/trusted.rs`, so that what the
+//! proofs rest on is Verus, Z3, the specifications `vstd` gives the standard
+//! library, and that file — and reviewing it is reviewing everything else
+//! they rest on.
 
 use std::path::Path;
 
@@ -21,8 +20,8 @@ const TRUST: &[&str] = &[
     "admit(",
 ];
 
-/// The files allowed to, from the crate root. None yet.
-const TRUSTED: &[&str] = &[];
+/// The files allowed to, from the crate root.
+const TRUSTED: &[&str] = &["src/trusted.rs"];
 
 fn visit(directory: &Path, root: &Path, found: &mut Vec<String>) {
     for entry in std::fs::read_dir(directory).unwrap() {
@@ -52,7 +51,7 @@ fn visit(directory: &Path, root: &Path, found: &mut Vec<String>) {
 }
 
 #[test]
-fn the_proofs_take_nothing_in_the_library_on_trust() {
+fn only_the_trusted_file_is_trusted() {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"));
     let mut found = Vec::new();
     visit(&root.join("src"), root, &mut found);

@@ -137,12 +137,18 @@ impl Item {
         }
         out
     }
+}
 
+#[cfg_attr(verus_keep_ghost, cfg_eval, verus_verify)]
+impl Item {
     /// Whether a quoted item holds against the item actually found.
     ///
     /// Decision 0014: a forgotten item matches whatever stands at its
     /// position, because the redundancy its text paid for is exactly what was
     /// destroyed. The terminator is still held, because that is shape.
+    #[cfg_attr(verus_keep_ghost, verus_spec(r =>
+        ensures r == super::proof::matches(self@, found@),
+    ))]
     pub fn matches(&self, found: &Item) -> bool {
         self.terminated == found.terminated
             && (self.forgotten || found.forgotten || self.text == found.text)
@@ -237,6 +243,7 @@ impl Operation {
 ///
 /// Operations are held in the order they are written, which is the order they
 /// are read in: ascending by position, delete before insert at one position.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct OperationDocument {
     /// The document this one stands in for, whose bytes were destroyed.

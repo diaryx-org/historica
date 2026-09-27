@@ -865,6 +865,9 @@ depend on each other in.
   and it fails with the check 15ba1b3 added taken out. Rejects proving a
   port and fingerprinting its source, and `vstd` as a dependency. Leaves the
   merge model on the spike branch as the plan for proving `merge.rs`.
+  Amended: `State::applied` is proved in place too — replays exactly when
+  nothing is a cause to refuse, to exactly the file described — and the
+  trusted file is `src/trusted.rs`, holding SHA-256.
 
 Not a decision, but the evaluation one of them rests on:
 [`docs/loro.md`](../loro.md) — the initial Loro evaluation, and the conditions

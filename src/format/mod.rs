@@ -44,6 +44,8 @@ mod error;
 mod operations;
 mod order;
 mod payload;
+#[cfg(verus_keep_ghost)]
+pub(crate) mod proof;
 mod resolution;
 mod timestamp;
 

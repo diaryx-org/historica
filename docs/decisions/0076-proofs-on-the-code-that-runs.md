@@ -1,5 +1,17 @@
 # 0076 — Proofs on the code that runs
 
+> **Amended 2026-09-27.** Two of the things *Leaves open* names are done.
+> `replay::State::applied` is proved in place: it replays a document exactly
+> when nothing is a cause to refuse it, to exactly the file the document
+> describes, and every refusal names its cause. The trusted file it needed
+> is [`src/trusted.rs`](../../src/trusted.rs), and what it holds is
+> SHA-256, as an uninterpreted function of the items. Rewritten for the
+> prover, `applied` kept its two passes and its map of inserts, and timed
+> against the function it replaced — `cargo xtask bench`, and the two
+> binaries alternated on one store with `cache/` emptied before each run —
+> it is the same within the noise: 774 and 775 ms, fastest of twelve, for a
+> cold `status` on the largest store to hand.
+
 Two spikes asked whether historica's rules could be proved rather than
 tested. One restated the crate in Bend, whose checker proves laws of a
 program by rewriting, and stated a few hundred of them; one of those laws

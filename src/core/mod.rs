@@ -17,6 +17,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::str::FromStr;
 
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
 /// Bytes in a [`RevisionId`] digest.
 pub const REVISION_ID_LEN: usize = 32;
 
@@ -40,6 +43,7 @@ const REVERSE_HEX: [u8; 16] = *b"zyxwvutsrqponmlk";
 /// specified, so it accepts an ID as given and keeps it opaque. Bare lowercase
 /// hex is a provisional spelling; whether the readable form carries an
 /// algorithm label belongs to the format decision.
+#[cfg_attr(verus_keep_ghost, verus_verify, derive(Structural))]
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RevisionId([u8; REVISION_ID_LEN]);
 
