@@ -4,9 +4,13 @@
 //! refusing is not the same as being unhelpful: every error here says where it
 //! happened and what to write instead.
 
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
 use std::fmt;
 
 /// Why a document was refused.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct ParseError {
@@ -16,6 +20,7 @@ pub struct ParseError {
     pub kind: ParseErrorKind,
 }
 
+#[cfg_attr(verus_keep_ghost, cfg_eval, verus_verify)]
 impl ParseError {
     pub(crate) fn new(line: usize, kind: ParseErrorKind) -> Self {
         Self { line, kind }
@@ -39,6 +44,7 @@ impl std::error::Error for ParseError {}
 /// The first variants are rules both documents keep; the rest belong to one or
 /// the other, because only one of them has headers and only one has
 /// operations.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ParseErrorKind {

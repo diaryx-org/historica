@@ -13,8 +13,15 @@
 
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
+#![cfg_attr(verus_keep_ghost, feature(proc_macro_hygiene, cfg_eval))]
+// The proofs never ask what a derived `Clone` returns.
+#![cfg_attr(verus_keep_ghost, verifier::allow(autoderive_clone_without_spec))]
 
 mod ancestry;
+
+#[cfg(verus_keep_ghost)]
+#[allow(unused_imports)]
+use vstd::prelude::*;
 
 pub mod conflict;
 pub mod core;

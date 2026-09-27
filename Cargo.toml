@@ -30,6 +30,12 @@ categories = ["development-tools", "filesystem"]
 [package.metadata.docs.rs]
 all-features = true
 
+# Verus sets both when it verifies the library, and nothing else does: the
+# specifications and proofs that sit on the code are compiled under them, and
+# an ordinary build sees none of it. `cargo xtask proofs` is what sets them.
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ['cfg(verus_keep_ghost)', 'cfg(verus_keep_ghost_body)'] }
+
 # `cli` is the command-line front end, and `xtask` is historica's CI as a
 # program: `cargo xtask <job>` runs one CI job and the workflow runs nothing
 # else. Both are members so `cargo test --workspace` checks them; `xtask` also

@@ -40,6 +40,10 @@ use std::fmt;
 
 use crate::core::RevisionId;
 
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+use super::order::Ordered;
 use super::{
     Lines, PREAMBLE, ParseError, ParseErrorKind, check_byte_order_mark, check_preamble, digest,
 };
@@ -62,6 +66,7 @@ pub const FORGOTTEN: &str = "\\ forgotten";
 /// so an item that lacks one is spelled by the [`NO_NEWLINE`] marker instead.
 /// An item's text may hold a carriage return, because a CRLF document is a
 /// thing people have and this is content rather than the format's own line.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Item {
     /// The line's bytes, terminator excluded. Empty for a forgotten item,
@@ -149,6 +154,7 @@ impl Item {
 /// The order of these variants is the order they are written in at one
 /// position: decision 0007 spells a replacement the way every diff spells it,
 /// minus lines above plus lines.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum OperationKind {
     /// Remove items from the parent state.
@@ -181,6 +187,7 @@ impl OperationKind {
 /// redundant — they are recoverable from the parent — and it is the point:
 /// it makes the document readable alone, and it lets a replayer catch a
 /// document that disagrees with the parent it claims to edit.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Operation {
     /// Whether this removes or adds.
@@ -191,6 +198,7 @@ pub struct Operation {
     pub items: Vec<Item>,
 }
 
+#[cfg_attr(verus_keep_ghost, cfg_eval, verus_verify)]
 impl Operation {
     /// Remove `items` from the parent state, beginning at `at`.
     pub fn delete(at: usize, items: impl IntoIterator<Item = Item>) -> Self {
@@ -214,6 +222,9 @@ impl Operation {
     ///
     /// An insert covers nothing: it names a gap between two parent items rather
     /// than the items themselves.
+    #[cfg_attr(verus_keep_ghost, verus_spec(r =>
+        ensures r == super::order::proof::end(*self),
+    ))]
     pub fn end(&self) -> usize {
         match self.kind {
             OperationKind::Delete => self.at.saturating_add(self.items.len()),
@@ -505,24 +516,16 @@ impl Parser<'_> {
     }
 
     fn operations(&mut self) -> Result<Vec<Operation>, ParseError> {
-        let mut operations: Vec<Operation> = Vec::new();
-        // An insert can follow a delete at the same position. It must not
-        // hide that deleted region from the next operation's range check.
-        let mut last_delete: Option<usize> = None;
+        let mut operations = Ordered::new();
         while let Some((line, terminated)) = self.lines.next() {
             let at = self.lines.line;
             if !terminated {
                 return Err(ParseError::new(at, ParseErrorKind::UnterminatedLine));
             }
             let operation = self.operation(line, at, operations.len())?;
-            ordered(operations.last(), &operation, at)?;
-            ordered(last_delete.map(|index| &operations[index]), &operation, at)?;
-            if operation.kind == OperationKind::Delete {
-                last_delete = Some(operations.len());
-            }
-            operations.push(operation);
+            operations = operations.push(operation, at)?;
         }
-        Ok(operations)
+        Ok(operations.into_operations())
     }
 
     /// One operation line and the content lines that belong to it.
@@ -699,57 +702,6 @@ impl Parser<'_> {
         }
         Ok(())
     }
-}
-
-/// Hold one operation against the one before it.
-///
-/// Positions ascend and regions never overlap, which is a total order, which is
-/// a canonical order: decision 0004's "exactly one byte sequence per set of
-/// facts" survives contact with content only because of this.
-fn ordered(previous: Option<&Operation>, next: &Operation, at: usize) -> Result<(), ParseError> {
-    use OperationKind::{Delete, Insert};
-
-    let Some(previous) = previous else {
-        return Ok(());
-    };
-    if next.at < previous.at {
-        return Err(ParseError::new(
-            at,
-            ParseErrorKind::OperationsOutOfOrder {
-                position: next.at,
-                after: previous.at,
-            },
-        ));
-    }
-    if next.at == previous.at {
-        let kind = match (previous.kind, next.kind) {
-            // The canonical replacement, and the only tie there is.
-            (Delete, Insert) => return Ok(()),
-            (Delete, Delete) => ParseErrorKind::OverlappingOperations { position: next.at },
-            (Insert, Delete) => ParseErrorKind::DeleteAfterInsert { position: next.at },
-            (Insert, Insert) => ParseErrorKind::InsertsAtOnePosition { position: next.at },
-        };
-        return Err(ParseError::new(at, kind));
-    }
-    if previous.kind == Delete {
-        if next.at < previous.end() {
-            return Err(ParseError::new(
-                at,
-                ParseErrorKind::OverlappingOperations { position: next.at },
-            ));
-        }
-        // Two deletes that meet remove one run, which is one fact.
-        if next.at == previous.end() && next.kind == Delete {
-            return Err(ParseError::new(
-                at,
-                ParseErrorKind::AdjacentDeletes {
-                    at: previous.at,
-                    total: previous.items.len() + next.items.len(),
-                },
-            ));
-        }
-    }
-    Ok(())
 }
 
 /// An operation line with the wrong number of fields.

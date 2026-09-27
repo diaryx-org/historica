@@ -42,6 +42,7 @@ use crate::core::{CHANGE_ID_LEN, ChangeId, FileId, Revision, RevisionId};
 
 mod error;
 mod operations;
+mod order;
 mod payload;
 mod resolution;
 mod timestamp;
