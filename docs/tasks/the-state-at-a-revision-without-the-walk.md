@@ -3,7 +3,7 @@ title: The state at a revision without the walk
 description: Answer "file F at revision R" — its content digest and its path — by lookup rather than by loading every reachable revision, most likely as a derived index under `cache/`
 status: open
 created: 2026-09-16
-updated: 2026-09-16
+updated: 2026-09-27
 part_of: "[Tasks](tasks.md)"
 ---
 
@@ -75,12 +75,43 @@ version.
   heads still merges, but from the indexed state of each head rather than
   from the root.
 
+## Recording pays it too
+
+Measured 2026-09-27 against `main` at `e4db715`, release build: a folder of
+5,000 files of about 1.7 KB, one root revision, then one file edited and
+recorded per revision under `Restriction::Paths` naming that file — the
+shape of a writer that records every few seconds rather than when a person
+asks.
+
+| revisions | `Store::open` | `record` |
+|---:|---:|---:|
+| 10 | 6.8 ms | 38 ms |
+| 400 | 9.3 ms | 53 ms |
+| 800 | 10.6 ms | 69 ms |
+| 1,200 | 15.9 ms | 82 ms |
+| 1,600 | 17.2 ms | 97 ms |
+| 2,000 | 22.4 ms | 113 ms |
+
+About 37 ms of `record` and 8 ms of `open` per thousand revisions, and
+nothing else in the loop grows: `Working::read` holds at 17 ms and finding
+the heads under 1 ms. A restricted record surveys one file, so the growth is
+the parents' tree, which is this walk. A writer at that cadence reaches ten
+thousand revisions in weeks, where a record costs about half a second, and
+the restriction stops being what makes it cheap.
+
+For comparison, the same run at `v1.0.0-rc.4`: the root revision took 32 s
+(876 ms on `main`) and an unrestricted record over the 5,000 files after
+1,000 revisions 11.2 s cold (1.3 s on `main`), so what is unreleased on
+`main` already removes everything here but the slope.
+
 ## Done when
 
 - `cargo xtask bench` shows `cat` and `status` at the head of the bench store
   no longer scaling with the number of revisions — the measurement 0035 and
   0036 were each written against, extended with a history long enough to
   show it.
+- A restricted `record` against a single head, measured as above, no longer
+  scales with the number of revisions either.
 - `Store::tree`, `content_at` and `merged_content` answer from the index when
   the store holds one, and identically without it; the corpus passes both
   ways.
