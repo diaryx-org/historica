@@ -201,8 +201,11 @@ compiles. An ordinary build sees none of it and gains no dependency.
   forgetting documents stand in for is that document with each item forgotten
   exactly where one of them of its shape forgets it. Decision 0014's laws are
   proved of that: the order they arrive in and how often do not matter, more
-  of them only forget more, and they destroy text without ever writing any
-  ([`src/format/operations.rs`](src/format/operations.rs)).
+  of them only forget more, and they destroy text without ever writing any.
+  Proved for both grammars: an operation document's
+  ([`src/format/operations.rs`](src/format/operations.rs)) and a
+  resolution's, whose `keep`s stand as they are
+  ([`src/format/resolution.rs`](src/format/resolution.rs)).
 
 What the proofs take on trust beyond Verus is in one file,
 [`src/trusted.rs`](src/trusted.rs) — today, that SHA-256 is a function — and a

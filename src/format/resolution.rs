@@ -30,13 +30,24 @@ use std::fmt;
 
 use crate::core::RevisionId;
 
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+#[cfg(verus_keep_ghost)]
+use super::operations::proof::stood_item;
 use super::operations::{FORGOTTEN, NO_NEWLINE, carriage_return, number};
+#[cfg(verus_keep_ghost)]
+use super::proof::ResolutionS;
 use super::{
     Item, Lines, PREAMBLE, ParseError, ParseErrorKind, check_byte_order_mark, check_preamble,
     digest,
 };
 
+#[cfg(verus_keep_ghost)]
+pub(crate) mod proof;
+
 /// One piece of a resolved file, in file order.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Piece {
     /// A run of items kept from an existing document, under their own names.
@@ -58,6 +69,7 @@ pub enum Piece {
 }
 
 /// One resolution document: a merge's file, stated whole by reference.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResolutionDocument {
     /// The resolution this one stands in for, whose bytes were destroyed.
@@ -437,31 +449,205 @@ impl Parser<'_> {
 /// into it. One whose shape disagrees is set aside rather than merged. So
 /// where the original is destroyed, which comes first is the one order that
 /// matters, and a store hands them over in digest order.
+///
+/// Proved (decision 0076): what this returns is the shape, every `keep` as it
+/// is and each minted item forgotten exactly where the shape or a forgetting
+/// resolution of its shape forgets it; the laws above are proved of that
+/// statement. Written as loops over positions, as
+/// [`stand_in`](super::stand_in) is and for its reason.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
+#[cfg_attr(verus_keep_ghost, verifier::loop_isolation(false))]
+#[cfg_attr(verus_keep_ghost, verus_spec(r =>
+    ensures
+        r is None <==> base is None && forgetting@.len() == 0,
+        r is Some ==> r->Some_0.deep_view() == proof::stood(
+            proof::shape_of(base.deep_view(), forgetting.deep_view()),
+            forgetting.deep_view(),
+        ),
+))]
 pub fn stand_in(
     base: Option<&ResolutionDocument>,
     forgetting: &[&ResolutionDocument],
 ) -> Option<ResolutionDocument> {
-    let mut effective = match base {
-        Some(document) => document.clone(),
-        None => (*forgetting.first()?).clone(),
-    };
-    for document in forgetting {
-        if !same_shape(&effective, document) {
-            continue;
-        }
-        for (stated, held) in document.pieces.iter().zip(&mut effective.pieces) {
-            let (Piece::Insert { items: stated }, Piece::Insert { items: held }) = (stated, held)
-            else {
-                continue;
-            };
-            for (item, kept) in stated.iter().zip(held) {
-                if item.forgotten && !kept.forgotten {
-                    *kept = kept.forgetting();
-                }
+    let held = match base {
+        Some(document) => document,
+        None => {
+            if forgetting.is_empty() {
+                return None;
             }
+            forgetting[0]
         }
+    };
+    #[cfg(verus_keep_ghost)]
+    proof_decl! {
+        let ghost shape = held.pieces.deep_view();
+        let ghost stated = forgetting.deep_view();
+        assert(held.deep_view() == proof::shape_of(base.deep_view(), stated));
+    }
+    // Which resolutions have the shape, asked once each rather than per item.
+    let mut shaped: Vec<bool> = Vec::with_capacity(forgetting.len());
+    let mut k: usize = 0;
+    #[cfg_attr(verus_keep_ghost, verus_spec(
+        invariant
+            k <= forgetting.len(),
+            shaped@.len() == k,
+            forall|q: int| 0 <= q < k ==> #[trigger] shaped@[q] == proof::same_shape(shape, stated[q].pieces),
+        decreases forgetting.len() - k,
+    ))]
+    while k < forgetting.len() {
+        #[cfg(verus_keep_ghost)]
+        proof! { assert(stated[k as int] == forgetting@[k as int].deep_view()); }
+        shaped.push(same_shape(held, forgetting[k]));
+        k += 1;
+    }
+    let mut pieces = Vec::with_capacity(held.pieces.len());
+    let mut i: usize = 0;
+    #[cfg_attr(verus_keep_ghost, verus_spec(
+        invariant
+            i <= held.pieces.len(),
+            pieces.deep_view().len() == i,
+            forall|p: int| 0 <= p < i ==> #[trigger] pieces.deep_view()[p]
+                == proof::stood_piece(shape, stated, p),
+        decreases held.pieces.len() - i,
+    ))]
+    while i < held.pieces.len() {
+        #[cfg(verus_keep_ghost)]
+        proof! { assert(shape[i as int] == held.pieces@[i as int].deep_view()); }
+        let stood = match &held.pieces[i] {
+            Piece::Keep {
+                document,
+                first,
+                count,
+            } => Piece::Keep {
+                document: *document,
+                first: *first,
+                count: *count,
+            },
+            Piece::Insert { items: minted } => {
+                let mut items = Vec::with_capacity(minted.len());
+                let mut j: usize = 0;
+                #[cfg_attr(verus_keep_ghost, verus_spec(
+                    invariant
+                        j <= minted.len(),
+                        minted.deep_view() == proof::items_of(shape[i as int]),
+                        items.deep_view().len() == j,
+                        forall|q: int| 0 <= q < j ==> #[trigger] items.deep_view()[q] == stood_item(
+                            minted.deep_view()[q],
+                            proof::forgotten_by(shape, stated, i as int, q),
+                        ),
+                    decreases minted.len() - j,
+                ))]
+                while j < minted.len() {
+                    let item = &minted[j];
+                    #[cfg(verus_keep_ghost)]
+                    proof! { assert(minted.deep_view()[j as int] == item@); }
+                    let mut forgotten = false;
+                    if !item.forgotten {
+                        let mut k: usize = 0;
+                        #[cfg_attr(verus_keep_ghost, verus_spec(
+                            invariant
+                                k <= forgetting.len(),
+                                forgotten ==> proof::forgotten_by(shape, stated, i as int, j as int),
+                                !forgotten ==> forall|q: int| 0 <= q < k ==> !(proof::same_shape(
+                                    shape,
+                                    (#[trigger] stated[q]).pieces,
+                                ) && proof::items_of(stated[q].pieces[i as int])[j as int].forgotten),
+                            decreases forgetting.len() - k,
+                        ))]
+                        while !forgotten && k < forgetting.len() {
+                            #[cfg(verus_keep_ghost)]
+                            proof! {
+                                let other = forgetting@[k as int];
+                                assert(stated[k as int] == other.deep_view());
+                                if shaped@[k as int] {
+                                    assert(proof::same_piece(shape[i as int], stated[k as int].pieces[i as int]));
+                                    assert(stated[k as int].pieces[i as int] == other.pieces@[i as int].deep_view());
+                                }
+                            }
+                            forgotten = shaped[k] && forgets_item(&forgetting[k].pieces[i], j);
+                            #[cfg(verus_keep_ghost)]
+                            proof! {
+                                if forgotten {
+                                    assert(stated.contains(stated[k as int]));
+                                }
+                            }
+                            k += 1;
+                        }
+                        #[cfg(verus_keep_ghost)]
+                        proof! {
+                            if !forgotten && proof::forgotten_by(shape, stated, i as int, j as int) {
+                                let d = choose|d: ResolutionS| #[trigger] stated.contains(d)
+                                    && proof::same_shape(shape, d.pieces)
+                                    && proof::items_of(d.pieces[i as int])[j as int].forgotten;
+                                let q = choose|q: int| 0 <= q < stated.len() && stated[q] == d;
+                                assert(!(proof::same_shape(shape, stated[q].pieces)
+                                    && proof::items_of(stated[q].pieces[i as int])[j as int].forgotten));
+                            }
+                        }
+                    }
+                    let stood = if forgotten {
+                        item.forgetting()
+                    } else {
+                        item.copied()
+                    };
+                    #[cfg(verus_keep_ghost)]
+                    proof_decl! {
+                        let ghost pre = items.deep_view();
+                    }
+                    items.push(stood);
+                    #[cfg(verus_keep_ghost)]
+                    proof! { assert(items.deep_view() =~= pre.push(stood@)); }
+                    j += 1;
+                }
+                #[cfg(verus_keep_ghost)]
+                proof! {
+                    assert(items.deep_view() =~= proof::items_of(proof::stood_piece(shape, stated, i as int)));
+                }
+                Piece::Insert { items }
+            }
+        };
+        #[cfg(verus_keep_ghost)]
+        proof_decl! {
+            let ghost pre = pieces.deep_view();
+            assert(stood.deep_view() == proof::stood_piece(shape, stated, i as int));
+        }
+        pieces.push(stood);
+        #[cfg(verus_keep_ghost)]
+        proof! { assert(pieces.deep_view() =~= pre.push(stood.deep_view())); }
+        i += 1;
+    }
+    let effective = ResolutionDocument {
+        forgets: held.forgets,
+        result: held.result,
+        pieces,
+    };
+    #[cfg(verus_keep_ghost)]
+    proof! {
+        assert(effective.pieces.deep_view() =~= proof::stood(held.deep_view(), stated).pieces);
     }
     Some(effective)
+}
+
+/// Whether a piece forgets item `j` of what it mints. A `keep` mints nothing,
+/// so it never does.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
+#[cfg_attr(verus_keep_ghost, verus_spec(r =>
+    ensures r == (j < proof::items_of(piece.deep_view()).len()
+        && proof::items_of(piece.deep_view())[j as int].forgotten),
+))]
+fn forgets_item(piece: &Piece, j: usize) -> bool {
+    match piece {
+        Piece::Insert { items } => {
+            #[cfg(verus_keep_ghost)]
+            proof! {
+                if j < items.len() {
+                    assert(items.deep_view()[j as int] == items@[j as int]@);
+                }
+            }
+            j < items.len() && items[j].forgotten
+        }
+        Piece::Keep { .. } => false,
+    }
 }
 
 /// Whether two resolutions state the same pieces, minted payload aside.
@@ -471,23 +657,93 @@ pub fn stand_in(
 /// an `insert` must mint the same number of items with the same terminators.
 /// The items' text is what a redaction destroys and the only thing it may
 /// differ in.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
+#[cfg_attr(verus_keep_ghost, verus_spec(r =>
+    ensures r == proof::same_shape(left.pieces.deep_view(), right.pieces.deep_view()),
+))]
 fn same_shape(left: &ResolutionDocument, right: &ResolutionDocument) -> bool {
-    left.pieces.len() == right.pieces.len()
-        && left
-            .pieces
-            .iter()
-            .zip(&right.pieces)
-            .all(|(mine, theirs)| match (mine, theirs) {
-                (Piece::Keep { .. }, Piece::Keep { .. }) => mine == theirs,
-                (Piece::Insert { items: mine }, Piece::Insert { items: theirs }) => {
-                    mine.len() == theirs.len()
-                        && mine
-                            .iter()
-                            .zip(theirs)
-                            .all(|(a, b)| a.terminated == b.terminated)
+    if left.pieces.len() != right.pieces.len() {
+        return false;
+    }
+    let mut i: usize = 0;
+    #[cfg_attr(verus_keep_ghost, verus_spec(
+        invariant
+            i <= left.pieces.len(),
+            left.pieces.len() == right.pieces.len(),
+            forall|p: int| 0 <= p < i ==> #[trigger] proof::same_piece(
+                left.pieces.deep_view()[p],
+                right.pieces.deep_view()[p],
+            ),
+        decreases left.pieces.len() - i,
+    ))]
+    while i < left.pieces.len() {
+        #[cfg(verus_keep_ghost)]
+        proof! {
+            assert(left.pieces.deep_view()[i as int] == left.pieces@[i as int].deep_view());
+            assert(right.pieces.deep_view()[i as int] == right.pieces@[i as int].deep_view());
+        }
+        if !same_piece(&left.pieces[i], &right.pieces[i]) {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+/// Whether two pieces are of one shape: [`same_shape`], one at a time.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
+#[cfg_attr(verus_keep_ghost, verus_spec(r =>
+    ensures r == proof::same_piece(mine.deep_view(), theirs.deep_view()),
+))]
+fn same_piece(mine: &Piece, theirs: &Piece) -> bool {
+    match (mine, theirs) {
+        (
+            Piece::Keep {
+                document,
+                first,
+                count,
+            },
+            Piece::Keep {
+                document: other,
+                first: from,
+                count: many,
+            },
+        ) => *document == *other && *first == *from && *count == *many,
+        (Piece::Insert { items: ours }, Piece::Insert { items: others }) => {
+            #[cfg(verus_keep_ghost)]
+            proof! {
+                assert(proof::items_of(mine.deep_view()) == ours.deep_view());
+                assert(proof::items_of(theirs.deep_view()) == others.deep_view());
+            }
+            if ours.len() != others.len() {
+                return false;
+            }
+            let mut j: usize = 0;
+            #[cfg_attr(verus_keep_ghost, verus_spec(
+                invariant
+                    j <= ours.len(),
+                    ours.len() == others.len(),
+                    proof::items_of(mine.deep_view()) == ours.deep_view(),
+                    proof::items_of(theirs.deep_view()) == others.deep_view(),
+                    forall|q: int| 0 <= q < j ==> (#[trigger] ours.deep_view()[q]).terminated
+                        == others.deep_view()[q].terminated,
+                decreases ours.len() - j,
+            ))]
+            while j < ours.len() {
+                #[cfg(verus_keep_ghost)]
+                proof! {
+                    assert(ours.deep_view()[j as int] == ours@[j as int]@);
+                    assert(others.deep_view()[j as int] == others@[j as int]@);
                 }
-                _ => false,
-            })
+                if ours[j].terminated != others[j].terminated {
+                    return false;
+                }
+                j += 1;
+            }
+            true
+        }
+        _ => false,
+    }
 }
 
 /// Refuse a piece that should have been part of the one before it.

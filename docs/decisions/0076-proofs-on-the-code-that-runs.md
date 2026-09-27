@@ -24,7 +24,8 @@
 > them, so two that disagreed about the shape read differently depending on
 > what their files were called. It now hands them over in digest order, the
 > order `check` already read them in. The resolution grammar's `stand_in`
-> has the same shape and is not yet proved.
+> is proved to the same statement and the same laws, with every `keep`
+> left as it is.
 
 Two spikes asked whether historica's rules could be proved rather than
 tested. One restated the crate in Bend, whose checker proves laws of a

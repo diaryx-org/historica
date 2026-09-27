@@ -5,11 +5,12 @@
 //! and moves wants it as a sequence of characters, which is what `vstd` says
 //! a `String` is. [`ItemS`] is an item with its text so read, and
 //! [`OperationS`] an operation with its items so read and its kind a flag,
-//! and [`DocumentS`] a document of them.
+//! and [`DocumentS`] a document of them. [`PieceS`] and [`ResolutionS`] are
+//! the second grammar's, read the same way.
 
 use vstd::prelude::*;
 
-use super::{Item, Operation, OperationDocument};
+use super::{Item, Operation, OperationDocument, Piece, ResolutionDocument};
 use crate::core::RevisionId;
 
 verus! {
@@ -64,6 +65,42 @@ impl DeepView for OperationDocument {
 
     open spec fn deep_view(&self) -> DocumentS {
         DocumentS { forgets: self.forgets, result: self.result, operations: self.operations.deep_view() }
+    }
+}
+
+/// One piece of a resolution, its minted items read as [`ItemS`].
+pub enum PieceS {
+    Keep { document: RevisionId, first: int, count: int },
+    Insert { items: Seq<ItemS> },
+}
+
+impl DeepView for Piece {
+    type V = PieceS;
+
+    open spec fn deep_view(&self) -> PieceS {
+        match self {
+            Piece::Keep { document, first, count } => PieceS::Keep {
+                document: *document,
+                first: *first as int,
+                count: *count as int,
+            },
+            Piece::Insert { items } => PieceS::Insert { items: items.deep_view() },
+        }
+    }
+}
+
+/// One resolution, its pieces read as [`PieceS`].
+pub struct ResolutionS {
+    pub forgets: Option<RevisionId>,
+    pub result: Option<RevisionId>,
+    pub pieces: Seq<PieceS>,
+}
+
+impl DeepView for ResolutionDocument {
+    type V = ResolutionS;
+
+    open spec fn deep_view(&self) -> ResolutionS {
+        ResolutionS { forgets: self.forgets, result: self.result, pieces: self.pieces.deep_view() }
     }
 }
 
