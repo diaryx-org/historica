@@ -52,6 +52,23 @@
 > events over 21,780 lines, and 8.1 ms to 3.4 ms across a resolution of
 > 20,000 — because a removal is a vector entry rather than a map entry and
 > a resolution's names are found by index rather than by a map of digests.
+>
+> So is the fast path a chain takes, against the walk. It builds no tree:
+> each revision's operations are applied to the list of lines as
+> arithmetic. The model's theorem is that over a chain the walk's tree
+> reads as exactly that list — each line with the revision that wrote it
+> and its ordinal there — or both refuse, because with nothing concurrent
+> Fugue's anchoring hangs an element straight after its left neighbour.
+> `linear` was rewritten to compute that list in the prover's terms and is
+> proved to; that the history is a chain is proved of the ancestry, and
+> that its documents are ones the theorem covers is checked. The check is
+> the one difference a caller can see. A document built by hand rather than
+> parsed, with its inserts out of position order, took the fast path, which
+> numbered its new lines in file order where the walk numbers them in the
+> document's; it takes the walk now, so the two paths name such lines
+> alike. Nothing else moved: the three thousand histories merge byte for
+> byte as before, and a chain of 401 revisions over 4,000 lines merges in
+> 32 ms where it took 35.
 
 Two spikes asked whether historica's rules could be proved rather than
 tested. One restated the crate in Bend, whose checker proves laws of a

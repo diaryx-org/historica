@@ -42,7 +42,7 @@ use crate::replay::State;
 #[cfg(verus_keep_ghost)]
 use crate::ancestry;
 #[cfg(verus_keep_ghost)]
-use crate::format::proof::{ItemS, PieceS};
+use crate::format::proof::{ItemS, OperationS, PieceS};
 #[cfg(verus_keep_ghost)]
 use vstd::prelude::*;
 
@@ -122,19 +122,6 @@ impl<'a> Event<'a> {
             stated: Some((document, Stated::Resolution(resolution))),
         }
     }
-
-    /// The operations this event states, if that is what it states.
-    fn operation_document(&self) -> Option<(RevisionId, &'a OperationDocument)> {
-        match self.stated {
-            Some((named, Stated::Operations(document))) => Some((named, document)),
-            _ => None,
-        }
-    }
-
-    /// Whether this event states its file by reference rather than by delta.
-    fn resolves(&self) -> bool {
-        matches!(self.stated, Some((_, Stated::Resolution(_))))
-    }
 }
 
 /// A merged file, and where concurrent work met inside it.
@@ -201,10 +188,11 @@ pub enum Contest {
 /// read its files in.
 pub fn merge<'a>(events: impl IntoIterator<Item = Event<'a>>) -> Result<Merged, MergeError> {
     let graph = Graph::new(events.into_iter().collect())?;
-    // A resolution is a merge's spelling, so a chain holding one is a history
-    // nothing here wrote; the walk is what knows how to cross it, and the fast
-    // path stays the arithmetic it was.
-    if graph.chain() && !graph.events.iter().any(|event| event.resolves()) {
+    // A chain of plain documents is a history the fast path is proved to read
+    // as the walk does. A resolution is a merge's spelling, so a chain holding
+    // one is a history nothing here wrote, and a document with its inserts out
+    // of order is one the parser would refuse; the walk crosses either.
+    if graph.chain() && graph.plain() {
         return linear(&graph);
     }
     let order = graph.order.clone();
@@ -227,101 +215,432 @@ pub fn merge<'a>(events: impl IntoIterator<Item = Event<'a>>) -> Result<Merged, 
 /// of the revision that deleted it, because in a chain nothing can arrive
 /// later that needed to see it.
 ///
-/// This must agree with [`walk`] byte for byte on every history both can
-/// express, including `origins` and the terminator report — the tests hold it
-/// to that over generated chains rather than trusting the argument.
+/// Proved to read what [`walk`] reads: over a chain of plain documents
+/// (`Graph::plain`), `lines_in_order` computes the model's `lin`, and
+/// `theorem_linear` is that the walk's tree reads as exactly those lines —
+/// each with the revision that wrote it and its ordinal there — or that both
+/// refuse. That `contested` agrees is argued: nothing in a chain is
+/// concurrent, so the walk reports only terminators too. The tests still hold
+/// the two to one answer over generated chains.
 fn linear(graph: &Graph<'_>) -> Result<Merged, MergeError> {
-    let mut items: Vec<Item> = Vec::new();
-    let mut origins: Vec<RevisionId> = Vec::new();
-    let mut references: Vec<(RevisionId, usize)> = Vec::new();
-
-    for event in &graph.order {
-        let Some((named, document)) = graph.events[*event].operation_document() else {
-            continue;
-        };
-        let revision = graph.events[*event].revision;
-        let length = items.len();
-        let mut removed = vec![false; length];
-        let mut added: BTreeMap<usize, Vec<Item>> = BTreeMap::new();
-
-        // Every position is counted into the state at the parent, so all of
-        // them are read before any of them moves anything.
-        for operation in &document.operations {
-            match operation.kind {
-                OperationKind::Delete => {
-                    let end = operation.at.saturating_add(operation.items.len());
-                    if end > length {
-                        return Err(MergeError::OutOfRange {
-                            revision,
-                            position: end,
-                            length,
-                        });
-                    }
-                    for (offset, recorded) in operation.items.iter().enumerate() {
-                        let position = operation.at + offset;
-                        let found = &items[position];
-                        // A forgotten item on either side matches, per
-                        // decision 0014, exactly as it does in the walk.
-                        if !recorded.matches(found) {
-                            return Err(MergeError::ItemDisagrees {
-                                revision,
-                                position,
-                                recorded: recorded.text.clone(),
-                                found: found.text.clone(),
-                            });
-                        }
-                        removed[position] = true;
-                    }
-                }
-                OperationKind::Insert => {
-                    if operation.at > length {
-                        return Err(MergeError::OutOfRange {
-                            revision,
-                            position: operation.at,
-                            length,
-                        });
-                    }
-                    added
-                        .entry(operation.at)
-                        .or_default()
-                        .extend(operation.items.iter().cloned());
-                }
-            }
-        }
-
-        // An insert at a position goes before whatever the parent held there,
-        // which is where the walk's anchoring puts it too; an insert at the
-        // end names the gap past the last item.
-        let mut kept: Vec<Item> = Vec::with_capacity(length);
-        let mut wrote: Vec<RevisionId> = Vec::with_capacity(length);
-        let mut named_by: Vec<(RevisionId, usize)> = Vec::with_capacity(length);
-        // How many items this document has minted so far, which is the
-        // ordinal half of the name a `keep` quotes.
-        let mut minted = 0usize;
-        for position in 0..=length {
-            if let Some(new) = added.remove(&position) {
-                wrote.extend(std::iter::repeat_n(revision, new.len()));
-                named_by.extend((minted..minted + new.len()).map(|at| (named, at)));
-                minted += new.len();
-                kept.extend(new);
-            }
-            if position < length && !removed[position] {
-                kept.push(items[position].clone());
-                wrote.push(origins[position]);
-                named_by.push(references[position]);
-            }
-        }
-        items = kept;
-        origins = wrote;
-        references = named_by;
+    let lines = lines_in_order(graph)?;
+    let mut items: Vec<Item> = Vec::with_capacity(lines.len());
+    let mut origins: Vec<RevisionId> = Vec::with_capacity(lines.len());
+    let mut references: Vec<(RevisionId, usize)> = Vec::with_capacity(lines.len());
+    for line in lines {
+        origins.push(graph.events[line.author].revision);
+        references.push(line.reference);
+        items.push(line.item);
     }
-
     Ok(Merged {
         contested: terminators(&items),
         origins,
         references,
         state: State::from_items(items),
     })
+}
+
+/// One line of a file as the fast path keeps it: the item, the event that
+/// wrote it, and the name a `keep` line quotes for it, whose ordinal is that
+/// event's count.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
+struct Line {
+    item: Item,
+    author: usize,
+    reference: (RevisionId, usize),
+}
+
+#[cfg_attr(verus_keep_ghost, cfg_eval, verus_verify)]
+impl Line {
+    /// This line with its own copy of the item.
+    #[cfg_attr(verus_keep_ghost, verus_spec(r =>
+        ensures r@ == self@,
+    ))]
+    fn copied(&self) -> Line {
+        Line {
+            item: self.item.copied(),
+            author: self.author,
+            reference: self.reference,
+        }
+    }
+}
+
+/// Every revision of a chain, in order, applied to the file as a list of
+/// lines.
+///
+/// Proved to compute the model's `lin`, which over a chain the merge walk is
+/// proved to read as (`theorem_linear`): the fast path and the walk give one
+/// file, and refuse alike.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
+#[cfg_attr(verus_keep_ghost, verifier::loop_isolation(false))]
+#[cfg_attr(verus_keep_ghost, verus_spec(r =>
+    requires
+        forall|k: int| 0 <= k < graph.order@.len() ==> #[trigger] graph.order@[k] < graph.events@.len(),
+        forall|e: int| 0 <= e < graph.events@.len() ==> {
+            &&& (#[trigger] graph@.events[e]).pieces is None
+            &&& (graph@.events[e].ops matches Some(ops) ==> proof::linear::inserts_ascend(ops))
+        },
+    ensures
+        (r is Ok) == (proof::linear::lin(graph@, proof::ints(graph.order@), graph.order@.len() as int) is Some),
+        r matches Ok(lines) ==> line_views(lines@)
+            == proof::linear::lin(graph@, proof::ints(graph.order@), graph.order@.len() as int)->Some_0,
+))]
+fn lines_in_order(graph: &Graph<'_>) -> Result<Vec<Line>, MergeError> {
+    #[cfg(verus_keep_ghost)]
+    proof_decl! {
+        let ghost g = graph@;
+        let ghost walking = proof::ints(graph.order@);
+        assert(line_views(Seq::<Line>::empty()) =~= Seq::<proof::linear::LineS>::empty());
+    }
+    let mut lines: Vec<Line> = Vec::new();
+    let mut k: usize = 0;
+    #[cfg_attr(verus_keep_ghost, verus_spec(
+        invariant
+            k <= graph.order@.len(),
+            proof::linear::lin(g, walking, k as int) == Some(line_views(lines@)),
+        decreases graph.order@.len() - k,
+    ))]
+    while k < graph.order.len() {
+        let event = graph.order[k];
+        #[cfg(verus_keep_ghost)]
+        proof! {
+            assert(g.events[event as int] == graph.events@[event as int]@);
+            assert(walking[k as int] == event as int);
+        }
+        if let Some((named, Stated::Operations(document))) = graph.events[event].stated {
+            let stepped = step(&lines, event, named, graph.events[event].revision, document);
+            #[cfg(verus_keep_ghost)]
+            proof! {
+                if stepped is Err && proof::linear::lin(g, walking, graph.order@.len() as int) is Some {
+                    lemma_lin_some_prefix(g, walking, k as int + 1, graph.order@.len() as int);
+                }
+            }
+            lines = stepped?;
+        }
+        k += 1;
+    }
+    Ok(lines)
+}
+
+/// One revision applied to a file as a list of lines.
+///
+/// Application is all it is. Positions are stated against the state at the
+/// parent, and in a chain that state is simply the file so far, so a
+/// revision's operations are read against one frozen view and then applied as
+/// arithmetic. Every position is read before any of them moves anything.
+///
+/// Proved to be the model's `lin_event`: refused exactly where an operation
+/// does not hold, and otherwise each position's inserts, then its line unless
+/// a delete covers it.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
+#[cfg_attr(verus_keep_ghost, verifier::loop_isolation(false))]
+#[cfg_attr(verus_keep_ghost, verus_spec(r =>
+    requires
+        proof::linear::inserts_ascend(document.operations.deep_view()),
+    ensures
+        (r is Ok) == (proof::linear::lin_event(line_views(lines@), author as int, document.operations.deep_view()) is Some),
+        r matches Ok(kept) ==> line_views(kept@)
+            == proof::linear::lin_event(line_views(lines@), author as int, document.operations.deep_view())->Some_0,
+))]
+fn step(
+    lines: &[Line],
+    author: usize,
+    named: RevisionId,
+    revision: RevisionId,
+    document: &OperationDocument,
+) -> Result<Vec<Line>, MergeError> {
+    #[cfg(verus_keep_ghost)]
+    proof_decl! {
+        let ghost s = line_views(lines@);
+        let ghost ops = document.operations.deep_view();
+        let ghost e = author as int;
+    }
+    let length = lines.len();
+    let mut removed = vec![false; length];
+    let mut added: BTreeMap<usize, Vec<Item>> = BTreeMap::new();
+    let mut k: usize = 0;
+    #[cfg_attr(verus_keep_ghost, verus_spec(
+        invariant
+            k <= document.operations@.len(),
+            removed@.len() == length,
+            forall|m: int| 0 <= m < k ==> proof::linear::holds_on(s, #[trigger] ops[m]),
+            forall|q: int| 0 <= q < length ==> #[trigger] removed@[q] == proof::linear::covered(ops, k as int, q),
+            forall|q: usize| #[trigger] added@.contains_key(q) == proof::linear::inserts_at(ops, k as int, q as int),
+            forall|q: usize| #[trigger] added@.contains_key(q) ==> added@[q].deep_view()
+                == ops[proof::linear::insert_at(ops, k as int, q as int)].items,
+        decreases document.operations@.len() - k,
+    ))]
+    while k < document.operations.len() {
+        let operation = &document.operations[k];
+        #[cfg(verus_keep_ghost)]
+        proof! { assert(ops[k as int] == operation.deep_view()); }
+        match operation.kind {
+            OperationKind::Delete => {
+                let count = operation.items.len();
+                if count > length || operation.at > length - count {
+                    return Err(MergeError::OutOfRange {
+                        revision,
+                        position: operation.at.saturating_add(count),
+                        length,
+                    });
+                }
+                let mut offset: usize = 0;
+                #[cfg_attr(verus_keep_ghost, verus_spec(
+                    invariant
+                        offset <= count,
+                        removed@.len() == length,
+                        forall|q: int| 0 <= q < length ==> #[trigger] removed@[q]
+                            == (proof::linear::covered(ops, k as int, q) || (operation.at <= q < operation.at + offset)),
+                        forall|y: int| 0 <= y < offset ==> crate::format::proof::matches(ops[k as int].items[y], #[trigger] s[operation.at + y].item),
+                    decreases count - offset,
+                ))]
+                while offset < count {
+                    let position = operation.at + offset;
+                    let recorded = &operation.items[offset];
+                    let found = &lines[position].item;
+                    #[cfg(verus_keep_ghost)]
+                    proof! {
+                        assert(ops[k as int].items[offset as int] == recorded@);
+                        assert(s[position as int] == lines@[position as int]@);
+                    }
+                    // A forgotten item on either side matches, per decision
+                    // 0014, exactly as it does in the walk.
+                    if !recorded.matches(found) {
+                        #[cfg(verus_keep_ghost)]
+                        proof! {
+                            let op = ops[k as int];
+                            assert(op.at + offset == position as int);
+                            assert(s[op.at + offset] == lines@[position as int]@);
+                            assert(!crate::format::proof::matches(op.items[offset as int], s[op.at + offset].item));
+                            assert(!proof::linear::holds_on(s, ops[k as int]));
+                        }
+                        return Err(MergeError::ItemDisagrees {
+                            revision,
+                            position,
+                            recorded: recorded.text.clone(),
+                            found: found.text.clone(),
+                        });
+                    }
+                    removed[position] = true;
+                    offset += 1;
+                }
+                #[cfg(verus_keep_ghost)]
+                proof! {
+                    assert forall|q: int| 0 <= q < length implies #[trigger] removed@[q] == proof::linear::covered(ops, k as int + 1, q) by {
+                        if operation.at <= q < operation.at + count {
+                            assert(ops[k as int].delete && ops[k as int].at <= q < ops[k as int].at + ops[k as int].items.len());
+                        }
+                        if proof::linear::covered(ops, k as int + 1, q) && !proof::linear::covered(ops, k as int, q) {
+                            let m = choose|m: int| 0 <= m < k + 1 && #[trigger] ops[m].delete && ops[m].at <= q < ops[m].at + ops[m].items.len();
+                            assert(m == k);
+                        }
+                    }
+                    self::lemma_inserts_past_delete(ops, k as int);
+                }
+            }
+            OperationKind::Insert => {
+                if operation.at > length {
+                    return Err(MergeError::OutOfRange {
+                        revision,
+                        position: operation.at,
+                        length,
+                    });
+                }
+                #[cfg(verus_keep_ghost)]
+                proof! {
+                    // Inserts ascend, so nothing was inserted here before.
+                    assert(!proof::linear::inserts_at(ops, k as int, operation.at as int)) by {
+                        if proof::linear::inserts_at(ops, k as int, operation.at as int) {
+                            let m = choose|m: int| 0 <= m < k && !ops[m].delete && #[trigger] ops[m].at == operation.at as int;
+                            assert(ops[m].at < ops[k as int].at);
+                        }
+                    }
+                }
+                let mut run = Vec::new();
+                crate::replay::extend(&mut run, &operation.items);
+                added.insert(operation.at, run);
+                #[cfg(verus_keep_ghost)]
+                proof! {
+                    self::lemma_inserts_past_insert(ops, k as int);
+                    assert(run.deep_view() =~= ops[k as int].items);
+                }
+            }
+        }
+        k += 1;
+    }
+    #[cfg(verus_keep_ghost)]
+    proof! {
+        assert(forall|m: int| 0 <= m < ops.len() ==> proof::linear::holds_on(s, #[trigger] ops[m]));
+        assert(s.len() == length);
+    }
+    // An insert at a position goes before whatever the parent held there,
+    // which is where the walk's anchoring puts it too; an insert at the end
+    // names the gap past the last item.
+    let mut kept: Vec<Line> = Vec::with_capacity(length);
+    // How many of the parent's lines are kept so far; the rest of `kept` is
+    // what this revision has minted, which is the ordinal half of its names.
+    let mut olds: usize = 0;
+    let mut position: usize = 0;
+    #[cfg(verus_keep_ghost)]
+    proof! {
+        assert(line_views(kept@) =~= proof::linear::rebuild(s, ops, e, 0, 0));
+        assert forall|m: int| 0 <= m < ops.len() implies #[trigger] ops[m].at >= 0 by {
+            assert(ops[m] == document.operations@[m].deep_view());
+        }
+        self::lemma_minted_upto_zero(ops, ops.len() as int);
+    }
+    #[cfg_attr(verus_keep_ghost, verus_spec(
+        invariant
+            position <= length,
+            olds <= position,
+            olds <= kept@.len(),
+            kept@.len() - olds == proof::linear::minted_upto(ops, ops.len() as int, position as int),
+            line_views(kept@) == proof::linear::rebuild(s, ops, e, 0, position as int),
+            forall|q: usize| #[trigger] added@.contains_key(q)
+                == (proof::linear::inserts_at(ops, ops.len() as int, q as int) && q >= position),
+            forall|q: usize| #[trigger] added@.contains_key(q) ==> added@[q].deep_view()
+                == ops[proof::linear::insert_at(ops, ops.len() as int, q as int)].items,
+        decreases length - position,
+    ))]
+    while position < length {
+        #[cfg(verus_keep_ghost)]
+        proof_decl! { let ghost before = line_views(kept@); }
+        #[cfg(verus_keep_ghost)]
+        proof_with!(Ghost(ops));
+        self::fill(&mut kept, &mut added, position, author, named, olds);
+        #[cfg(verus_keep_ghost)]
+        proof_decl! { let ghost filled = line_views(kept@); }
+        if !removed[position] {
+            kept.push(lines[position].copied());
+            olds += 1;
+            #[cfg(verus_keep_ghost)]
+            proof! {
+                assert(kept@.last()@ == s[position as int]);
+                assert(line_views(kept@) =~= filled.push(s[position as int]));
+            }
+        }
+        #[cfg(verus_keep_ghost)]
+        proof! {
+            let p = position as int;
+            assert(s[p] == lines@[p]@);
+            assert(removed@[p] == proof::linear::covered(ops, ops.len() as int, p));
+            assert(filled == before + proof::linear::new_lines(ops, ops.len() as int, p, e));
+            assert(proof::linear::rebuild(s, ops, e, 0, p + 1)
+                == proof::linear::rebuild(s, ops, e, 0, p) + proof::linear::lslot(s, ops, e, p));
+            assert(line_views(kept@) =~= proof::linear::rebuild(s, ops, e, 0, p + 1));
+        }
+        position += 1;
+    }
+    #[cfg(verus_keep_ghost)]
+    proof_decl! { let ghost upto = line_views(kept@); }
+    #[cfg(verus_keep_ghost)]
+    proof_with!(Ghost(ops));
+    self::fill(&mut kept, &mut added, length, author, named, olds);
+    #[cfg(verus_keep_ghost)]
+    proof! {
+        let p = length as int;
+        assert(upto == proof::linear::rebuild(s, ops, e, 0, p));
+        assert(proof::linear::lslot(s, ops, e, p) =~= proof::linear::new_lines(ops, ops.len() as int, p, e));
+        assert(proof::linear::rebuild(s, ops, e, 0, p + 1)
+            == proof::linear::rebuild(s, ops, e, 0, p) + proof::linear::lslot(s, ops, e, p));
+        assert(line_views(kept@) =~= proof::linear::rebuild(s, ops, e, 0, p + 1));
+    }
+    Ok(kept)
+}
+
+/// What a revision inserts at `position`, taken out of `added` and placed as
+/// its new lines, each numbered on from what it has already minted.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
+#[cfg_attr(verus_keep_ghost, verifier::loop_isolation(false))]
+#[cfg_attr(verus_keep_ghost, verus_spec(
+    with Ghost(ops): Ghost<Seq<OperationS>>
+    requires
+        proof::linear::inserts_ascend(ops),
+        olds <= old(kept)@.len(),
+        old(kept)@.len() - olds == proof::linear::minted_upto(ops, ops.len() as int, position as int),
+        forall|q: usize| #[trigger] old(added)@.contains_key(q)
+            == (proof::linear::inserts_at(ops, ops.len() as int, q as int) && q >= position),
+        forall|q: usize| #[trigger] old(added)@.contains_key(q) ==> old(added)@[q].deep_view()
+            == ops[proof::linear::insert_at(ops, ops.len() as int, q as int)].items,
+    ensures
+        line_views(final(kept)@) == line_views(old(kept)@)
+            + proof::linear::new_lines(ops, ops.len() as int, position as int, author as int),
+        final(kept)@.len() - olds == proof::linear::minted_upto(ops, ops.len() as int, position as int + 1),
+        forall|q: usize| #[trigger] final(added)@.contains_key(q)
+            == (proof::linear::inserts_at(ops, ops.len() as int, q as int) && q > position),
+        forall|q: usize| #[trigger] final(added)@.contains_key(q) ==> final(added)@[q].deep_view()
+            == ops[proof::linear::insert_at(ops, ops.len() as int, q as int)].items,
+))]
+fn fill(
+    kept: &mut Vec<Line>,
+    added: &mut BTreeMap<usize, Vec<Item>>,
+    position: usize,
+    author: usize,
+    named: RevisionId,
+    olds: usize,
+) {
+    #[cfg(verus_keep_ghost)]
+    proof_decl! {
+        let ghost kk = ops.len() as int;
+        let ghost p = position as int;
+        proof::linear::lemma_new_lines_one(ops, kk, p, author as int);
+        proof::linear::lemma_minted_upto_step(ops, kk, p);
+        let ghost start = line_views(kept@);
+    }
+    if let Some(new) = added.remove(&position) {
+        #[cfg(verus_keep_ghost)]
+        proof_decl! {
+            let ghost m = proof::linear::insert_at(ops, kk, p);
+            proof::linear::lemma_insert_at(ops, kk, p);
+            proof::linear::lemma_minted_before_upto(ops, m);
+            let ghost base = kept@.len();
+        }
+        #[cfg_attr(verus_keep_ghost, verus_spec(iter =>
+            invariant
+                iter.seq() == new@,
+                olds <= base,
+                base - olds == proof::linear::minted_before(ops, m),
+                kept@.len() == base + iter.index(),
+                line_views(kept@) == start + Seq::new(iter.index() as nat, |x: int| proof::linear::LineS {
+                    author: author as int,
+                    minted: proof::linear::minted_before(ops, m) + x,
+                    item: new@[x]@,
+                }),
+        ))]
+        for item in new {
+            let minted = kept.len() - olds;
+            #[cfg(verus_keep_ghost)]
+            proof_decl! { let ghost was = line_views(kept@); }
+            #[cfg(verus_keep_ghost)]
+            proof_decl! {
+                let ghost x = kept@.len() - base;
+                assert(new@[x] == item);
+            }
+            kept.push(Line {
+                item,
+                author,
+                reference: (named, minted),
+            });
+            #[cfg(verus_keep_ghost)]
+            proof! {
+                assert(line_views(kept@) =~= was.push(kept@[kept@.len() - 1]@));
+                let f = |y: int| proof::linear::LineS {
+                    author: author as int,
+                    minted: proof::linear::minted_before(ops, m) + y,
+                    item: new@[y]@,
+                };
+                assert(Seq::new((x + 1) as nat, f) =~= Seq::new(x as nat, f).push(f(x)));
+            }
+        }
+        #[cfg(verus_keep_ghost)]
+        proof! {
+            assert(new@.len() == ops[m].items.len());
+            assert forall|x: int| 0 <= x < new@.len() implies #[trigger] new@[x]@ == ops[m].items[x] by {
+                assert(new.deep_view()[x] == new@[x]@);
+            }
+            assert(line_views(kept@) =~= start + proof::linear::added(ops, m, author as int));
+        }
+    }
 }
 
 /// One item of one file, and everywhere its bytes are quoted.
@@ -419,6 +738,62 @@ fn terminators(items: &[Item]) -> Vec<Contested> {
             kind: Contest::Terminator,
         })
         .collect()
+}
+
+/// Whether each insert among `operations` is at a later position than every
+/// insert before it.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
+#[cfg_attr(verus_keep_ghost, verifier::loop_isolation(false))]
+#[cfg_attr(verus_keep_ghost, verus_spec(r =>
+    ensures r == proof::linear::inserts_ascend(operations.deep_view()),
+))]
+fn ascending(operations: &[Operation]) -> bool {
+    #[cfg(verus_keep_ghost)]
+    proof_decl! { let ghost ops = operations.deep_view(); }
+    // The last insert so far, which is at the furthest position of any.
+    let mut last: Option<usize> = None;
+    let mut k: usize = 0;
+    #[cfg_attr(verus_keep_ghost, verus_spec(
+        invariant
+            k <= operations@.len(),
+            ops.len() == operations@.len(),
+            proof::linear::inserts_ascend(ops.take(k as int)),
+            last matches Some(l) ==> (l < k && !ops[l as int].delete
+                && forall|m: int| 0 <= m < k && !(#[trigger] ops[m]).delete ==> ops[m].at <= ops[l as int].at),
+            last is None ==> forall|m: int| 0 <= m < k ==> (#[trigger] ops[m]).delete,
+        decreases operations@.len() - k,
+    ))]
+    while k < operations.len() {
+        #[cfg(verus_keep_ghost)]
+        proof! { assert(ops[k as int] == operations@[k as int].deep_view()); }
+        if matches!(operations[k].kind, OperationKind::Insert) {
+            match last {
+                Some(l) if operations[k].at <= operations[l].at => {
+                    #[cfg(verus_keep_ghost)]
+                    proof! {
+                        assert(ops[l as int] == operations@[l as int].deep_view());
+                        assert(!(ops[l as int].at < ops[k as int].at));
+                    }
+                    return false;
+                }
+                _ => {}
+            }
+            last = Some(k);
+        }
+        #[cfg(verus_keep_ghost)]
+        proof! {
+            assert forall|a: int, b: int| 0 <= a < b < k + 1 && !ops.take(k + 1)[a].delete && !ops.take(k + 1)[b].delete
+                implies #[trigger] ops.take(k + 1)[a].at < #[trigger] ops.take(k + 1)[b].at by {
+                if b < k {
+                    assert(ops.take(k as int)[a] == ops[a] && ops.take(k as int)[b] == ops[b]);
+                }
+            }
+        }
+        k += 1;
+    }
+    #[cfg(verus_keep_ghost)]
+    proof! { assert(ops.take(k as int) =~= ops); }
+    true
 }
 
 /// Replay a graph in one causal order.
@@ -866,11 +1241,6 @@ impl<'a> Graph<'a> {
         Self::from(events, parents)
     }
 
-    /// Whether this graph is one chain, so nothing in it is concurrent.
-    fn chain(&self) -> bool {
-        matches!(self.ancestry, Ancestry::Chain { .. })
-    }
-
     /// Whether neither of these two events had seen the other.
     fn concurrent(&self, one: usize, other: usize) -> bool {
         one != other && !self.ancestry.knows(one, other) && !self.ancestry.knows(other, one)
@@ -900,6 +1270,7 @@ impl<'a> Graph<'a> {
                 &&& graph.events@ == events@
                 &&& graph@.wf()
                 &&& proof::valid_order(graph@, proof::ints(graph.order@))
+                &&& graph.ancestry is Chain ==> proof::linear::chained_order(graph@, proof::ints(graph.order@))
             },
     ))]
     fn from(events: Vec<Event<'a>>, parents: Vec<Vec<usize>>) -> Result<Self, MergeError> {
@@ -914,13 +1285,63 @@ impl<'a> Graph<'a> {
             order,
         };
         #[cfg(verus_keep_ghost)]
-        proof! { lemma_graph_sound(&graph, ancestry::proof::parents_of(parents@)); }
+        proof! {
+            lemma_graph_sound(&graph, ancestry::proof::parents_of(parents@));
+            let walking = proof::ints(graph.order@);
+            if graph.ancestry is Chain {
+                assert forall|i: int, j: int| 0 <= j <= i < walking.len()
+                    implies #[trigger] graph@.knows(walking[i], walking[j]) by {
+                    assert(graph.ancestry.knows_spec(order@[i] as int, order@[j] as int));
+                }
+            }
+        }
         Ok(graph)
     }
 }
 
 #[cfg_attr(verus_keep_ghost, cfg_eval, verus_verify)]
 impl Graph<'_> {
+    /// Whether this graph is one chain, so nothing in it is concurrent.
+    #[cfg_attr(verus_keep_ghost, verus_spec(r =>
+        ensures r == (self.ancestry is Chain),
+    ))]
+    fn chain(&self) -> bool {
+        matches!(self.ancestry, Ancestry::Chain { .. })
+    }
+
+    /// Whether no event resolves, and every document's inserts ascend by
+    /// position: what the fast path is proved over. The parser admits no
+    /// other document, but an `OperationDocument` built by hand can be one.
+    #[cfg_attr(verus_keep_ghost, verifier::loop_isolation(false))]
+    #[cfg_attr(verus_keep_ghost, verus_spec(r =>
+        ensures r == proof::linear::plain(self@),
+    ))]
+    fn plain(&self) -> bool {
+        let mut a: usize = 0;
+        #[cfg_attr(verus_keep_ghost, verus_spec(
+            invariant
+                a <= self.events@.len(),
+                forall|b: int| 0 <= b < a ==> {
+                    &&& (#[trigger] self@.events[b]).pieces is None
+                    &&& (self@.events[b].ops matches Some(ops) ==> proof::linear::inserts_ascend(ops))
+                },
+            decreases self.events@.len() - a,
+        ))]
+        while a < self.events.len() {
+            #[cfg(verus_keep_ghost)]
+            proof! { assert(self@.events[a as int] == self.events@[a as int]@); }
+            match self.events[a].stated {
+                Some((_, Stated::Resolution(_))) => return false,
+                Some((_, Stated::Operations(document))) if !ascending(&document.operations) => {
+                    return false;
+                }
+                _ => {}
+            }
+            a += 1;
+        }
+        true
+    }
+
     /// Whether the author of `event` had seen `other`, or is `other`.
     ///
     /// The view an insertion is placed against: an element written earlier by
@@ -3031,6 +3452,91 @@ impl Tree {
     }
 }
 
+impl View for Line {
+    type V = proof::linear::LineS;
+
+    closed spec fn view(&self) -> proof::linear::LineS {
+        proof::linear::LineS { author: self.author as int, minted: self.reference.1 as int, item: self.item@ }
+    }
+}
+
+/// Lines, as the model reads them.
+spec fn line_views(lines: Seq<Line>) -> Seq<proof::linear::LineS> {
+    lines.map_values(|line: Line| line@)
+}
+
+/// A delete inserts nothing, so what is inserted where is as it was.
+proof fn lemma_inserts_past_delete(ops: Seq<OperationS>, k: int)
+    requires 0 <= k < ops.len(), ops[k].delete, proof::linear::inserts_ascend(ops)
+    ensures forall|q: int| proof::linear::inserts_at(ops, k + 1, q) == proof::linear::inserts_at(ops, k, q)
+        && (proof::linear::inserts_at(ops, k, q) ==> proof::linear::insert_at(ops, k + 1, q) == proof::linear::insert_at(ops, k, q)),
+{
+    assert forall|q: int| proof::linear::inserts_at(ops, k + 1, q) == proof::linear::inserts_at(ops, k, q)
+        && (proof::linear::inserts_at(ops, k, q) ==> proof::linear::insert_at(ops, k + 1, q) == proof::linear::insert_at(ops, k, q)) by {
+        if proof::linear::inserts_at(ops, k + 1, q) {
+            let m = choose|m: int| 0 <= m < k + 1 && !ops[m].delete && #[trigger] ops[m].at == q;
+            assert(m < k);
+        }
+        if proof::linear::inserts_at(ops, k, q) {
+            let m = choose|m: int| 0 <= m < k && !ops[m].delete && #[trigger] ops[m].at == q;
+            assert(proof::linear::inserts_at(ops, k + 1, q));
+            proof::linear::lemma_insert_at(ops, k, q);
+            proof::linear::lemma_insert_at(ops, k + 1, q);
+        }
+    }
+}
+
+/// An insert at a fresh position is what is now inserted there, and changes
+/// nothing elsewhere.
+proof fn lemma_inserts_past_insert(ops: Seq<OperationS>, k: int)
+    requires 0 <= k < ops.len(), !ops[k].delete, proof::linear::inserts_ascend(ops)
+    ensures
+        forall|q: int| proof::linear::inserts_at(ops, k + 1, q) == (proof::linear::inserts_at(ops, k, q) || q == ops[k].at),
+        proof::linear::insert_at(ops, k + 1, ops[k].at) == k,
+        forall|q: int| q != ops[k].at && proof::linear::inserts_at(ops, k, q)
+            ==> proof::linear::insert_at(ops, k + 1, q) == proof::linear::insert_at(ops, k, q),
+{
+    assert(proof::linear::inserts_at(ops, k + 1, ops[k].at));
+    proof::linear::lemma_insert_at(ops, k + 1, ops[k].at);
+    assert forall|q: int| proof::linear::inserts_at(ops, k + 1, q) == (proof::linear::inserts_at(ops, k, q) || q == ops[k].at) by {
+        if proof::linear::inserts_at(ops, k + 1, q) && q != ops[k].at {
+            let m = choose|m: int| 0 <= m < k + 1 && !ops[m].delete && #[trigger] ops[m].at == q;
+            assert(m < k);
+        }
+        if proof::linear::inserts_at(ops, k, q) {
+            let m = choose|m: int| 0 <= m < k && !ops[m].delete && #[trigger] ops[m].at == q;
+            assert(ops[m].at == q);
+        }
+    }
+    assert forall|q: int| q != ops[k].at && proof::linear::inserts_at(ops, k, q)
+        implies proof::linear::insert_at(ops, k + 1, q) == proof::linear::insert_at(ops, k, q) by {
+        proof::linear::lemma_insert_at(ops, k, q);
+        proof::linear::lemma_insert_at(ops, k + 1, q);
+    }
+}
+
+/// Nothing is inserted before position 0.
+proof fn lemma_minted_upto_zero(ops: Seq<OperationS>, k: int)
+    requires forall|m: int| 0 <= m < ops.len() ==> #[trigger] ops[m].at >= 0, k <= ops.len()
+    ensures proof::linear::minted_upto(ops, k, 0) == 0
+    decreases k
+{
+    if k > 0 {
+        lemma_minted_upto_zero(ops, k - 1);
+    }
+}
+
+/// A walk of the fast path that refuses one event refuses the whole order.
+proof fn lemma_lin_some_prefix(g: proof::GraphS, order: Seq<int>, k: int, k2: int)
+    requires 0 <= k <= k2, proof::linear::lin(g, order, k2) is Some
+    ensures proof::linear::lin(g, order, k) is Some
+    decreases k2 - k
+{
+    if k < k2 {
+        lemma_lin_some_prefix(g, order, k, k2 - 1);
+    }
+}
+
 /// Highest first, each once.
 spec fn descending(s: Seq<usize>) -> bool {
     forall|i: int, j: int| 0 <= i < j < s.len() ==> #[trigger] s[i] > #[trigger] s[j]
@@ -3882,6 +4388,33 @@ mod tests {
                 "round {round}: every item has an author"
             );
         }
+    }
+
+    /// A document built by hand rather than parsed can list its inserts out
+    /// of position order, which the fast path is not proved over. Such a
+    /// chain goes to the walk, so its lines are named in the order its
+    /// document states them, as they would be anywhere else.
+    #[test]
+    fn a_chain_with_its_inserts_out_of_order_merges_as_the_walk_does() {
+        let before = State::from_text("a\nb\nc\nd\n");
+        let root = diff(&State::from_text(""), &before).expect("a document");
+        let mut edit = diff(&before, &State::from_text("x\na\nb\ny\nc\nd\n")).expect("a document");
+        edit.operations.reverse();
+        let (first, second) = (digest(b"root"), digest(b"edit"));
+        let events = || {
+            vec![
+                Event::operations(first, vec![], root.id(), &root),
+                Event::operations(second, vec![first], edit.id(), &edit),
+            ]
+        };
+
+        let graph = Graph::new(events()).expect("a graph");
+        assert!(graph.chain() && !graph.plain());
+        let merged = merge(events()).expect("a merge");
+        assert_eq!(merged.state.text(), "x\na\nb\ny\nc\nd\n");
+        assert_eq!(merged, walk(&graph, &graph.order).expect("a walk"));
+        assert_eq!(merged.references[0], (edit.id(), 1));
+        assert_eq!(merged.references[3], (edit.id(), 0));
     }
 
     /// A defect the tree walk used to have, kept executable rather than in

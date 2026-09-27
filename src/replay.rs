@@ -455,7 +455,7 @@ impl State {
 #[cfg_attr(verus_keep_ghost, verus_spec(
     ensures final(run).deep_view() == old(run).deep_view() + items.deep_view(),
 ))]
-fn extend(run: &mut Vec<Item>, items: &[Item]) {
+pub(crate) fn extend(run: &mut Vec<Item>, items: &[Item]) {
     run.reserve(items.len());
     let mut i: usize = 0;
     #[cfg_attr(verus_keep_ghost, verus_spec(

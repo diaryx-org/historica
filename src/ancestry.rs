@@ -76,6 +76,9 @@ impl Ancestry {
             r.events() == parents@.len(),
             forall|e: int, o: int| 0 <= e < parents@.len() && 0 <= o < parents@.len()
                 ==> (#[trigger] r.knows_spec(e, o) <==> proof::reaches(proof::parents_of(parents@), e, o)),
+            // Kept as a chain, every event has seen every one before it.
+            r is Chain ==> forall|i: int, j: int| 0 <= j <= i < order@.len()
+                ==> #[trigger] r.knows_spec(order@[i] as int, order@[j] as int),
     ))]
     pub(crate) fn new(order: &[usize], parents: &[Vec<usize>]) -> Self {
         #[cfg(verus_keep_ghost)]
@@ -120,6 +123,11 @@ impl Ancestry {
                     proof::lemma_place(graph, order@, o);
                     let (i, j) = (proof::place(order@, e), proof::place(order@, o));
                     proof::lemma_chain_reaches(graph, order@, i, j);
+                }
+                assert forall|i: int, j: int| 0 <= j <= i < order@.len()
+                    implies #[trigger] chain.knows_spec(order@[i] as int, order@[j] as int) by {
+                    assert(position@[order@[i] as int] as int == i);
+                    assert(position@[order@[j] as int] as int == j);
                 }
             }
             return chain;

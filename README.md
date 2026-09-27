@@ -214,6 +214,9 @@ compiles. An ordinary build sees none of it and gains no dependency.
   the walk is handed is exactly reachability along parent edges, and the
   order it walks puts every revision after its parents
   ([`src/merge.rs`](src/merge.rs), [`src/ancestry.rs`](src/ancestry.rs)).
+  A history with nothing concurrent in it takes a fast path that edits a
+  list of lines and builds no tree; it is proved to read the same lines as
+  the walk, each with the revision that wrote it, or to refuse alike.
 
 What the proofs take on trust beyond Verus is in one file,
 [`src/trusted.rs`](src/trusted.rs) — today, that SHA-256 is a function — and a

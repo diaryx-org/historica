@@ -12,7 +12,8 @@
 //! are [`TreeS::order`], [`TreeS::visible`], [`TreeS::anchor`] and
 //! [`TreeS::attach`]; and `Tree::standing` reads the file out as
 //! [`TreeS::items`] does. The model came from the Verus spike, where it was
-//! proved first; resolutions were added to it here.
+//! proved first; resolutions were added to it here. [`linear`] is the fast
+//! path's: over a chain, the walk's tree reads as the list `linear` edits.
 //!
 //! What the theorem takes as given, and what it leaves out:
 //!

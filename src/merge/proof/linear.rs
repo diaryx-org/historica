@@ -6,7 +6,10 @@
 //! attached after `left` reads immediately after `left`
 //! ([`lemma_anchor_after`]). From that, one revision replayed onto the tree
 //! is exactly one revision applied to the list of what stands — which is
-//! what `linear` does without building a tree.
+//! what `linear` does without building a tree. `lines_in_order` in
+//! `merge.rs` is proved to compute [`lin`], and `Graph::from` and
+//! `Graph::plain` to establish what [`theorem_linear`] asks of a history, so
+//! the fast path `merge` takes reads what the walk would.
 
 use vstd::prelude::*;
 
@@ -2176,6 +2179,150 @@ pub proof fn theorem_linear(g: GraphS, order: Seq<int>, k: int)
                         assert(walk(g, order, k) == Some(u));
                     }
                 },
+            }
+        }
+    }
+}
+
+
+// ---------------------------------------------------------------------------
+// The fast path's own bookkeeping.
+// ---------------------------------------------------------------------------
+
+/// Whether one of the first `k` operations inserts at `q`.
+pub open spec fn inserts_at(ops: Seq<OperationS>, k: int, q: int) -> bool {
+    exists|m: int| 0 <= m < k && !ops[m].delete && #[trigger] ops[m].at == q
+}
+
+/// Which of the first `k` operations inserts at `q`.
+pub open spec fn insert_at(ops: Seq<OperationS>, k: int, q: int) -> int {
+    choose|m: int| 0 <= m < k && !ops[m].delete && #[trigger] ops[m].at == q
+}
+
+/// How many items the first `k` operations insert before position `p`.
+pub open spec fn minted_upto(ops: Seq<OperationS>, k: int, p: int) -> int
+    decreases k
+{
+    if k <= 0 {
+        0
+    } else {
+        minted_upto(ops, k - 1, p) + if !ops[k - 1].delete && ops[k - 1].at < p { ops[k - 1].items.len() as int } else { 0 }
+    }
+}
+
+/// With inserts ascending, at most one inserts at a position.
+pub proof fn lemma_insert_at(ops: Seq<OperationS>, k: int, q: int)
+    requires inserts_ascend(ops), 0 <= k <= ops.len(), inserts_at(ops, k, q)
+    ensures ({
+        let m = insert_at(ops, k, q);
+        &&& 0 <= m < k && !ops[m].delete && ops[m].at == q
+        &&& forall|m2: int| 0 <= m2 < k && !ops[m2].delete && ops[m2].at == q ==> m2 == m
+    })
+{
+    let m = insert_at(ops, k, q);
+    assert forall|m2: int| 0 <= m2 < k && !ops[m2].delete && ops[m2].at == q implies m2 == m by {
+        if m2 < m { assert(ops[m2].at < ops[m].at); }
+        if m < m2 { assert(ops[m].at < ops[m2].at); }
+    }
+}
+
+/// With inserts ascending, what the operations insert at a position is the
+/// one insert there, or nothing.
+pub proof fn lemma_new_lines_one(ops: Seq<OperationS>, k: int, q: int, e: int)
+    requires inserts_ascend(ops), 0 <= k <= ops.len()
+    ensures new_lines(ops, k, q, e) == if inserts_at(ops, k, q) { added(ops, insert_at(ops, k, q), e) } else { Seq::empty() }
+    decreases k
+{
+    if k > 0 {
+        lemma_new_lines_one(ops, k - 1, q, e);
+        let m = k - 1;
+        if !ops[m].delete && ops[m].at == q {
+            assert(inserts_at(ops, k, q));
+            lemma_insert_at(ops, k, q);
+            assert(insert_at(ops, k, q) == m);
+            assert(!inserts_at(ops, k - 1, q)) by {
+                if inserts_at(ops, k - 1, q) {
+                    let m2 = choose|m2: int| 0 <= m2 < k - 1 && !ops[m2].delete && #[trigger] ops[m2].at == q;
+                    assert(ops[m2].at < ops[m].at);
+                }
+            }
+            assert(new_lines(ops, k, q, e) =~= added(ops, m, e));
+        } else {
+            assert(new_lines(ops, k, q, e) =~= new_lines(ops, k - 1, q, e));
+            if inserts_at(ops, k - 1, q) {
+                lemma_insert_at(ops, k - 1, q);
+                assert(inserts_at(ops, k, q));
+                lemma_insert_at(ops, k, q);
+                assert(insert_at(ops, k, q) == insert_at(ops, k - 1, q));
+            } else {
+                assert(!inserts_at(ops, k, q)) by {
+                    if inserts_at(ops, k, q) {
+                        let m2 = choose|m2: int| 0 <= m2 < k && !ops[m2].delete && #[trigger] ops[m2].at == q;
+                        assert(m2 < k - 1);
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// Moving past a position counts what was inserted at it.
+pub proof fn lemma_minted_upto_step(ops: Seq<OperationS>, k: int, p: int)
+    requires inserts_ascend(ops), 0 <= k <= ops.len()
+    ensures minted_upto(ops, k, p + 1) == minted_upto(ops, k, p)
+        + if inserts_at(ops, k, p) { ops[insert_at(ops, k, p)].items.len() as int } else { 0 }
+    decreases k
+{
+    if k > 0 {
+        lemma_minted_upto_step(ops, k - 1, p);
+        let m = k - 1;
+        if inserts_at(ops, k, p) {
+            lemma_insert_at(ops, k, p);
+        }
+        if inserts_at(ops, k - 1, p) {
+            lemma_insert_at(ops, k - 1, p);
+            assert(inserts_at(ops, k, p));
+            lemma_insert_at(ops, k, p);
+        }
+        if !ops[m].delete && ops[m].at == p {
+            assert(inserts_at(ops, k, p));
+            assert(!inserts_at(ops, k - 1, p)) by {
+                if inserts_at(ops, k - 1, p) {
+                    let m2 = choose|m2: int| 0 <= m2 < k - 1 && !ops[m2].delete && #[trigger] ops[m2].at == p;
+                    assert(ops[m2].at < ops[m].at);
+                }
+            }
+        } else if inserts_at(ops, k, p) {
+            let m2 = insert_at(ops, k, p);
+            assert(m2 < k - 1);
+            assert(inserts_at(ops, k - 1, p));
+        }
+    }
+}
+
+/// With inserts ascending, an insert mints after exactly what the inserts
+/// at earlier positions minted.
+pub proof fn lemma_minted_before_upto(ops: Seq<OperationS>, m: int)
+    requires inserts_ascend(ops), 0 <= m < ops.len(), !ops[m].delete
+    ensures minted_before(ops, m) == minted_upto(ops, ops.len() as int, ops[m].at)
+{
+    lemma_minted_prefix(ops, m, ops.len() as int, ops[m].at);
+}
+
+proof fn lemma_minted_prefix(ops: Seq<OperationS>, m: int, k: int, p: int)
+    requires inserts_ascend(ops), 0 <= m < ops.len(), !ops[m].delete, ops[m].at == p, 0 <= k <= ops.len()
+    ensures minted_upto(ops, k, p) == minted_before(ops, if k < m { k } else { m })
+    decreases k
+{
+    if k > 0 {
+        lemma_minted_prefix(ops, m, k - 1, p);
+        if k - 1 < m {
+            if !ops[k - 1].delete {
+                assert(ops[k - 1].at < ops[m].at);
+            }
+        } else if k - 1 > m {
+            if !ops[k - 1].delete {
+                assert(ops[m].at < ops[k - 1].at);
             }
         }
     }
