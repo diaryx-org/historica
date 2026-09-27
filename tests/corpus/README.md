@@ -39,10 +39,11 @@ for one stated reason. Decision
 
 The other half of the same history. The numbered files are the edits the
 numbered revisions made to one file, with a gap at `04` because a merge that
-changes nothing about a file names no operation document. Four more pin rules
+changes nothing about a file names no operation document. Five more pin rules
 no revision happened to exercise — a carriage return inside an item, a file
-whose last line has no terminator, a stated result, and items quoted verbatim —
-and nineteen invalid ones are each refused for their own reason.
+whose last line has no terminator, a stated result, items quoted verbatim,
+and a replacement followed by another edit —
+and twenty-two invalid ones are each refused for their own reason.
 
 `states/` is that file as it stands at each revision, hand-written, which is
 what the replayer is held to. Decision
