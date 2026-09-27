@@ -42,7 +42,37 @@ pub open spec fn causal(parents: Seq<Seq<usize>>, order: Seq<usize>) -> bool {
 /// Every event of `order` comes after all of its parents in it.
 pub open spec fn parents_first(parents: Seq<Seq<usize>>, order: Seq<usize>) -> bool {
     forall|i: int, k: int| 0 <= i < order.len() && 0 <= k < parents[order[i] as int].len()
-        ==> exists|j: int| 0 <= j < i && order[j] == #[trigger] parents[order[i] as int][k]
+        ==> #[trigger] placed_before(order, parents[order[i] as int][k], i)
+}
+
+/// Whether `p` sits in `order` before place `i`.
+pub open spec fn placed_before(order: Seq<usize>, p: usize, i: int) -> bool {
+    exists|j: int| 0 <= j < i && order[j] == p
+}
+
+/// Placing an event all of whose parents are placed keeps every event after
+/// its parents.
+pub proof fn lemma_parents_first_push(parents: Seq<Seq<usize>>, order: Seq<usize>, x: usize)
+    requires
+        parents_first(parents, order),
+        forall|k: int| 0 <= k < parents[x as int].len() ==> order.contains(#[trigger] parents[x as int][k]),
+    ensures parents_first(parents, order.push(x))
+{
+    let pushed = order.push(x);
+    assert forall|i: int, k: int| 0 <= i < pushed.len() && 0 <= k < parents[pushed[i] as int].len()
+        implies #[trigger] placed_before(pushed, parents[pushed[i] as int][k], i) by {
+        if i < order.len() {
+            assert(pushed[i] == order[i]);
+            assert(placed_before(order, parents[order[i] as int][k], i));
+            let j = choose|j: int| 0 <= j < i && order[j] == parents[order[i] as int][k];
+            assert(pushed[j] == order[j]);
+        } else {
+            let p = parents[x as int][k];
+            assert(order.contains(p));
+            let j = choose|j: int| 0 <= j < order.len() && order[j] == p;
+            assert(pushed[j] == order[j]);
+        }
+    }
 }
 
 /// Where `e` sits in `order`.
@@ -218,7 +248,8 @@ pub proof fn lemma_reaches_back(parents: Seq<Seq<usize>>, order: Seq<usize>, e: 
         let i = place(order, e);
         let k = choose|k: int| 0 <= k < parents[e].len() && parents[e][k] == p as usize;
         assert(parents[order[i] as int][k] == p as usize);
-        let j = choose|j: int| 0 <= j < i && order[j] == #[trigger] parents[order[i] as int][k];
+        assert(placed_before(order, parents[order[i] as int][k], i));
+        let j = choose|j: int| 0 <= j < i && order[j] == parents[order[i] as int][k];
         lemma_place(parents, order, p);
         assert(place(order, p) == j);
         lemma_reaches_back(parents, order, p, o);

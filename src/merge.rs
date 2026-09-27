@@ -594,19 +594,13 @@ fn causal_order(parents: &[Vec<usize>]) -> Option<Vec<usize>> {
                     assert(was_placed[graph[ready@[j] as int][k2] as int]);
                 }
             }
-            assert(was_order =~= order@.drop_last());
-            assert forall|i: int, k2: int| 0 <= i < order@.len() && 0 <= k2 < graph[order@[i] as int].len()
-                implies exists|j: int| 0 <= j < i && order@[j] == #[trigger] graph[order@[i] as int][k2] by {
-                if i < was_order.len() {
-                    let j = choose|j: int| 0 <= j < i && was_order[j] == #[trigger] graph[was_order[i] as int][k2];
-                    assert(order@[j] == was_order[j]);
-                } else {
-                    assert(order@[i] == next);
-                    let j = choose|j: int| 0 <= j < was_order.len() && was_order[j] == #[trigger] graph[next as int][k2];
-                    assert(order@[j] == was_order[j]);
-                }
+            assert(order@ =~= was_order.push(next));
+            assert forall|k2: int| 0 <= k2 < graph[next as int].len()
+                implies was_order.contains(#[trigger] graph[next as int][k2]) by {
+                let p = graph[next as int][k2];
+                assert(was_placed[p as int]);
             }
-            assert(ancestry::proof::parents_first(graph, order@));
+            ancestry::proof::lemma_parents_first_push(graph, was_order, next);
         }
         let mut c: usize = 0;
         #[cfg_attr(verus_keep_ghost, verus_spec(

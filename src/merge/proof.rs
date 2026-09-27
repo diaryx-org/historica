@@ -34,6 +34,8 @@ use vstd::prelude::*;
 use crate::core::RevisionId;
 use crate::format::proof::{ItemS, OperationS, PieceS, matches};
 
+pub mod linear;
+
 verus! {
 
 // ---------------------------------------------------------------------------

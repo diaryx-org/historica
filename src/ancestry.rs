@@ -171,7 +171,8 @@ impl Ancestry {
                     implies (#[trigger] parents@[event as int]@[m] as int) < n && parents@[event as int]@[m] != event by {
                     let i = proof::place(order@, event as int);
                     assert(graph[order@[i] as int][m] == parents@[event as int]@[m]);
-                    let q = choose|q: int| 0 <= q < i && order@[q] == #[trigger] graph[order@[i] as int][m];
+                    assert(proof::placed_before(order@, graph[order@[i] as int][m], i));
+                    let q = choose|q: int| 0 <= q < i && order@[q] == graph[order@[i] as int][m];
                     assert(order@[q] != order@[i]);
                 }
             }
@@ -579,7 +580,8 @@ proof fn lemma_row_done(graph: Seq<Seq<usize>>, order: Seq<usize>, before: Seq<u
                     && proof::reaches(graph, p, o);
                 let m = choose|m: int| 0 <= m < graph[event].len() && graph[event][m] == p as usize;
                 assert(graph[order[k] as int][m] == p as usize);
-                let q = choose|q: int| 0 <= q < k && order[q] == #[trigger] graph[order[k] as int][m];
+                assert(proof::placed_before(order, graph[order[k] as int][m], k));
+                let q = choose|q: int| 0 <= q < k && order[q] == graph[order[k] as int][m];
                 assert(order[q] as int == p);
                 assert(row_bit(before, words, order[q] as int, o) <==> proof::reaches(graph, order[q] as int, o));
                 assert(row_bit(before, words, graph[event][m] as int, o));
@@ -592,7 +594,8 @@ proof fn lemma_row_done(graph: Seq<Seq<usize>>, order: Seq<usize>, before: Seq<u
                 let m = choose|m: int| 0 <= m < graph[event].len() && row_bit(before, words, graph[event][m] as int, o);
                 let p = graph[event][m] as int;
                 assert(graph[order[k] as int][m] == p as usize);
-                let q = choose|q: int| 0 <= q < k && order[q] == #[trigger] graph[order[k] as int][m];
+                assert(proof::placed_before(order, graph[order[k] as int][m], k));
+                let q = choose|q: int| 0 <= q < k && order[q] == graph[order[k] as int][m];
                 assert(order[q] as int == p);
                 assert(row_bit(before, words, order[q] as int, o) <==> proof::reaches(graph, order[q] as int, o));
                 assert(graph[event].contains(p as usize));
