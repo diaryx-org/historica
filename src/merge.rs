@@ -31,7 +31,7 @@
 //! kept in one place because 0007 owes it a conformance suite against the
 //! reference implementation before any of this is called done.
 
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use crate::ancestry::Ancestry;
@@ -40,7 +40,7 @@ use crate::format::{Item, Operation, OperationDocument, OperationKind, Piece, Re
 use crate::replay::State;
 
 #[cfg(verus_keep_ghost)]
-use crate::format::proof::ItemS;
+use crate::format::proof::{ItemS, PieceS};
 #[cfg(verus_keep_ghost)]
 use vstd::prelude::*;
 
@@ -365,11 +365,7 @@ pub struct Quoted {
 /// [`merge`] returns.
 pub fn quotes<'a>(events: impl IntoIterator<Item = Event<'a>>) -> Result<Vec<Quoted>, MergeError> {
     let graph = Graph::new(events.into_iter().collect())?;
-    let order = graph.order.clone();
-    let mut tree = Tree::default();
-    for event in &order {
-        tree.replay(&graph, *event)?;
-    }
+    let tree = built(&graph, &graph.order)?;
     Ok(tree
         .order()
         .into_iter()
@@ -430,11 +426,100 @@ fn terminators(items: &[Item]) -> Vec<Contested> {
 /// an event after its parents produces the same file. The tests hold that
 /// claim to every valid order of a small graph rather than asserting it.
 fn walk(graph: &Graph<'_>, order: &[usize]) -> Result<Merged, MergeError> {
-    let mut tree = Tree::default();
-    for event in order {
-        tree.replay(graph, *event)?;
+    Ok(built(graph, order)?.read(graph))
+}
+
+/// Replay a graph in one order, to the tree whose reading is the merged file.
+///
+/// Proved to build exactly what the model's `walk` builds, and to refuse
+/// exactly where it refuses, for any order that names each event once; the
+/// model's `theorem_convergence` is that any two causal orders build trees
+/// reading the same file.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
+#[cfg_attr(verus_keep_ghost, verus_spec(r =>
+    requires
+        graph.holds(),
+        forall|k: int| 0 <= k < order@.len() ==> #[trigger] order@[k] < graph.events@.len(),
+        forall|i: int, j: int| 0 <= i < order@.len() && 0 <= j < order@.len() && i != j
+            ==> order@[i] != order@[j],
+    ensures
+        (r is Ok <==> proof::walk(graph@, proof::ints(order@), order@.len() as int) is Some),
+        r matches Ok(tree) ==> {
+            &&& tree@ == proof::walk(graph@, proof::ints(order@), order@.len() as int)->Some_0
+            &&& tree.holds(graph.events@.len())
+        },
+))]
+fn built(graph: &Graph<'_>, order: &[usize]) -> Result<Tree, MergeError> {
+    let mut tree = Tree {
+        elements: Vec::new(),
+        root: Vec::new(),
+    };
+    #[cfg(verus_keep_ghost)]
+    proof_decl! {
+        let ghost g = graph@;
+        let ghost walking = proof::ints(order@);
+        assert(tree@.nodes =~= Seq::<proof::Node>::empty());
+        assert(tree@.children(None, true) == Seq::<int>::empty());
+        assert(proof::ints(tree.root@) =~= Seq::<int>::empty());
     }
-    Ok(tree.read(graph))
+    let mut k: usize = 0;
+    #[cfg_attr(verus_keep_ghost, verus_spec(
+        invariant
+            k <= order@.len(),
+            graph.holds(),
+            g == graph@,
+            walking == proof::ints(order@),
+            forall|j: int| 0 <= j < order@.len() ==> #[trigger] order@[j] < graph.events@.len(),
+            forall|i: int, j: int| 0 <= i < order@.len() && 0 <= j < order@.len() && i != j
+                ==> order@[i] != order@[j],
+            tree.holds(graph.events@.len()),
+            proof::distinct_names(tree@),
+            forall|i: int| 0 <= i < tree.elements@.len() ==> exists|j: int| 0 <= j < k
+                && order@[j] == (#[trigger] tree.elements@[i]).author,
+            proof::walk(g, walking, k as int) == Some(tree@),
+        decreases order@.len() - k,
+    ))]
+    while k < order.len() {
+        let event = order[k];
+        #[cfg(verus_keep_ghost)]
+        proof_decl! {
+            // Nothing is by `event` yet: every element is by an event walked
+            // already, and the order names each event once.
+            assert forall|i: int| tree@.node(i) && (#[trigger] tree@.nodes[i]).author == event as int
+                implies tree@.nodes[i].minted < 0 by {
+                assert(tree@.nodes[i] == tree.elements@[i]@);
+                let j = choose|j: int| 0 <= j < k && order@[j] == tree.elements@[i].author;
+            }
+            let ghost before = tree.elements@;
+            assert(walking[k as int] == event as int);
+        }
+        #[cfg(verus_keep_ghost)]
+        proof_decl! { let ghost walked = tree@; }
+        let replayed = tree.replay(graph, event);
+        #[cfg(verus_keep_ghost)]
+        proof! {
+            // A walk that refuses one event refuses the whole order.
+            assert(proof::walk(g, walking, k as int + 1) == proof::replay_event(walked, g, event as int));
+            if replayed is Err && proof::walk(g, walking, order@.len() as int) is Some {
+                proof::lemma_walk_some_prefix(g, walking, k as int + 1, order@.len() as int);
+            }
+        }
+        replayed?;
+        #[cfg(verus_keep_ghost)]
+        proof! {
+            assert forall|i: int| 0 <= i < tree.elements@.len() implies exists|j: int| 0 <= j < k + 1
+                && order@[j] == (#[trigger] tree.elements@[i]).author by {
+                if i < before.len() {
+                    let j = choose|j: int| 0 <= j < k && order@[j] == before[i].author;
+                    assert(order@[j] == tree.elements@[i].author);
+                } else {
+                    assert(order@[k as int] == tree.elements@[i].author);
+                }
+            }
+        }
+        k += 1;
+    }
+    Ok(tree)
 }
 
 /// The event graph, indexed and causally ordered.
@@ -553,6 +638,60 @@ impl Graph<'_> {
     fn saw(&self, event: usize, other: usize) -> bool {
         self.ancestry.saw(event, other)
     }
+
+    /// The events that stated their file in `document`.
+    #[cfg_attr(verus_keep_ghost, verifier::loop_isolation(false))]
+    #[cfg_attr(verus_keep_ghost, verus_spec(r =>
+        ensures
+            forall|k: int| 0 <= k < r@.len() ==> #[trigger] r@[k] < self.events@.len(),
+            forall|a: int| 0 <= a < self.events@.len() ==>
+                (proof::states(self@.events[a], document) <==> r@.contains(a as usize)),
+    ))]
+    fn stating(&self, document: RevisionId) -> Vec<usize> {
+        let mut stating: Vec<usize> = Vec::new();
+        let mut a: usize = 0;
+        #[cfg_attr(verus_keep_ghost, verus_spec(
+            invariant
+                a <= self.events@.len(),
+                forall|k: int| 0 <= k < stating@.len() ==> #[trigger] stating@[k] < a,
+                forall|b: int| 0 <= b < a ==>
+                    (proof::states(self@.events[b], document) <==> stating@.contains(b as usize)),
+            decreases self.events@.len() - a,
+        ))]
+        while a < self.events.len() {
+            #[cfg(verus_keep_ghost)]
+            proof_decl! {
+                assert(self@.events[a as int] == self.events@[a as int]@);
+                let ghost was = stating@;
+            }
+            match self.events[a].stated {
+                Some((named, _)) if named == document => stating.push(a),
+                _ => {}
+            }
+            #[cfg(verus_keep_ghost)]
+            proof! {
+                assert forall|b: int| 0 <= b <= a implies
+                    (proof::states(self@.events[b], document) <==> #[trigger] stating@.contains(b as usize)) by {
+                    if b < a {
+                        if was.contains(b as usize) {
+                            let k = choose|k: int| 0 <= k < was.len() && was[k] == b as usize;
+                            assert(stating@[k] == b as usize);
+                        }
+                        if stating@.contains(b as usize) {
+                            let k = choose|k: int| 0 <= k < stating@.len() && stating@[k] == b as usize;
+                            if k < was.len() {
+                                assert(was[k] == b as usize);
+                            }
+                        }
+                    } else if stating@.len() > was.len() {
+                        assert(stating@[was.len() as int] == a);
+                    }
+                }
+            }
+            a += 1;
+        }
+        stating
+    }
 }
 
 /// Which side of its parent an element sits on.
@@ -617,6 +756,29 @@ struct Element {
     side: Side,
     left: Vec<usize>,
     right: Vec<usize>,
+}
+
+/// Make room in `slot` for ordinal `minted`, holding nothing new.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
+#[cfg_attr(verus_keep_ghost, verus_spec(
+    ensures
+        final(slot)@.len() > minted,
+        final(slot)@.len() >= old(slot)@.len(),
+        forall|m: int| 0 <= m < old(slot)@.len() ==> #[trigger] final(slot)@[m] == old(slot)@[m],
+        forall|m: int| old(slot)@.len() <= m < final(slot)@.len() ==> #[trigger] final(slot)@[m] is None,
+))]
+fn pad(slot: &mut Vec<Option<usize>>, minted: usize) {
+    #[cfg_attr(verus_keep_ghost, verus_spec(
+        invariant
+            slot@.len() >= old(slot)@.len(),
+            forall|m: int| 0 <= m < old(slot)@.len() ==> #[trigger] slot@[m] == old(slot)@[m],
+            forall|m: int| old(slot)@.len() <= m < slot@.len() ==> #[trigger] slot@[m] is None,
+            slot@.len() <= old(slot)@.len() || slot@.len() <= minted + 1,
+        decreases minted + 1 - slot@.len(),
+    ))]
+    while slot.len() <= minted {
+        slot.push(None);
+    }
 }
 
 /// One step of reading the tree out in order: a subtree still to be read, or
@@ -764,6 +926,113 @@ impl Tree {
         proof! { assert(proof::ints(siblings@).skip(0) =~= proof::ints(siblings@)); }
     }
 
+    /// One event, replayed onto the tree: what it stated, against what its
+    /// author saw. Proved to do exactly what the model's `replay_event` says,
+    /// refusing exactly where it refuses.
+    #[cfg_attr(verus_keep_ghost, verus_spec(r =>
+        requires
+            old(self).holds(graph.events@.len()),
+            graph.holds(),
+            event < graph.events@.len(),
+            proof::distinct_names(old(self)@),
+            old(self)@.minted_below(event as int, 0),
+        ensures
+            final(self).holds(graph.events@.len()),
+            proof::distinct_names(final(self)@),
+            final(self).elements@.len() >= old(self).elements@.len(),
+            forall|i: int| 0 <= i < old(self).elements@.len() ==> {
+                &&& (#[trigger] final(self).elements@[i]).author == old(self).elements@[i].author
+                &&& final(self).elements@[i].reference == old(self).elements@[i].reference
+            },
+            forall|i: int| old(self).elements@.len() <= i < final(self).elements@.len()
+                ==> (#[trigger] final(self).elements@[i]).author == event,
+            (r is Ok <==> proof::replay_event(old(self)@, graph@, event as int) is Some),
+            r is Ok ==> final(self)@ == proof::replay_event(old(self)@, graph@, event as int)->Some_0,
+    ))]
+    fn replay(&mut self, graph: &Graph<'_>, event: usize) -> Result<(), MergeError> {
+        #[cfg(verus_keep_ghost)]
+        proof! { assert(graph@.events[event as int] == graph.events@[event as int]@); }
+        match graph.events[event].stated {
+            None => Ok(()),
+            Some((named, Stated::Operations(document))) => {
+                self.operations(graph, event, named, document)
+            }
+            Some((named, Stated::Resolution(document))) => {
+                self.resolution(graph, event, named, document)
+            }
+        }
+    }
+
+    /// The elements still standing, in the order the document reads: the
+    /// merged file, element by element. Proved to be the model's `items`,
+    /// read by index.
+    #[cfg_attr(verus_keep_ghost, verifier::loop_isolation(false))]
+    #[cfg_attr(verus_keep_ghost, verus_spec(r =>
+        requires
+            self.holds_shape(),
+        ensures
+            proof::ints(r@) == proof::sel(self@.order(), |i: int| self@.standing(i)),
+            forall|k: int| 0 <= k < r@.len() ==> #[trigger] r@[k] < self.elements@.len(),
+    ))]
+    fn standing(&self) -> Vec<usize> {
+        let order = self.order();
+        #[cfg(verus_keep_ghost)]
+        proof_decl! {
+            let ghost t = self@;
+            let ghost stands = |i: int| t.standing(i);
+            reveal(proof::TreeS::order);
+            proof::lemma_read_all_nodes(t, t.children(None, true), -1);
+            assert(proof::ints(order@).take(0) =~= Seq::<int>::empty());
+        }
+        let mut standing: Vec<usize> = Vec::new();
+        let mut k: usize = 0;
+        #[cfg_attr(verus_keep_ghost, verus_spec(
+            invariant
+                k <= order@.len(),
+                proof::ints(standing@) == proof::sel(proof::ints(order@).take(k as int), stands),
+                forall|j: int| 0 <= j < standing@.len() ==> #[trigger] standing@[j] < self.elements@.len(),
+            decreases order@.len() - k,
+        ))]
+        while k < order.len() {
+            let at = order[k];
+            #[cfg(verus_keep_ghost)]
+            proof_decl! {
+                assert(proof::ints(order@)[k as int] == at as int);
+                assert(t.node(at as int));
+                let ghost upto = proof::ints(order@).take(k as int + 1);
+                assert(upto.drop_last() =~= proof::ints(order@).take(k as int));
+                assert(upto.last() == at as int);
+                let ghost before = standing@;
+                let ghost element = self.elements@[at as int];
+                assert(t.nodes[at as int] == element@);
+                let ghost removers = element.deleted_by@.map_values(|by: (usize, Option<(usize, usize)>)| by.0 as int);
+                if element.deleted_by@.len() > 0 {
+                    assert(removers.to_set().contains(removers[0]));
+                    assert(t.nodes[at as int].deleted.contains(removers[0]));
+                    assert(!t.standing(at as int));
+                } else {
+                    assert(removers =~= Seq::<int>::empty());
+                    assert forall|d: int| !(#[trigger] element@.deleted.contains(d)) by {
+                        if element@.deleted.contains(d) {
+                            assert(removers.contains(d));
+                        }
+                    }
+                    assert(t.standing(at as int));
+                }
+                assert(stands(at as int) == t.standing(at as int));
+            }
+            if self.elements[at].deleted_by.is_empty() {
+                standing.push(at);
+                #[cfg(verus_keep_ghost)]
+                proof! { assert(proof::ints(standing@) =~= proof::ints(before).push(at as int)); }
+            }
+            k += 1;
+        }
+        #[cfg(verus_keep_ghost)]
+        proof! { assert(proof::ints(order@).take(order@.len() as int) =~= proof::ints(order@)); }
+        standing
+    }
+
     /// Decision 0007's operations, replayed against what their author saw.
     ///
     /// Every operation of one revision is stated against the state at its
@@ -776,8 +1045,18 @@ impl Tree {
             old(self).holds(graph.events@.len()),
             graph.holds(),
             event < graph.events@.len(),
+            proof::distinct_names(old(self)@),
+            old(self)@.minted_below(event as int, 0),
         ensures
             final(self).holds(graph.events@.len()),
+            proof::distinct_names(final(self)@),
+            final(self).elements@.len() >= old(self).elements@.len(),
+            forall|i: int| 0 <= i < old(self).elements@.len() ==> {
+                &&& (#[trigger] final(self).elements@[i]).author == old(self).elements@[i].author
+                &&& final(self).elements@[i].reference == old(self).elements@[i].reference
+            },
+            forall|i: int| old(self).elements@.len() <= i < final(self).elements@.len()
+                ==> (#[trigger] final(self).elements@[i]).author == event,
             ({
                 let t = old(self)@;
                 let replayed = proof::replay_ops(
@@ -825,7 +1104,17 @@ impl Tree {
                 index <= document.operations@.len(),
                 self.holds(graph.events@.len()),
                 base <= self.elements@.len(),
+                base == old(self).elements@.len(),
+                prepare@.len() <= usize::MAX,
                 forall|q: int| 0 <= q < prepare@.len() ==> #[trigger] prepare@[q] < self.elements@.len(),
+                proof::distinct_names(self@),
+                self@.minted_below(event as int, self.elements@.len() - base),
+                forall|i: int| 0 <= i < old(self).elements@.len() ==> {
+                    &&& (#[trigger] self.elements@[i]).author == old(self).elements@[i].author
+                    &&& self.elements@[i].reference == old(self).elements@[i].reference
+                },
+                forall|i: int| old(self).elements@.len() <= i < self.elements@.len()
+                    ==> (#[trigger] self.elements@[i]).author == event,
                 replayed == proof::replay_ops(self@, g, event as int, view, ops, index as int,
                     self.elements@.len() - base),
             decreases document.operations@.len() - index,
@@ -845,7 +1134,12 @@ impl Tree {
                             length: prepare.len(),
                         });
                     }
-                    self.delete_run(graph, event, &prepare, index, operation)?;
+                    #[cfg(verus_keep_ghost)]
+                    proof_decl! { let ghost t = self@; }
+                    let deleted = self.delete_run(graph, event, &prepare, index, operation);
+                    #[cfg(verus_keep_ghost)]
+                    proof! { self.lemma_names_alike(t); }
+                    deleted?;
                 }
                 OperationKind::Insert => {
                     if at > prepare.len() {
@@ -856,7 +1150,7 @@ impl Tree {
                         });
                     }
                     let left = if at == 0 { None } else { Some(prepare[at - 1]) };
-                    self.insert_run(graph, event, named, base, left, index, operation);
+                    self.insert_run(graph, event, named, base, left, index, &operation.items);
                 }
             }
             index += 1;
@@ -878,6 +1172,10 @@ impl Tree {
         ensures
             final(self).holds(graph.events@.len()),
             final(self).elements@.len() == old(self).elements@.len(),
+            forall|i: int| 0 <= i < old(self).elements@.len() ==> {
+                &&& (#[trigger] final(self).elements@[i]).author == old(self).elements@[i].author
+                &&& final(self).elements@[i].reference == old(self).elements@[i].reference
+            },
             match proof::delete_run(
                 old(self)@,
                 graph@,
@@ -913,6 +1211,10 @@ impl Tree {
                 offset <= operation.items@.len(),
                 self.holds(graph.events@.len()),
                 self.elements@.len() == old(self).elements@.len(),
+                forall|i: int| 0 <= i < old(self).elements@.len() ==> {
+                    &&& (#[trigger] self.elements@[i]).author == old(self).elements@[i].author
+                    &&& self.elements@[i].reference == old(self).elements@[i].reference
+                },
                 ran == proof::delete_run(self@, g, event as int, view, at as int, items, offset as int),
             decreases operation.items@.len() - offset,
         ))]
@@ -936,69 +1238,111 @@ impl Tree {
                     found: found.text.clone(),
                 });
             }
-            #[cfg(verus_keep_ghost)]
-            proof_decl! {
-                let ghost before = self.elements@;
-                let ghost old_view = self@;
-                let ghost marked = self@.delete(target as int, event as int);
-            }
-            self.elements[target]
-                .deleted_by
-                .push((event, Some((index, offset))));
-            #[cfg(verus_keep_ghost)]
-            proof! {
-                let was = before[target as int].deleted_by@.map_values(|by: (usize, Option<(usize, usize)>)| by.0 as int);
-                let now = self.elements@[target as int].deleted_by@.map_values(|by: (usize, Option<(usize, usize)>)| by.0 as int);
-                assert(now =~= was.push(event as int));
-                assert forall|d: int| now.to_set().contains(d) == was.to_set().insert(event as int).contains(d) by {
-                    if now.contains(d) {
-                        let q = choose|q: int| 0 <= q < now.len() && now[q] == d;
-                        if q < was.len() {
-                            assert(was[q] == d);
-                        }
-                    }
-                    if was.contains(d) {
-                        let q = choose|q: int| 0 <= q < was.len() && was[q] == d;
-                        assert(now[q] == d);
-                    }
-                    if d == event as int {
-                        assert(now[was.len() as int] == d);
-                    }
-                }
-                assert(now.to_set() =~= was.to_set().insert(event as int));
-                assert(self.elements@[target as int]@.deleted == before[target as int]@.deleted.insert(event as int));
-                assert(self@.nodes =~= marked.nodes);
-                assert forall|parent: Option<int>, right: bool| #[trigger] self@.children(parent, right)
-                    == old_view.children(parent, right) by {
-                    assert forall|i: int| 0 <= i < self@.len() implies #[trigger] proof::placed_alike(old_view, self@, i) by {
-                        assert(old_view.nodes[i] == before[i]@);
-                    }
-                    proof::lemma_children_placed(old_view, self@, parent, right);
-                }
-                assert forall|i: int| 0 <= i < self.elements@.len() implies {
-                    &&& (#[trigger] self.elements@[i]).author < graph.events@.len()
-                    &&& forall|k: int| 0 <= k < self.elements@[i].deleted_by@.len()
-                        ==> #[trigger] self.elements@[i].deleted_by@[k].0 < graph.events@.len()
-                } by {
-                    if i != target {
-                        assert(self.elements@[i] == before[i]);
-                    }
-                }
-            }
+            self.mark(target, event, Some((index, offset)));
             offset += 1;
         }
         Ok(())
     }
 
-    /// One `insert`'s items, each anchored after the one before it.
-    #[cfg_attr(verus_keep_ghost, verifier::loop_isolation(false))]
+    /// Record that `event` removed the element at `target`, and where its
+    /// document quotes the removal, if it does.
     #[cfg_attr(verus_keep_ghost, verus_spec(
+        requires
+            old(self).holds_shape(),
+            target < old(self).elements@.len(),
+        ensures
+            final(self).holds_shape(),
+            final(self)@ == old(self)@.delete(target as int, event as int),
+            final(self).elements@.len() == old(self).elements@.len(),
+            forall|i: int| 0 <= i < old(self).elements@.len() ==> {
+                &&& (#[trigger] final(self).elements@[i]).author == old(self).elements@[i].author
+                &&& final(self).elements@[i].reference == old(self).elements@[i].reference
+            },
+            forall|events: nat| old(self).holds(events) && event < events ==> #[trigger] final(self).holds(events),
+    ))]
+    fn mark(&mut self, target: usize, event: usize, quote: Option<(usize, usize)>) {
+        #[cfg(verus_keep_ghost)]
+        proof_decl! {
+            let ghost before = self.elements@;
+            let ghost old_view = self@;
+            let ghost marked = self@.delete(target as int, event as int);
+        }
+        self.elements[target].deleted_by.push((event, quote));
+        #[cfg(verus_keep_ghost)]
+        proof! {
+            let was = before[target as int].deleted_by@.map_values(|by: (usize, Option<(usize, usize)>)| by.0 as int);
+            let now = self.elements@[target as int].deleted_by@.map_values(|by: (usize, Option<(usize, usize)>)| by.0 as int);
+            assert(now =~= was.push(event as int));
+            assert forall|d: int| now.to_set().contains(d) == was.to_set().insert(event as int).contains(d) by {
+                if now.contains(d) {
+                    let q = choose|q: int| 0 <= q < now.len() && now[q] == d;
+                    if q < was.len() {
+                        assert(was[q] == d);
+                    }
+                }
+                if was.contains(d) {
+                    let q = choose|q: int| 0 <= q < was.len() && was[q] == d;
+                    assert(now[q] == d);
+                }
+                if d == event as int {
+                    assert(now[was.len() as int] == d);
+                }
+            }
+            assert(now.to_set() =~= was.to_set().insert(event as int));
+            assert(self.elements@[target as int]@.deleted == before[target as int]@.deleted.insert(event as int));
+            assert(self@.nodes =~= marked.nodes);
+            assert forall|parent: Option<int>, right: bool| #[trigger] self@.children(parent, right)
+                == old_view.children(parent, right) by {
+                assert forall|i: int| 0 <= i < self@.len() implies #[trigger] proof::placed_alike(old_view, self@, i) by {
+                    assert(old_view.nodes[i] == before[i]@);
+                }
+                proof::lemma_children_placed(old_view, self@, parent, right);
+            }
+            assert forall|i: int| 0 <= i < self.elements@.len() implies {
+                &&& proof::ints((#[trigger] self.elements@[i]).left@) == self@.children(Some(i), false)
+                &&& proof::ints(self.elements@[i].right@) == self@.children(Some(i), true)
+                &&& match self.elements@[i].parent {
+                    Some(p) => p < i,
+                    None => self.elements@[i].side is Right,
+                }
+            } by {
+                if i != target {
+                    assert(self.elements@[i] == before[i]);
+                }
+            }
+            assert forall|events: nat| old(self).holds(events) && event < events implies #[trigger] self.holds(events) by {
+                assert forall|i: int| 0 <= i < self.elements@.len() implies {
+                    &&& (#[trigger] self.elements@[i]).author < events
+                    &&& forall|k: int| 0 <= k < self.elements@[i].deleted_by@.len()
+                        ==> #[trigger] self.elements@[i].deleted_by@[k].0 < events
+                } by {
+                    if i != target {
+                        assert(self.elements@[i] == before[i]);
+                    } else {
+                        assert forall|k: int| 0 <= k < self.elements@[i].deleted_by@.len()
+                            implies #[trigger] self.elements@[i].deleted_by@[k].0 < events by {
+                            if k < before[i].deleted_by@.len() {
+                                assert(self.elements@[i].deleted_by@[k] == before[i].deleted_by@[k]);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Items inserted in order, each anchored after the one before it. The
+    /// last of them is what follows the run, or `left` where there are none.
+    #[cfg_attr(verus_keep_ghost, verifier::loop_isolation(false))]
+    #[cfg_attr(verus_keep_ghost, verus_spec(r =>
         requires
             old(self).holds(graph.events@.len()),
             graph.holds(),
             event < graph.events@.len(),
             base <= old(self).elements@.len(),
             left matches Some(l) ==> l < old(self).elements@.len(),
+            proof::distinct_names(old(self)@),
+            old(self)@.minted_below(event as int, old(self).elements@.len() - base),
         ensures
             final(self).holds(graph.events@.len()),
             ({
@@ -1006,7 +1350,7 @@ impl Tree {
                     old(self)@,
                     graph@,
                     event as int,
-                    operation.items.deep_view(),
+                    items.deep_view(),
                     proof::opt(left),
                     old(self).elements@.len() - base,
                 );
@@ -1014,6 +1358,17 @@ impl Tree {
                 &&& final(self).elements@.len() - base == minted
                 &&& final(self).elements@.len() >= old(self).elements@.len()
             }),
+            proof::distinct_names(final(self)@),
+            final(self)@.minted_below(event as int, final(self).elements@.len() - base),
+            forall|i: int| 0 <= i < old(self).elements@.len() ==> {
+                &&& (#[trigger] final(self).elements@[i]).author == old(self).elements@[i].author
+                &&& final(self).elements@[i].reference == old(self).elements@[i].reference
+            },
+            forall|i: int| old(self).elements@.len() <= i < final(self).elements@.len()
+                ==> (#[trigger] final(self).elements@[i]).author == event,
+            items@.len() == 0 ==> r == left,
+            items@.len() > 0 ==> (r matches Some(l) && l as int == final(self).elements@.len() - 1),
+            r matches Some(l) ==> l < final(self).elements@.len(),
     ))]
     #[allow(clippy::too_many_arguments)]
     fn insert_run(
@@ -1024,40 +1379,54 @@ impl Tree {
         base: usize,
         left: Option<usize>,
         index: usize,
-        operation: &Operation,
-    ) {
+        items: &[Item],
+    ) -> Option<usize> {
         #[cfg(verus_keep_ghost)]
         proof_decl! {
             let ghost g = graph@;
-            let ghost items = operation.items.deep_view();
-            let ghost ran = proof::insert_run(self@, g, event as int, items, proof::opt(left), self.elements@.len() - base);
-            assert(items.skip(0) =~= items);
+            let ghost stated = items.deep_view();
+            let ghost start = left;
+            let ghost ran = proof::insert_run(self@, g, event as int, stated, proof::opt(left), self.elements@.len() - base);
+            assert(stated.skip(0) =~= stated);
         }
         let mut left = left;
         let mut offset: usize = 0;
         #[cfg_attr(verus_keep_ghost, verus_spec(
             invariant
-                offset <= operation.items@.len(),
+                offset <= items@.len(),
                 self.holds(graph.events@.len()),
                 base <= self.elements@.len(),
-                self.elements@.len() >= old(self).elements@.len(),
+                self.elements@.len() == old(self).elements@.len() + offset,
                 left matches Some(l) ==> l < self.elements@.len(),
-                ran == proof::insert_run(self@, g, event as int, items.skip(offset as int), proof::opt(left),
+                offset == 0 ==> left == start,
+                offset > 0 ==> (left matches Some(l) && l as int == self.elements@.len() - 1),
+                proof::distinct_names(self@),
+                self@.minted_below(event as int, self.elements@.len() - base),
+                forall|i: int| 0 <= i < old(self).elements@.len() ==> {
+                    &&& (#[trigger] self.elements@[i]).author == old(self).elements@[i].author
+                    &&& self.elements@[i].reference == old(self).elements@[i].reference
+                },
+                forall|i: int| old(self).elements@.len() <= i < self.elements@.len()
+                    ==> (#[trigger] self.elements@[i]).author == event,
+                ran == proof::insert_run(self@, g, event as int, stated.skip(offset as int), proof::opt(left),
                     self.elements@.len() - base),
-            decreases operation.items@.len() - offset,
+            decreases items@.len() - offset,
         ))]
-        while offset < operation.items.len() {
+        while offset < items.len() {
             let (parent, side) = self.anchor(left, graph, event);
             let minted = self.elements.len() - base;
             #[cfg(verus_keep_ghost)]
-            proof! {
-                let rest = items.skip(offset as int);
-                assert(rest[0] == operation.items@[offset as int]@);
-                assert(rest.drop_first() =~= items.skip(offset as int + 1));
+            proof_decl! {
+                let ghost rest = stated.skip(offset as int);
+                assert(rest[0] == items@[offset as int]@);
+                assert(rest.drop_first() =~= stated.skip(offset as int + 1));
+                let ghost t = self@;
+                let ghost place = (proof::opt(parent), side is Right);
+                proof::lemma_attach_names(t, event as int, minted as int, items@[offset as int]@, place);
             }
             left = Some(self.attach(
                 (named, minted),
-                operation.items[offset].copied(),
+                items[offset].copied(),
                 event,
                 (index, offset),
                 parent,
@@ -1066,7 +1435,566 @@ impl Tree {
             offset += 1;
         }
         #[cfg(verus_keep_ghost)]
-        proof! { assert(items.skip(offset as int) =~= Seq::<ItemS>::empty()); }
+        proof! { assert(stated.skip(offset as int) =~= Seq::<ItemS>::empty()); }
+        left
+    }
+
+    /// Decision 0032's resolution, crossed.
+    ///
+    /// The resolution is the recorded truth of this file at this revision, so
+    /// the walk takes it as stated rather than deriving anything: an item the
+    /// resolution does not keep is dead here, exactly as a delete; the items
+    /// it inserts are its own; and the items it keeps survive **under their
+    /// own names**, which is what lets a concurrent branch's edits to those
+    /// same items merge normally instead of colliding with copies.
+    ///
+    /// Proved to do exactly what the model's `replay_resolution` says,
+    /// refusing exactly where it refuses.
+    #[cfg_attr(verus_keep_ghost, verifier::loop_isolation(false))]
+    #[cfg_attr(verus_keep_ghost, verus_spec(r =>
+        requires
+            old(self).holds(graph.events@.len()),
+            graph.holds(),
+            event < graph.events@.len(),
+            proof::distinct_names(old(self)@),
+            old(self)@.minted_below(event as int, 0),
+        ensures
+            final(self).holds(graph.events@.len()),
+            proof::distinct_names(final(self)@),
+            final(self).elements@.len() >= old(self).elements@.len(),
+            forall|i: int| 0 <= i < old(self).elements@.len() ==> {
+                &&& (#[trigger] final(self).elements@[i]).author == old(self).elements@[i].author
+                &&& final(self).elements@[i].reference == old(self).elements@[i].reference
+            },
+            forall|i: int| old(self).elements@.len() <= i < final(self).elements@.len()
+                ==> (#[trigger] final(self).elements@[i]).author == event,
+            ({
+                let t = old(self)@;
+                let replayed = proof::replay_resolution(
+                    t,
+                    graph@,
+                    event as int,
+                    t.visible(graph@, event as int),
+                    document.pieces.deep_view(),
+                );
+                &&& (r is Ok <==> replayed is Some)
+                &&& (r is Ok ==> final(self)@ == replayed->Some_0)
+            }),
+    ))]
+    fn resolution(
+        &mut self,
+        graph: &Graph<'_>,
+        event: usize,
+        named: RevisionId,
+        document: &ResolutionDocument,
+    ) -> Result<(), MergeError> {
+        let order = self.order();
+        // The same view an operation document's positions are counted into:
+        // what this author had before they started.
+        let prepare = self.visible(&order, graph, event);
+        #[cfg(verus_keep_ghost)]
+        proof_decl! {
+            let ghost t = self@;
+            let ghost g = graph@;
+            let ghost view = proof::ints(prepare@);
+            let ghost pieces = document.pieces.deep_view();
+            proof::lemma_visible_ok(t, g, event as int);
+            assert forall|q: int| 0 <= q < prepare@.len() implies #[trigger] prepare@[q] < self.elements@.len() by {
+                assert(view[q] == prepare@[q] as int);
+            }
+            self.lemma_shaped();
+            proof::lemma_visible_no_dup(t, g, event as int);
+        }
+        // Where each name the author could see stands in that view. Two
+        // elements share a name only in the byte-identical case
+        // `Element::reference` describes, where they belong to different
+        // events; each `keep` takes the first position still standing under
+        // its name, so the walk keeps as many elements as the resolution
+        // assembles items.
+        let slots = self.slots(&prepare, graph.events.len());
+        let kept = self.pieces(graph, event, named, document, &prepare, &slots)?;
+        #[cfg(verus_keep_ghost)]
+        proof_decl! { let ghost pieced = self@; }
+        // Everything the author could see and the resolution did not keep.
+        // Recorded as a removal that quotes nothing, because a resolution
+        // states what survives rather than what went.
+        self.drop_unkept(event, &prepare, &kept);
+        #[cfg(verus_keep_ghost)]
+        proof! { self.lemma_names_alike(pieced); }
+        Ok(())
+    }
+
+    /// A resolution's pieces in order: what each keeps, and what each inserts
+    /// after it. Returns which positions of the view were kept.
+    #[cfg_attr(verus_keep_ghost, verus_spec(r =>
+        requires
+            old(self).holds(graph.events@.len()),
+            graph.holds(),
+            event < graph.events@.len(),
+            forall|q: int| 0 <= q < prepare@.len() ==> #[trigger] prepare@[q] < old(self).elements@.len(),
+            slots_hold(old(self).elements@, prepare@, slots@, graph.events@.len()),
+            proof::distinct_names(old(self)@),
+            old(self)@.minted_below(event as int, 0),
+        ensures
+            final(self).holds(graph.events@.len()),
+            proof::distinct_names(final(self)@),
+            final(self).elements@.len() >= old(self).elements@.len(),
+            forall|i: int| 0 <= i < old(self).elements@.len() ==> {
+                &&& (#[trigger] final(self).elements@[i]).author == old(self).elements@[i].author
+                &&& final(self).elements@[i].reference == old(self).elements@[i].reference
+            },
+            forall|i: int| old(self).elements@.len() <= i < final(self).elements@.len()
+                ==> (#[trigger] final(self).elements@[i]).author == event,
+            r matches Ok(kept) ==> kept@.len() == prepare@.len(),
+            match proof::replay_pieces(
+                old(self)@,
+                graph@,
+                event as int,
+                proof::ints(prepare@),
+                document.pieces.deep_view(),
+                0,
+                ISet::empty(),
+                None,
+                0,
+            ) {
+                None => r is Err,
+                Some((next, now)) => r matches Ok(kept) && final(self)@ == next && kept_set(kept@) == now,
+            },
+    ))]
+    fn pieces(
+        &mut self,
+        graph: &Graph<'_>,
+        event: usize,
+        named: RevisionId,
+        document: &ResolutionDocument,
+        prepare: &[usize],
+        slots: &[Vec<Option<usize>>],
+    ) -> Result<Vec<bool>, MergeError> {
+        #[cfg(verus_keep_ghost)]
+        proof_decl! {
+            let ghost g = graph@;
+            let ghost view = proof::ints(prepare@);
+            let ghost pieces = document.pieces.deep_view();
+            let ghost ran = proof::replay_pieces(self@, g, event as int, view, pieces, 0, ISet::empty(), None, 0);
+        }
+        let base = self.elements.len();
+        let mut kept = vec![false; prepare.len()];
+        #[cfg(verus_keep_ghost)]
+        proof! { assert(kept_set(kept@) =~= ISet::<int>::empty()); }
+        // The element the next piece follows, which is what anchors an insert.
+        let mut left: Option<usize> = None;
+        let mut index: usize = 0;
+        #[cfg_attr(verus_keep_ghost, verus_spec(
+            invariant
+                index <= document.pieces@.len(),
+                graph.holds(),
+                event < graph.events@.len(),
+                g == graph@,
+                view == proof::ints(prepare@),
+                pieces == document.pieces.deep_view(),
+                ran == proof::replay_pieces(old(self)@, graph@, event as int, proof::ints(prepare@),
+                    document.pieces.deep_view(), 0, ISet::empty(), None, 0),
+                self.holds(graph.events@.len()),
+                base == old(self).elements@.len(),
+                base <= self.elements@.len(),
+                kept@.len() == prepare@.len(),
+                left matches Some(l) ==> l < self.elements@.len(),
+                forall|q: int| 0 <= q < prepare@.len() ==> #[trigger] prepare@[q] < self.elements@.len(),
+                proof::distinct_names(self@),
+                self@.minted_below(event as int, self.elements@.len() - base),
+                forall|i: int| 0 <= i < old(self).elements@.len() ==> {
+                    &&& (#[trigger] self.elements@[i]).author == old(self).elements@[i].author
+                    &&& self.elements@[i].reference == old(self).elements@[i].reference
+                },
+                forall|i: int| old(self).elements@.len() <= i < self.elements@.len()
+                    ==> (#[trigger] self.elements@[i]).author == event,
+                slots_hold(self.elements@, prepare@, slots@, graph.events@.len()),
+                ran == proof::replay_pieces(self@, g, event as int, view, pieces, index as int,
+                    kept_set(kept@), proof::opt(left), self.elements@.len() - base),
+            decreases document.pieces@.len() - index,
+        ))]
+        while index < document.pieces.len() {
+            #[cfg(verus_keep_ghost)]
+            proof_decl! {
+                assert(pieces[index as int] == document.pieces@[index as int].deep_view());
+                let ghost before = self.elements@;
+            }
+            match &document.pieces[index] {
+                Piece::Keep {
+                    document: from,
+                    first,
+                    count,
+                } => {
+                    #[cfg(verus_keep_ghost)]
+                    proof! {
+                        assert(pieces[index as int] == PieceS::Keep { document: *from, first: *first as int, count: *count as int });
+                    }
+                    left = self.keep_run(
+                        graph, event, prepare, slots, &mut kept, left, *from, *first, *count,
+                    )?;
+                }
+                Piece::Insert { items } => {
+                    #[cfg(verus_keep_ghost)]
+                    proof_decl! {
+                        assert(pieces[index as int] == PieceS::Insert { items: items.deep_view() });
+                        let ghost t = self@;
+                        let ghost was = left;
+                        let ghost minted = self.elements@.len() - base;
+                    }
+                    left = self.insert_run(graph, event, named, base, left, index, items);
+                    #[cfg(verus_keep_ghost)]
+                    proof! {
+                        lemma_slots_kept(before, self.elements@, prepare@, slots@, graph.events@.len());
+                        let (next, m) = proof::insert_run(t, g, event as int, items.deep_view(), proof::opt(was), minted);
+                        assert(self@ == next);
+                        assert(items.deep_view().len() == items@.len());
+                        assert(proof::opt(left) == if items.deep_view().len() == 0 { proof::opt(was) } else { Some(next.len() - 1) });
+                    }
+                }
+            }
+            index += 1;
+        }
+        Ok(kept)
+    }
+
+    /// Each `keep`'s items in turn: the next element still standing under
+    /// each name, in the author's view.
+    #[cfg_attr(verus_keep_ghost, verifier::loop_isolation(false))]
+    #[cfg_attr(verus_keep_ghost, verus_spec(r =>
+        requires
+            event < graph.events@.len(),
+            left matches Some(l) ==> l < self.elements@.len(),
+            old(kept)@.len() == prepare@.len(),
+            forall|q: int| 0 <= q < prepare@.len() ==> #[trigger] prepare@[q] < self.elements@.len(),
+            slots_hold(self.elements@, prepare@, slots@, graph.events@.len()),
+        ensures
+            final(kept)@.len() == prepare@.len(),
+            r matches Ok(Some(l)) ==> l < self.elements@.len(),
+            match proof::keep_run(
+                self@,
+                graph@,
+                proof::ints(prepare@),
+                kept_set(old(kept)@),
+                proof::opt(left),
+                from,
+                first as int,
+                count as int,
+                0,
+            ) {
+                None => r is Err,
+                Some((now, last)) => r is Ok && kept_set(final(kept)@) == now && proof::opt(r->Ok_0) == last,
+            },
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn keep_run(
+        &self,
+        graph: &Graph<'_>,
+        event: usize,
+        prepare: &[usize],
+        slots: &[Vec<Option<usize>>],
+        kept: &mut [bool],
+        left: Option<usize>,
+        from: RevisionId,
+        first: usize,
+        count: usize,
+    ) -> Result<Option<usize>, MergeError> {
+        #[cfg(verus_keep_ghost)]
+        proof_decl! {
+            let ghost view = proof::ints(prepare@);
+            let ghost ran = proof::keep_run(self@, graph@, view, kept_set(kept@), proof::opt(left), from,
+                first as int, count as int, 0);
+        }
+        // The events that stated the document this `keep` names: one,
+        // except where concurrent revisions named one byte-identical
+        // document.
+        let stating = graph.stating(from);
+        let mut left = left;
+        let mut offset: usize = 0;
+        #[cfg_attr(verus_keep_ghost, verus_spec(
+            invariant
+                offset <= count,
+                kept@.len() == prepare@.len(),
+                left matches Some(l) ==> l < self.elements@.len(),
+                ran == proof::keep_run(self@, graph@, view, kept_set(kept@), proof::opt(left), from,
+                    first as int, count as int, offset as int),
+            decreases count - offset,
+        ))]
+        while offset < count {
+            let found = match first.checked_add(offset) {
+                Some(item) => {
+                    #[cfg(verus_keep_ghost)]
+                    proof_with!(Ghost(graph@), Ghost(prepare@), Ghost(from));
+                    self.pick(slots, kept, &stating, item)
+                }
+                // No element has an ordinal past the last `usize`, and a
+                // run reaching one has already met an ordinal nothing holds,
+                // so this is never where a refusal comes from.
+                None => {
+                    #[cfg(verus_keep_ghost)]
+                    proof! {
+                        assert forall|q: int| 0 <= q < view.len() implies
+                            !(!kept_set(kept@).contains(q) && #[trigger] proof::refers(self@, graph@, view[q], from, first + offset)) by {
+                            assert(self@.nodes[view[q]] == self.elements@[prepare@[q] as int]@);
+                        }
+                        proof::lemma_pick_none(self@, graph@, view, kept_set(kept@), from, first + offset, 0);
+                    }
+                    None
+                }
+            };
+            match found {
+                None => {
+                    return Err(MergeError::UnknownReference {
+                        revision: graph.events[event].revision,
+                        document: from,
+                        item: first.saturating_add(offset),
+                    });
+                }
+                Some(position) => {
+                    #[cfg(verus_keep_ghost)]
+                    proof_decl! { let ghost was = kept@; }
+                    kept[position] = true;
+                    #[cfg(verus_keep_ghost)]
+                    proof! {
+                        assert(kept_set(kept@) =~= kept_set(was).insert(position as int));
+                        assert(view[position as int] == prepare@[position as int] as int);
+                    }
+                    left = Some(prepare[position]);
+                }
+            }
+            offset += 1;
+        }
+        Ok(left)
+    }
+
+    /// The first position of the view not yet kept that holds item `item` of
+    /// `from`, given the events that stated `from`.
+    #[cfg_attr(verus_keep_ghost, verifier::loop_isolation(false))]
+    #[cfg_attr(verus_keep_ghost, verus_spec(r =>
+        with
+            Ghost(g): Ghost<proof::GraphS>,
+            Ghost(prepare): Ghost<Seq<usize>>,
+            Ghost(from): Ghost<RevisionId>,
+        requires
+            kept@.len() == prepare.len(),
+            forall|q: int| 0 <= q < prepare.len() ==> #[trigger] prepare[q] < self.elements@.len(),
+            slots_hold(self.elements@, prepare, slots@, g.events.len()),
+            forall|k: int| 0 <= k < stating@.len() ==> #[trigger] stating@[k] < g.events.len(),
+            forall|a: int| 0 <= a < g.events.len() ==>
+                (proof::states(g.events[a], from) <==> stating@.contains(a as usize)),
+        ensures
+            proof::opt(r) == proof::pick(self@, g, proof::ints(prepare), kept_set(kept@), from, item as int, 0),
+            r matches Some(q) ==> q < prepare.len(),
+    ))]
+    fn pick(
+        &self,
+        slots: &[Vec<Option<usize>>],
+        kept: &[bool],
+        stating: &[usize],
+        item: usize,
+    ) -> Option<usize> {
+        #[cfg(verus_keep_ghost)]
+        proof_decl! {
+            let ghost t = self@;
+            let ghost view = proof::ints(prepare);
+            let ghost unkept = kept_set(kept@);
+            // A position qualifies where it is not kept and its element is
+            // `item` of `from`: exactly where some stating event's slot for
+            // `item` holds it.
+            let ghost qualifies = |q: int| 0 <= q < view.len() && !unkept.contains(q)
+                && proof::refers(t, g, view[q], from, item as int);
+        }
+        let mut best: Option<usize> = None;
+        let mut c: usize = 0;
+        #[cfg_attr(verus_keep_ghost, verus_spec(
+            invariant
+                c <= stating@.len(),
+                best matches Some(b) ==> qualifies(b as int),
+                forall|k: int| 0 <= k < c ==> {
+                    let a = #[trigger] stating@[k] as int;
+                    (slots@[a]@.len() > item && slots@[a]@[item as int] is Some
+                        && !kept@[slots@[a]@[item as int]->Some_0 as int])
+                        ==> (best matches Some(b) && b <= slots@[a]@[item as int]->Some_0)
+                },
+            decreases stating@.len() - c,
+        ))]
+        while c < stating.len() {
+            let author = stating[c];
+            let slot = if item < slots[author].len() {
+                slots[author][item]
+            } else {
+                None
+            };
+            if let Some(q) = slot {
+                #[cfg(verus_keep_ghost)]
+                proof! {
+                    assert(q < prepare.len() && self.elements@[prepare[q as int] as int].author == author
+                        && self.elements@[prepare[q as int] as int].reference.1 == item);
+                    assert(t.nodes[view[q as int]] == self.elements@[prepare[q as int] as int]@);
+                    assert(stating@.contains(author));
+                }
+                let better = match best {
+                    None => true,
+                    Some(b) => q < b,
+                };
+                if !kept[q] && better {
+                    best = Some(q);
+                }
+            }
+            c += 1;
+        }
+        #[cfg(verus_keep_ghost)]
+        proof! {
+            // Every qualifying position is in some stating event's slot.
+            assert forall|q: int| #[trigger] qualifies(q) implies best matches Some(b) && b <= q by {
+                assert(view[q] == prepare[q] as int);
+                let element = self.elements@[prepare[q] as int];
+                assert(t.nodes[view[q]] == element@);
+                let author = element.author;
+                assert(element.reference.1 == item);
+                assert(proof::states(g.events[author as int], from));
+                assert(stating@.contains(author));
+                let k = choose|k: int| 0 <= k < stating@.len() && stating@[k] == author;
+                assert(stating@[k] == author);
+                let slot = slots@[stating@[k] as int]@;
+                assert(slot.len() > item);
+                assert(slot[item as int] == Some(q as usize));
+                assert(slot[item as int]->Some_0 == q as usize);
+                assert(!kept@[q]);
+                assert(best matches Some(b) && b <= q as usize);
+            }
+            match best {
+                Some(b) => {
+                    assert forall|r: int| 0 <= r < b implies !(!unkept.contains(r) && #[trigger] proof::refers(t, g, view[r], from, item as int)) by {
+                        if 0 <= r < b && !unkept.contains(r) && proof::refers(t, g, view[r], from, item as int) {
+                            assert(qualifies(r));
+                        }
+                    }
+                    proof::lemma_pick_first(t, g, view, unkept, from, item as int, 0, b as int);
+                }
+                None => {
+                    assert forall|r: int| 0 <= r < view.len() implies !(!unkept.contains(r) && #[trigger] proof::refers(t, g, view[r], from, item as int)) by {
+                        if !unkept.contains(r) && proof::refers(t, g, view[r], from, item as int) {
+                            assert(qualifies(r));
+                        }
+                    }
+                    proof::lemma_pick_none(t, g, view, unkept, from, item as int, 0);
+                }
+            }
+        }
+        best
+    }
+
+    /// Where each element of the view stands in it, by author and ordinal.
+    #[cfg_attr(verus_keep_ghost, verifier::loop_isolation(false))]
+    #[cfg_attr(verus_keep_ghost, verus_spec(r =>
+        requires
+            forall|q: int| 0 <= q < prepare@.len() ==> {
+                &&& #[trigger] prepare@[q] < self.elements@.len()
+                &&& self.elements@[prepare@[q] as int].author < events
+            },
+            proof::distinct_names(self@),
+            proof::ints(prepare@).no_duplicates(),
+        ensures
+            slots_hold(self.elements@, prepare@, r@, events as nat),
+    ))]
+    fn slots(&self, prepare: &[usize], events: usize) -> Vec<Vec<Option<usize>>> {
+        let mut slots: Vec<Vec<Option<usize>>> = Vec::with_capacity(events);
+        #[cfg_attr(verus_keep_ghost, verus_spec(
+            invariant
+                slots@.len() <= events,
+                forall|a: int| 0 <= a < slots@.len() ==> #[trigger] slots@[a]@.len() == 0,
+            decreases events - slots@.len(),
+        ))]
+        while slots.len() < events {
+            slots.push(Vec::new());
+        }
+        let mut q: usize = 0;
+        #[cfg_attr(verus_keep_ghost, verus_spec(
+            invariant
+                q <= prepare@.len(),
+                slots@.len() == events,
+                forall|a: int, m: int| 0 <= a < events && 0 <= m < slots@[a]@.len()
+                    && (#[trigger] slots@[a]@[m]) is Some ==> {
+                        let p = slots@[a]@[m]->Some_0 as int;
+                        &&& p < q
+                        &&& self.elements@[prepare@[p] as int].author == a
+                        &&& self.elements@[prepare@[p] as int].reference.1 == m
+                    },
+                forall|p: int| 0 <= p < q ==> {
+                    let element = #[trigger] self.elements@[prepare@[p] as int];
+                    &&& element.reference.1 < slots@[element.author as int]@.len()
+                    &&& slots@[element.author as int]@[element.reference.1 as int] == Some(p as usize)
+                },
+            decreases prepare@.len() - q,
+        ))]
+        while q < prepare.len() {
+            let element = &self.elements[prepare[q]];
+            let (author, minted) = (element.author, element.reference.1);
+            pad(&mut slots[author], minted);
+            #[cfg(verus_keep_ghost)]
+            proof! {
+                // Nothing already recorded is at this name: the view lists
+                // each element once, and no two elements share a name.
+                if slots@[author as int]@[minted as int] is Some {
+                    let p = slots@[author as int]@[minted as int]->Some_0 as int;
+                    assert(proof::ints(prepare@)[p] != proof::ints(prepare@)[q as int]);
+                    let (i, j) = (prepare@[p] as int, prepare@[q as int] as int);
+                    assert(self@.nodes[i] == self.elements@[i]@);
+                    assert(self@.nodes[j] == self.elements@[j]@);
+                    assert(self@.id(i) == self@.id(j));
+                }
+            }
+            slots[author][minted] = Some(q);
+            q += 1;
+        }
+        slots
+    }
+
+    /// Everything the view held and `kept` does not, removed by `event`.
+    #[cfg_attr(verus_keep_ghost, verifier::loop_isolation(false))]
+    #[cfg_attr(verus_keep_ghost, verus_spec(
+        requires
+            old(self).holds_shape(),
+            kept@.len() == prepare@.len(),
+            forall|q: int| 0 <= q < prepare@.len() ==> #[trigger] prepare@[q] < old(self).elements@.len(),
+        ensures
+            final(self).holds_shape(),
+            final(self)@ == proof::drop_unkept(old(self)@, event as int, proof::ints(prepare@), kept_set(kept@), 0),
+            final(self).elements@.len() == old(self).elements@.len(),
+            forall|i: int| 0 <= i < old(self).elements@.len() ==> {
+                &&& (#[trigger] final(self).elements@[i]).author == old(self).elements@[i].author
+                &&& final(self).elements@[i].reference == old(self).elements@[i].reference
+            },
+            forall|events: nat| old(self).holds(events) && event < events ==> #[trigger] final(self).holds(events),
+    ))]
+    fn drop_unkept(&mut self, event: usize, prepare: &[usize], kept: &[bool]) {
+        #[cfg(verus_keep_ghost)]
+        proof_decl! {
+            let ghost view = proof::ints(prepare@);
+            let ghost ran = proof::drop_unkept(self@, event as int, view, kept_set(kept@), 0);
+        }
+        let mut q: usize = 0;
+        #[cfg_attr(verus_keep_ghost, verus_spec(
+            invariant
+                q <= prepare@.len(),
+                self.holds_shape(),
+                self.elements@.len() == old(self).elements@.len(),
+                forall|i: int| 0 <= i < old(self).elements@.len() ==> {
+                    &&& (#[trigger] self.elements@[i]).author == old(self).elements@[i].author
+                    &&& self.elements@[i].reference == old(self).elements@[i].reference
+                },
+                forall|events: nat| old(self).holds(events) && event < events ==> #[trigger] self.holds(events),
+                ran == proof::drop_unkept(self@, event as int, view, kept_set(kept@), q as int),
+            decreases prepare@.len() - q,
+        ))]
+        while q < prepare.len() {
+            #[cfg(verus_keep_ghost)]
+            proof! { assert(view[q as int] == prepare@[q as int] as int); }
+            if !kept[q] {
+                self.mark(prepare[q], event, None);
+            }
+            q += 1;
+        }
     }
 
     /// The elements one event's author could see, in order.
@@ -1090,7 +2018,7 @@ impl Tree {
             proof::lemma_read_all_nodes(t, t.children(None, true), -1);
             assert(proof::ints(order@).take(0) =~= Seq::<int>::empty());
         }
-        let mut visible = Vec::new();
+        let mut visible: Vec<usize> = Vec::new();
         let mut k: usize = 0;
         #[cfg_attr(verus_keep_ghost, verus_spec(
             invariant
@@ -1485,107 +2413,6 @@ impl Tree {
 }
 
 impl Tree {
-    fn replay(&mut self, graph: &Graph<'_>, event: usize) -> Result<(), MergeError> {
-        match graph.events[event].stated {
-            None => Ok(()),
-            Some((named, Stated::Operations(document))) => {
-                self.operations(graph, event, named, document)
-            }
-            Some((named, Stated::Resolution(document))) => {
-                self.resolution(graph, event, named, document)
-            }
-        }
-    }
-
-    /// Decision 0032's resolution, crossed.
-    ///
-    /// The resolution is the recorded truth of this file at this revision, so
-    /// the walk takes it as stated rather than deriving anything: an item the
-    /// resolution does not keep is dead here, exactly as a delete; the items
-    /// it inserts are its own; and the items it keeps survive **under their
-    /// own names**, which is what lets a concurrent branch's edits to those
-    /// same items merge normally instead of colliding with copies.
-    fn resolution(
-        &mut self,
-        graph: &Graph<'_>,
-        event: usize,
-        named: RevisionId,
-        document: &ResolutionDocument,
-    ) -> Result<(), MergeError> {
-        let revision = graph.events[event].revision;
-        let order = self.order();
-        // The same view an operation document's positions are counted into:
-        // what this author had before they started.
-        let prepare = self.visible(&order, graph, event);
-
-        // Where each name the author could see sits in that view — every
-        // position, in view order, because two elements share a name in the
-        // byte-identical case `Element::reference` describes and a resolution
-        // written against that view keeps the name once per element. Each
-        // `keep` consumes the next position still standing under its name, so
-        // the walk keeps as many elements as the resolution assembles items.
-        let mut by_reference: BTreeMap<(RevisionId, usize), VecDeque<usize>> = BTreeMap::new();
-        for (position, at) in prepare.iter().enumerate() {
-            by_reference
-                .entry(self.elements[*at].reference)
-                .or_default()
-                .push_back(position);
-        }
-
-        let mut kept: BTreeSet<usize> = BTreeSet::new();
-        // The element the next piece follows, which is what anchors an insert.
-        let mut left: Option<usize> = None;
-        let mut minted = 0usize;
-        for (index, piece) in document.pieces.iter().enumerate() {
-            match piece {
-                Piece::Keep {
-                    document: from,
-                    first,
-                    count,
-                } => {
-                    for offset in 0..*count {
-                        let name = (*from, first + offset);
-                        let Some(position) =
-                            by_reference.get_mut(&name).and_then(VecDeque::pop_front)
-                        else {
-                            return Err(MergeError::UnknownReference {
-                                revision,
-                                document: *from,
-                                item: first + offset,
-                            });
-                        };
-                        kept.insert(position);
-                        left = Some(prepare[position]);
-                    }
-                }
-                Piece::Insert { items } => {
-                    for (offset, item) in items.iter().enumerate() {
-                        let (parent, side) = self.anchor(left, graph, event);
-                        left = Some(self.attach(
-                            (named, minted),
-                            item.clone(),
-                            event,
-                            (index, offset),
-                            parent,
-                            side,
-                        ));
-                        minted += 1;
-                    }
-                }
-            }
-        }
-
-        // Everything the author could see and the resolution did not keep.
-        // Recorded as a removal that quotes nothing, because a resolution
-        // states what survives rather than what went.
-        for (position, at) in prepare.iter().enumerate() {
-            if !kept.contains(&position) {
-                self.elements[*at].deleted_by.push((event, None));
-            }
-        }
-        Ok(())
-    }
-
     /// Where two revisions that had not seen each other met.
     ///
     /// Computed from the finished structure rather than noticed on the way
@@ -1681,11 +2508,8 @@ impl Tree {
         let mut authors: Vec<usize> = Vec::new();
         let mut references: Vec<(RevisionId, usize)> = Vec::new();
         let mut marked: Vec<Option<(Contest, BTreeSet<RevisionId>)>> = Vec::new();
-        for at in self.order() {
+        for at in self.standing() {
             let element = &self.elements[at];
-            if !element.deleted_by.is_empty() {
-                continue;
-            }
             items.push(element.item.clone());
             authors.push(element.author);
             references.push(element.reference);
@@ -1977,6 +2801,14 @@ impl<'a> View for Event<'a> {
                 Some((_, Stated::Operations(document))) => Some(document.operations.deep_view()),
                 _ => None,
             },
+            pieces: match self.stated {
+                Some((_, Stated::Resolution(document))) => Some(document.pieces.deep_view()),
+                _ => None,
+            },
+            named: match self.stated {
+                Some((named, _)) => named,
+                None => arbitrary(),
+            },
         }
     }
 }
@@ -2016,6 +2848,89 @@ impl Tree {
             assert(proof::ints(listed)[k] == listed[k] as int);
             let j = listed[k] as int;
             assert(self@.hangs(j, parent, right));
+            assert(self@.nodes[j] == self.elements@[j]@);
+        }
+    }
+}
+
+impl Tree {
+    /// A tree whose elements have the names they had, in the same number,
+    /// has the same names: distinct where they were, and none minted anew.
+    proof fn lemma_names_alike(&self, before: proof::TreeS)
+        requires
+            before.len() == self.elements@.len(),
+            forall|i: int| 0 <= i < before.len() ==> {
+                &&& (#[trigger] self.elements@[i]).author == before.nodes[i].author
+                &&& self.elements@[i].reference.1 == before.nodes[i].minted
+            },
+        ensures
+            proof::distinct_names(before) ==> proof::distinct_names(self@),
+            forall|a: int, m: int| #[trigger] before.minted_below(a, m) ==> self@.minted_below(a, m),
+    {
+        assert forall|i: int| 0 <= i < before.len() implies #[trigger] self@.id(i) == before.id(i) by {
+            assert(self@.nodes[i] == self.elements@[i]@);
+        }
+        assert forall|a: int, m: int| #[trigger] before.minted_below(a, m) implies self@.minted_below(a, m) by {
+            assert forall|i: int| self@.node(i) && (#[trigger] self@.nodes[i]).author == a implies self@.nodes[i].minted < m by {
+                assert(self@.nodes[i] == self.elements@[i]@);
+            }
+        }
+    }
+}
+
+/// The positions of a view a resolution has kept so far.
+spec fn kept_set(kept: Seq<bool>) -> ISet<int> {
+    ISet::new(|q: int| 0 <= q < kept.len() && kept[q])
+}
+
+/// `slots[a][m]` holds the position in `prepare` of the element event `a`
+/// minted `m`th, wherever it stands in it, and nothing else.
+spec fn slots_hold(elements: Seq<Element>, prepare: Seq<usize>, slots: Seq<Vec<Option<usize>>>, events: nat) -> bool {
+    &&& slots.len() == events
+    &&& prepare.len() <= usize::MAX
+    &&& forall|a: int, m: int| 0 <= a < events && 0 <= m < slots[a]@.len()
+        && (#[trigger] slots[a]@[m]) is Some ==> {
+            let p = slots[a]@[m]->Some_0 as int;
+            &&& 0 <= p < prepare.len()
+            &&& elements[prepare[p] as int].author == a
+            &&& elements[prepare[p] as int].reference.1 == m
+        }
+    &&& forall|p: int| 0 <= p < prepare.len() ==> {
+        let element = #[trigger] elements[prepare[p] as int];
+        &&& element.author < events
+        &&& element.reference.1 < slots[element.author as int]@.len()
+        &&& slots[element.author as int]@[element.reference.1 as int] == Some(p as usize)
+    }
+}
+
+/// Slots taken of a view still hold once elements are added or marked,
+/// which changes no element's name.
+proof fn lemma_slots_kept(before: Seq<Element>, after: Seq<Element>, prepare: Seq<usize>, slots: Seq<Vec<Option<usize>>>, events: nat)
+    requires
+        slots_hold(before, prepare, slots, events),
+        before.len() <= after.len(),
+        forall|q: int| 0 <= q < prepare.len() ==> #[trigger] prepare[q] < before.len(),
+        forall|i: int| 0 <= i < before.len() ==> {
+            &&& (#[trigger] after[i]).author == before[i].author
+            &&& after[i].reference == before[i].reference
+        },
+    ensures
+        slots_hold(after, prepare, slots, events),
+{
+    assert forall|p: int| 0 <= p < prepare.len() implies #[trigger] after[prepare[p] as int] == after[prepare[p] as int]
+        && after[prepare[p] as int].author == before[prepare[p] as int].author by {}
+}
+
+impl Tree {
+    /// Every parent comes before its child.
+    proof fn lemma_shaped(&self)
+        requires self.holds_shape()
+        ensures proof::shaped(self@)
+    {
+        assert forall|j: int| self@.node(j) implies match (#[trigger] self@.nodes[j]).parent {
+            Some(p) => 0 <= p < j,
+            None => true,
+        } by {
             assert(self@.nodes[j] == self.elements@[j]@);
         }
     }

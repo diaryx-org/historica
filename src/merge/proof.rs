@@ -3,29 +3,33 @@
 //! graph produce the same file or the same refusal. Compiled only by Verus
 //! (`verus_keep_ghost`); an ordinary build never sees this module.
 //!
-//! The walk's steps in `merge.rs` are proved to compute these functions on
-//! the tree they are given — `Tree::order` is [`TreeS::order`],
-//! `Tree::visible` is [`TreeS::visible`], `Tree::anchor` is
-//! [`TreeS::anchor`], `Tree::attach` is [`TreeS::attach`], and
-//! `Tree::operations` is [`replay_ops`] — so the theorem is about the code
-//! that runs, not about a copy of it. The model came from the Verus spike,
-//! where it was proved first.
+//! The walk in `merge.rs` is proved to compute these functions, so the
+//! theorem is about the code that runs rather than a copy of it: `built`
+//! builds exactly [`walk`]'s tree and refuses exactly where it refuses, one
+//! step at a time — `Tree::replay` is [`replay_event`], `Tree::operations`
+//! [`replay_ops`], `Tree::resolution` [`replay_resolution`] — out of
+//! `Tree::order`, `Tree::visible`, `Tree::anchor` and `Tree::attach`, which
+//! are [`TreeS::order`], [`TreeS::visible`], [`TreeS::anchor`] and
+//! [`TreeS::attach`]; and `Tree::standing` reads the file out as
+//! [`TreeS::items`] does. The model came from the Verus spike, where it was
+//! proved first; resolutions were added to it here.
 //!
-//! What the model takes as given, and what it leaves out:
+//! What the theorem takes as given, and what it leaves out:
 //!
+//! - `knows` is a relation with the properties [`GraphS::wf`] lists
+//!   (reflexive, transitive, acyclic), and the orders compared are causal
+//!   ([`valid_order`]). `Ancestry::new` and `Graph::new` are what provide
+//!   them, and neither is proved yet; `built` itself needs only an order
+//!   naming each event once.
 //! - Events are indexed in digest order, as `Graph::new` sorts them, so a
-//!   comparison of indices is a comparison of digests, and an element is
-//!   named `(author, minted)` as the code names it.
-//! - `knows` is taken as a relation with the properties `Ancestry` provides
-//!   (reflexive, transitive, acyclic, containing the parent edges). That
-//!   `Ancestry::new` computes such a relation is not yet proved.
-//! - Resolutions (decision 0032) are not modelled yet. Every event states an
-//!   operation document or nothing.
-//! - `contested` is not modelled; the theorem is about the file.
+//!   comparison of indices is a comparison of digests.
+//! - `contested`, `origins` and `references` are not modelled; the theorem
+//!   is about the file.
 
 use vstd::prelude::*;
 
-use crate::format::proof::{ItemS, OperationS, matches};
+use crate::core::RevisionId;
+use crate::format::proof::{ItemS, OperationS, PieceS, matches};
 
 verus! {
 
@@ -50,9 +54,13 @@ pub open spec fn opt(x: Option<usize>) -> Option<int> {
 // The event graph.
 // ---------------------------------------------------------------------------
 
-/// One revision's contribution: what it stated, or nothing.
+/// One revision's contribution: operations, a resolution, or nothing — at
+/// most one of the first two — and the digest of the document it stated
+/// them in, which is the half of an item's name a `keep` line quotes.
 pub struct EventS {
     pub ops: Option<Seq<OperationS>>,
+    pub pieces: Option<Seq<PieceS>>,
+    pub named: RevisionId,
 }
 
 pub struct GraphS {
@@ -423,6 +431,392 @@ impl TreeS {
 }
 
 // ---------------------------------------------------------------------------
+// Names.
+// ---------------------------------------------------------------------------
+
+/// No two elements share a name.
+pub open spec fn distinct_names(t: TreeS) -> bool {
+    forall|i: int, j: int| t.node(i) && t.node(j) && i != j ==> t.id(i) != t.id(j)
+}
+
+/// Attaching a name its author has not minted keeps names distinct.
+pub proof fn lemma_attach_names(t: TreeS, author: int, minted: int, item: ItemS, place: (Option<int>, bool))
+    requires distinct_names(t), t.minted_below(author, minted)
+    ensures ({
+        let u = t.attach(author, minted, item, place);
+        &&& distinct_names(u)
+        &&& u.minted_below(author, minted + 1)
+        &&& forall|a: int, m: int| a != author && t.minted_below(a, m) ==> #[trigger] u.minted_below(a, m)
+    })
+{
+    let u = t.attach(author, minted, item, place);
+    assert forall|i: int, j: int| u.node(i) && u.node(j) && i != j implies u.id(i) != u.id(j) by {
+        if i < t.len() && j < t.len() {
+            assert(t.id(i) != t.id(j));
+        }
+    }
+}
+
+/// Marking a removal changes no name.
+pub proof fn lemma_delete_names(t: TreeS, i: int, by: int)
+    requires 0 <= i < t.len()
+    ensures ({
+        let u = t.delete(i, by);
+        &&& u.len() == t.len()
+        &&& distinct_names(t) ==> distinct_names(u)
+        &&& forall|a: int, m: int| #[trigger] t.minted_below(a, m) ==> u.minted_below(a, m)
+        &&& forall|j: int| 0 <= j < t.len() ==> #[trigger] placed_alike(t, u, j)
+    })
+{
+    let u = t.delete(i, by);
+    assert forall|j: int| 0 <= j < t.len() implies #[trigger] placed_alike(t, u, j) by {}
+    if distinct_names(t) {
+        assert forall|a: int, b: int| u.node(a) && u.node(b) && a != b implies u.id(a) != u.id(b) by {
+            assert(t.id(a) != t.id(b));
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Each element is read once.
+// ---------------------------------------------------------------------------
+
+/// A tree whose every parent comes before its child, which is every tree
+/// `attach` builds.
+pub open spec fn shaped(t: TreeS) -> bool {
+    forall|j: int| t.node(j) ==> match (#[trigger] t.nodes[j]).parent {
+        Some(p) => 0 <= p < j,
+        None => true,
+    }
+}
+
+/// Whether `j` is `i`, or below it.
+pub open spec fn under(t: TreeS, i: int, j: int) -> bool
+    decreases j
+{
+    if j == i {
+        true
+    } else if j < 0 {
+        false
+    } else {
+        match t.nodes[j].parent {
+            Some(p) => if 0 <= p < j { under(t, i, p) } else { false },
+            None => false,
+        }
+    }
+}
+
+pub proof fn lemma_under_le(t: TreeS, i: int, j: int)
+    requires under(t, i, j)
+    ensures i <= j
+    decreases j
+{
+    if j != i && j >= 0 {
+        if let Some(p) = t.nodes[j].parent {
+            if 0 <= p < j {
+                lemma_under_le(t, i, p);
+            }
+        }
+    }
+}
+
+/// Below a child is below its parent.
+pub proof fn lemma_under_parent(t: TreeS, c: int, x: int, i: int)
+    requires under(t, c, x), t.nodes[c].parent == Some(i), 0 <= i < c
+    ensures under(t, i, x)
+    decreases x
+{
+    if x == c {
+        assert(under(t, i, i));
+    } else if x >= 0 {
+        if let Some(p) = t.nodes[x].parent {
+            if 0 <= p < x {
+                lemma_under_parent(t, c, p, i);
+            }
+        }
+    }
+}
+
+/// What two nodes are both above is a chain: one of them is above the other.
+pub proof fn lemma_under_linear(t: TreeS, a: int, b: int, x: int)
+    requires under(t, a, x), under(t, b, x)
+    ensures under(t, a, b) || under(t, b, a)
+    decreases x
+{
+    if x != a && x != b && x >= 0 {
+        if let Some(p) = t.nodes[x].parent {
+            if 0 <= p < x {
+                lemma_under_linear(t, a, b, p);
+            }
+        }
+    }
+}
+
+/// Two different children of one parent have nothing below them in common.
+pub proof fn lemma_under_siblings(t: TreeS, c1: int, c2: int, x: int)
+    requires
+        shaped(t), t.node(c1), t.node(c2), c1 != c2,
+        t.nodes[c1].parent == t.nodes[c2].parent,
+        under(t, c1, x), under(t, c2, x),
+    ensures false
+{
+    lemma_under_linear(t, c1, c2, x);
+    if under(t, c1, c2) {
+        assert(t.nodes[c2].parent matches Some(p) && under(t, c1, p));
+        let p = t.nodes[c2].parent->Some_0;
+        assert(t.nodes[c1] == t.nodes[c1]);
+        lemma_under_le(t, c1, p);
+    } else {
+        assert(t.nodes[c1].parent matches Some(p) && under(t, c2, p));
+        let p = t.nodes[c1].parent->Some_0;
+        assert(t.nodes[c2] == t.nodes[c2]);
+        lemma_under_le(t, c2, p);
+    }
+}
+
+/// A child list holds each child once.
+pub proof fn lemma_children_upto_no_dup(t: TreeS, parent: Option<int>, right: bool, k: int)
+    requires k <= t.len()
+    ensures t.children_upto(parent, right, k).no_duplicates()
+    decreases k
+{
+    if k > 0 {
+        lemma_children_upto_no_dup(t, parent, right, k - 1);
+        let before = t.children_upto(parent, right, k - 1);
+        if t.hangs(k - 1, parent, right) {
+            lemma_children_upto_hang(t, parent, right, k - 1);
+            let at = t.first_greater(before, k - 1, 0);
+            lemma_first_greater_bounds(t, before, k - 1, 0);
+            let after = before.insert(at, k - 1);
+            assert forall|a: int, b: int| 0 <= a < b < after.len() implies after[a] != after[b] by {
+                if a < at && b < at {
+                } else if a < at && b == at {
+                    assert(before[a] < k - 1);
+                } else if a < at {
+                    assert(after[b] == before[b - 1]);
+                } else if a == at {
+                    assert(after[b] == before[b - 1]);
+                    assert(before[b - 1] < k - 1);
+                } else {
+                    assert(after[a] == before[a - 1]);
+                    assert(after[b] == before[b - 1]);
+                }
+            }
+        }
+    }
+}
+
+/// Everything `read` emits is below the node it was asked for, and
+/// everything `read_all` emits is below one of the siblings it was given.
+pub proof fn lemma_read_under(t: TreeS, i: int)
+    requires shaped(t)
+    ensures forall|x: int| t.read(i).contains(x) ==> under(t, i, x)
+    decreases t.len() - i, 1int, 0int
+{
+    if t.node(i) {
+        let (left, right) = (t.children(Some(i), false), t.children(Some(i), true));
+        lemma_read_all_under(t, left, i);
+        lemma_read_all_under(t, right, i);
+        lemma_children_nodes(t, Some(i), false);
+        lemma_children_nodes(t, Some(i), true);
+        let (l, r) = (t.read_all(left, i), t.read_all(right, i));
+        assert forall|x: int| t.read(i).contains(x) implies under(t, i, x) by {
+            let q = choose|q: int| 0 <= q < t.read(i).len() && t.read(i)[q] == x;
+            if q < l.len() {
+                assert(l.contains(x));
+                let k = choose|k: int| 0 <= k < left.len() && i < left[k] < t.len() && under(t, left[k], x);
+                assert(t.hangs(left[k], Some(i), false));
+                lemma_under_parent(t, left[k], x, i);
+            } else if q > l.len() {
+                assert(r[q - l.len() - 1] == x);
+                assert(r.contains(x));
+                let k = choose|k: int| 0 <= k < right.len() && i < right[k] < t.len() && under(t, right[k], x);
+                assert(t.hangs(right[k], Some(i), true));
+                lemma_under_parent(t, right[k], x, i);
+            }
+        }
+    }
+}
+
+pub proof fn lemma_read_all_under(t: TreeS, siblings: Seq<int>, above: int)
+    requires shaped(t)
+    ensures forall|x: int| t.read_all(siblings, above).contains(x) ==> exists|k: int|
+        0 <= k < siblings.len() && above < siblings[k] < t.len() && under(t, siblings[k], x)
+    decreases t.len() - above, 0int, siblings.len()
+{
+    if siblings.len() > 0 {
+        let first = siblings[0];
+        let rest = siblings.drop_first();
+        lemma_read_all_under(t, rest, above);
+        let tail = t.read_all(rest, above);
+        if above < first < t.len() {
+            lemma_read_under(t, first);
+        }
+        assert forall|x: int| t.read_all(siblings, above).contains(x) implies exists|k: int|
+            0 <= k < siblings.len() && above < siblings[k] < t.len() && under(t, siblings[k], x) by {
+            let all = t.read_all(siblings, above);
+            let q = choose|q: int| 0 <= q < all.len() && all[q] == x;
+            if above < first < t.len() && q < t.read(first).len() {
+                assert(t.read(first).contains(x));
+                assert(under(t, siblings[0], x));
+            } else {
+                let off = if above < first < t.len() { t.read(first).len() as int } else { 0 };
+                assert(tail[q - off] == x);
+                assert(tail.contains(x));
+                let k = choose|k: int| 0 <= k < rest.len() && above < rest[k] < t.len() && under(t, rest[k], x);
+                assert(siblings[k + 1] == rest[k]);
+            }
+        }
+    }
+}
+
+/// A concatenation of two lists without repeats and without anything in
+/// common has no repeats.
+pub proof fn lemma_no_dup_add(a: Seq<int>, b: Seq<int>)
+    requires a.no_duplicates(), b.no_duplicates(), forall|x: int| a.contains(x) ==> !b.contains(x)
+    ensures (a + b).no_duplicates()
+{
+    let s = a + b;
+    assert forall|i: int, j: int| 0 <= i < j < s.len() implies s[i] != s[j] by {
+        if i < a.len() && j >= a.len() {
+            assert(a.contains(s[i]));
+            assert(b[j - a.len()] == s[j]);
+        } else if i >= a.len() {
+            assert(s[i] == b[i - a.len()]);
+            assert(s[j] == b[j - a.len()]);
+        }
+    }
+}
+
+/// Each element is read once: `read` of a node lists nothing twice.
+pub proof fn lemma_read_no_dup(t: TreeS, i: int)
+    requires shaped(t)
+    ensures t.read(i).no_duplicates()
+    decreases t.len() - i, 1int, 0int
+{
+    if t.node(i) {
+        let (left, right) = (t.children(Some(i), false), t.children(Some(i), true));
+        lemma_children_upto_no_dup(t, Some(i), false, t.len());
+        lemma_children_upto_no_dup(t, Some(i), true, t.len());
+        lemma_children_nodes(t, Some(i), false);
+        lemma_children_nodes(t, Some(i), true);
+        lemma_read_all_no_dup(t, left, i, Some(i));
+        lemma_read_all_no_dup(t, right, i, Some(i));
+        lemma_read_all_under(t, left, i);
+        lemma_read_all_under(t, right, i);
+        let (l, r) = (t.read_all(left, i), t.read_all(right, i));
+        // Nothing on the left is `i` or on the right.
+        assert forall|x: int| l.contains(x) implies !seq![i].contains(x) && !r.contains(x) by {
+            let k = choose|k: int| 0 <= k < left.len() && i < left[k] < t.len() && under(t, left[k], x);
+            lemma_under_le(t, left[k], x);
+            assert(t.hangs(left[k], Some(i), false));
+            if seq![i].contains(x) {
+                assert(seq![i][0] == x);
+            }
+            if r.contains(x) {
+                let m = choose|m: int| 0 <= m < right.len() && i < right[m] < t.len() && under(t, right[m], x);
+                assert(t.hangs(right[m], Some(i), true));
+                lemma_under_siblings(t, left[k], right[m], x);
+            }
+        }
+        assert forall|x: int| seq![i].contains(x) implies !r.contains(x) by {
+            assert(seq![i][0] == x);
+            if r.contains(x) {
+                let m = choose|m: int| 0 <= m < right.len() && i < right[m] < t.len() && under(t, right[m], x);
+                lemma_under_le(t, right[m], x);
+            }
+        }
+        lemma_no_dup_add(seq![i], r);
+        assert forall|x: int| l.contains(x) implies !(seq![i] + r).contains(x) by {
+            if (seq![i] + r).contains(x) {
+                let q = choose|q: int| 0 <= q < (seq![i] + r).len() && (seq![i] + r)[q] == x;
+                if q == 0 {
+                    assert(seq![i].contains(x));
+                } else {
+                    assert(r[q - 1] == x);
+                }
+            }
+        }
+        lemma_no_dup_add(l, seq![i] + r);
+        assert(t.read(i) =~= l + (seq![i] + r));
+    }
+}
+
+/// Siblings listed once, all hanging from one parent, are read without a
+/// repeat.
+pub proof fn lemma_read_all_no_dup(t: TreeS, siblings: Seq<int>, above: int, parent: Option<int>)
+    requires
+        shaped(t), siblings.no_duplicates(),
+        forall|k: int| 0 <= k < siblings.len() ==> t.node(#[trigger] siblings[k]) && t.nodes[siblings[k]].parent == parent,
+    ensures t.read_all(siblings, above).no_duplicates()
+    decreases t.len() - above, 0int, siblings.len()
+{
+    if siblings.len() > 0 {
+        let first = siblings[0];
+        let rest = siblings.drop_first();
+        assert forall|k: int| 0 <= k < rest.len() implies t.node(#[trigger] rest[k]) && t.nodes[rest[k]].parent == parent by {
+            assert(rest[k] == siblings[k + 1]);
+        }
+        assert(rest.no_duplicates()) by {
+            assert forall|a: int, b: int| 0 <= a < b < rest.len() implies rest[a] != rest[b] by {
+                assert(rest[a] == siblings[a + 1]);
+                assert(rest[b] == siblings[b + 1]);
+            }
+        }
+        lemma_read_all_no_dup(t, rest, above, parent);
+        let tail = t.read_all(rest, above);
+        if above < first < t.len() {
+            lemma_read_no_dup(t, first);
+            lemma_read_under(t, first);
+            lemma_read_all_under(t, rest, above);
+            let head = t.read(first);
+            assert forall|x: int| head.contains(x) implies !tail.contains(x) by {
+                if tail.contains(x) {
+                    let k = choose|k: int| 0 <= k < rest.len() && above < rest[k] < t.len() && under(t, rest[k], x);
+                    assert(rest[k] == siblings[k + 1]);
+                    assert(siblings[0] != siblings[k + 1]);
+                    lemma_under_siblings(t, first, rest[k], x);
+                }
+            }
+            lemma_no_dup_add(head, tail);
+        }
+    }
+}
+
+/// Filtering a list without repeats leaves one without repeats.
+pub proof fn lemma_sel_no_dup(s: Seq<int>, p: spec_fn(int) -> bool)
+    requires s.no_duplicates()
+    ensures sel(s, p).no_duplicates()
+{
+    lemma_sel_sub(s, p);
+    let r = sel(s, p);
+    assert forall|a: int, b: int| 0 <= a < b < r.len() implies r[a] != r[b] by {
+        assert(src(s, p, a) < src(s, p, b));
+    }
+}
+
+/// What an event sees lists each element once.
+pub proof fn lemma_visible_no_dup(t: TreeS, g: GraphS, e: int)
+    requires shaped(t)
+    ensures t.visible(g, e).no_duplicates()
+{
+    reveal(TreeS::visible);
+    lemma_order_no_dup(t);
+    lemma_sel_no_dup(t.order(), |i: int| t.seen(g, e, i));
+}
+
+/// The whole document lists each element once.
+pub proof fn lemma_order_no_dup(t: TreeS)
+    requires shaped(t)
+    ensures t.order().no_duplicates()
+{
+    reveal(TreeS::order);
+    lemma_children_upto_no_dup(t, None, true, t.len());
+    lemma_children_nodes(t, None, true);
+    lemma_read_all_no_dup(t, t.children(None, true), -1, None);
+}
+
+// ---------------------------------------------------------------------------
 // Replaying one event: `Tree::operations`.
 // ---------------------------------------------------------------------------
 
@@ -490,10 +884,109 @@ pub open spec fn replay_ops(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Replaying a resolution: `Tree::resolution`.
+// ---------------------------------------------------------------------------
+
+/// Whether the element at `i` is item `item` of `document`: the name a
+/// `keep` line quotes, which is the document its author stated and its
+/// ordinal there.
+pub open spec fn refers(t: TreeS, g: GraphS, i: int, document: RevisionId, item: int) -> bool {
+    &&& states(g.events[t.nodes[i].author], document)
+    &&& t.nodes[i].minted == item
+}
+
+/// Whether an event stated its file in `document`.
+pub open spec fn states(event: EventS, document: RevisionId) -> bool {
+    (event.ops is Some || event.pieces is Some) && event.named == document
+}
+
+/// The first position of the view, from `q` on, not yet kept and holding an
+/// element the name refers to: the next element still standing under it.
+pub open spec fn pick(
+    t: TreeS, g: GraphS, prepare: Seq<int>, kept: ISet<int>, document: RevisionId, item: int, q: int,
+) -> Option<int>
+    decreases prepare.len() - q
+{
+    if q < 0 || q >= prepare.len() {
+        None
+    } else if !kept.contains(q) && refers(t, g, prepare[q], document, item) {
+        Some(q)
+    } else {
+        pick(t, g, prepare, kept, document, item, q + 1)
+    }
+}
+
+/// A `keep`'s items, each the next element still standing under its name.
+/// The last one kept is what an insert after it anchors to.
+pub open spec fn keep_run(
+    t: TreeS, g: GraphS, prepare: Seq<int>, kept: ISet<int>, left: Option<int>,
+    document: RevisionId, first: int, count: int, k: int,
+) -> Option<(ISet<int>, Option<int>)>
+    decreases count - k
+{
+    if k < 0 || k >= count {
+        Some((kept, left))
+    } else {
+        match pick(t, g, prepare, kept, document, first + k, 0) {
+            None => None,
+            Some(q) => keep_run(t, g, prepare, kept.insert(q), Some(prepare[q]), document, first, count, k + 1),
+        }
+    }
+}
+
+/// A resolution's pieces, in order: what they keep, and what they insert
+/// after it.
+pub open spec fn replay_pieces(
+    t: TreeS, g: GraphS, e: int, prepare: Seq<int>, pieces: Seq<PieceS>, k: int,
+    kept: ISet<int>, left: Option<int>, minted: int,
+) -> Option<(TreeS, ISet<int>)>
+    decreases pieces.len() - k
+{
+    if k < 0 || k >= pieces.len() {
+        Some((t, kept))
+    } else {
+        match pieces[k] {
+            PieceS::Keep { document, first, count } => match keep_run(t, g, prepare, kept, left, document, first, count, 0) {
+                None => None,
+                Some((kept, left)) => replay_pieces(t, g, e, prepare, pieces, k + 1, kept, left, minted),
+            },
+            PieceS::Insert { items } => {
+                let (next, m) = insert_run(t, g, e, items, left, minted);
+                let left = if items.len() == 0 { left } else { Some(next.len() - 1) };
+                replay_pieces(next, g, e, prepare, pieces, k + 1, kept, left, m)
+            },
+        }
+    }
+}
+
+/// Everything the view held and the resolution did not keep, removed by `e`.
+pub open spec fn drop_unkept(t: TreeS, e: int, prepare: Seq<int>, kept: ISet<int>, q: int) -> TreeS
+    decreases prepare.len() - q
+{
+    if q < 0 || q >= prepare.len() {
+        t
+    } else {
+        let next = if kept.contains(q) { t } else { t.delete(prepare[q], e) };
+        drop_unkept(next, e, prepare, kept, q + 1)
+    }
+}
+
+/// `None` where a `keep` names nothing the view still holds under the name.
+pub open spec fn replay_resolution(t: TreeS, g: GraphS, e: int, prepare: Seq<int>, pieces: Seq<PieceS>) -> Option<TreeS> {
+    match replay_pieces(t, g, e, prepare, pieces, 0, ISet::empty(), None, 0) {
+        None => None,
+        Some((next, kept)) => Some(drop_unkept(next, e, prepare, kept, 0)),
+    }
+}
+
 pub open spec fn replay_event(t: TreeS, g: GraphS, e: int) -> Option<TreeS> {
     match g.events[e].ops {
-        None => Some(t),
         Some(ops) => replay_ops(t, g, e, t.visible(g, e), ops, 0, 0),
+        None => match g.events[e].pieces {
+            None => Some(t),
+            Some(pieces) => replay_resolution(t, g, e, t.visible(g, e), pieces),
+        },
     }
 }
 
@@ -801,6 +1294,146 @@ pub proof fn lemma_visible_ok(t: TreeS, g: GraphS, e: int)
     }
 }
 
+/// The last element an insert run attaches is its author's, and the last it
+/// minted.
+pub proof fn lemma_insert_run_last(t: TreeS, g: GraphS, e: int, items: Seq<ItemS>, left: Option<int>, minted: int)
+    requires items.len() > 0
+    ensures ({
+        let (u, m) = insert_run(t, g, e, items, left, minted);
+        &&& u.len() == t.len() + items.len()
+        &&& u.nodes[u.len() - 1].author == e
+        &&& u.nodes[u.len() - 1].minted == m - 1
+        &&& m == minted + items.len()
+    })
+    decreases items.len()
+{
+    let place = t.anchor(g, e, left);
+    let next = t.attach(e, minted, items[0], place);
+    assert(insert_run(t, g, e, items, left, minted)
+        == insert_run(next, g, e, items.drop_first(), Some(t.len()), minted + 1));
+    if items.len() > 1 {
+        lemma_insert_run_last(next, g, e, items.drop_first(), Some(t.len()), minted + 1);
+    } else {
+        assert(items.drop_first().len() == 0);
+        assert(insert_run(next, g, e, items.drop_first(), Some(t.len()), minted + 1) == (next, minted + 1));
+    }
+}
+
+/// What `pick` finds is a position of the view not yet kept, holding an
+/// element the name refers to.
+pub proof fn lemma_pick_in(t: TreeS, g: GraphS, prepare: Seq<int>, kept: ISet<int>, document: RevisionId, item: int, q: int)
+    ensures pick(t, g, prepare, kept, document, item, q) matches Some(p)
+        ==> 0 <= q <= p < prepare.len() && !kept.contains(p) && refers(t, g, prepare[p], document, item)
+    decreases prepare.len() - q
+{
+    if 0 <= q < prepare.len() && !(!kept.contains(q) && refers(t, g, prepare[q], document, item)) {
+        lemma_pick_in(t, g, prepare, kept, document, item, q + 1);
+    }
+}
+
+/// `pick` finds the first position from `q` on that is not kept and holds
+/// an element the name refers to.
+pub proof fn lemma_pick_first(t: TreeS, g: GraphS, prepare: Seq<int>, kept: ISet<int>, document: RevisionId, item: int, q: int, p: int)
+    requires
+        0 <= q <= p < prepare.len(), !kept.contains(p), refers(t, g, prepare[p], document, item),
+        forall|r: int| q <= r < p ==> !(!kept.contains(r) && #[trigger] refers(t, g, prepare[r], document, item)),
+    ensures pick(t, g, prepare, kept, document, item, q) == Some(p)
+    decreases p - q
+{
+    if q < p {
+        lemma_pick_first(t, g, prepare, kept, document, item, q + 1, p);
+    }
+}
+
+/// And finds nothing where there is no such position.
+pub proof fn lemma_pick_none(t: TreeS, g: GraphS, prepare: Seq<int>, kept: ISet<int>, document: RevisionId, item: int, q: int)
+    requires
+        0 <= q,
+        forall|r: int| q <= r < prepare.len() ==> !(!kept.contains(r) && #[trigger] refers(t, g, prepare[r], document, item)),
+    ensures pick(t, g, prepare, kept, document, item, q) is None
+    decreases prepare.len() - q
+{
+    if q < prepare.len() {
+        lemma_pick_none(t, g, prepare, kept, document, item, q + 1);
+    }
+}
+
+/// What a `keep` leaves to anchor to is an element the event knows.
+pub proof fn lemma_keep_run_known(
+    t: TreeS, g: GraphS, e: int, prepare: Seq<int>, kept: ISet<int>, left: Option<int>,
+    document: RevisionId, first: int, count: int, k: int,
+)
+    requires t.view_ok(g, e, prepare), t.known_or_none(g, e, left)
+    ensures keep_run(t, g, prepare, kept, left, document, first, count, k) matches Some((_, l))
+        ==> t.known_or_none(g, e, l)
+    decreases count - k
+{
+    if 0 <= k < count {
+        lemma_pick_in(t, g, prepare, kept, document, first + k, 0);
+        if let Some(q) = pick(t, g, prepare, kept, document, first + k, 0) {
+            assert(t.known_or_none(g, e, Some(prepare[q])));
+            lemma_keep_run_known(t, g, e, prepare, kept.insert(q), Some(prepare[q]), document, first, count, k + 1);
+        }
+    }
+}
+
+pub proof fn lemma_replay_pieces_wf(
+    t: TreeS, g: GraphS, e: int, prepare: Seq<int>, pieces: Seq<PieceS>, k: int,
+    kept: ISet<int>, left: Option<int>, minted: int,
+)
+    requires t.wf(g), g.wf(), g.event(e), t.view_ok(g, e, prepare), t.minted_below(e, minted), t.known_or_none(g, e, left)
+    ensures replay_pieces(t, g, e, prepare, pieces, k, kept, left, minted) matches Some((u, _))
+        ==> u.wf(g) && t.extends(u, e) && u.view_ok(g, e, prepare)
+            && forall|i: int| t.len() <= i < u.len() ==> (#[trigger] u.nodes[i]).author == e
+    decreases pieces.len() - k
+{
+    if 0 <= k < pieces.len() {
+        match pieces[k] {
+            PieceS::Keep { document, first, count } => {
+                lemma_keep_run_known(t, g, e, prepare, kept, left, document, first, count, 0);
+                if let Some((kept2, left2)) = keep_run(t, g, prepare, kept, left, document, first, count, 0) {
+                    lemma_replay_pieces_wf(t, g, e, prepare, pieces, k + 1, kept2, left2, minted);
+                }
+            },
+            PieceS::Insert { items } => {
+                lemma_insert_run_wf(t, g, e, items, left, minted);
+                let (next, m) = insert_run(t, g, e, items, left, minted);
+                let left2 = if items.len() == 0 { left } else { Some(next.len() - 1) };
+                if items.len() > 0 {
+                    lemma_insert_run_last(t, g, e, items, left, minted);
+                }
+                assert(next.known_or_none(g, e, left2));
+                assert(next.view_ok(g, e, prepare));
+                lemma_replay_pieces_wf(next, g, e, prepare, pieces, k + 1, kept, left2, m);
+                if let Some((u, _)) = replay_pieces(next, g, e, prepare, pieces, k + 1, kept, left2, m) {
+                    lemma_extends_trans(t, next, u, e);
+                }
+            },
+        }
+    }
+}
+
+pub proof fn lemma_drop_unkept_wf(t: TreeS, g: GraphS, e: int, prepare: Seq<int>, kept: ISet<int>, q: int)
+    requires t.wf(g), g.event(e), t.view_ok(g, e, prepare)
+    ensures ({
+        let u = drop_unkept(t, e, prepare, kept, q);
+        u.wf(g) && t.extends(u, e) && u.len() == t.len()
+    })
+    decreases prepare.len() - q
+{
+    if 0 <= q < prepare.len() {
+        if kept.contains(q) {
+            lemma_drop_unkept_wf(t, g, e, prepare, kept, q + 1);
+        } else {
+            lemma_delete_wf(t, g, e, prepare[q]);
+            let next = t.delete(prepare[q], e);
+            assert(next.view_ok(g, e, prepare));
+            lemma_drop_unkept_wf(next, g, e, prepare, kept, q + 1);
+            lemma_extends_trans(t, next, drop_unkept(next, e, prepare, kept, q + 1), e);
+        }
+    }
+}
+
 pub proof fn lemma_replay_event_wf(t: TreeS, g: GraphS, e: int)
     requires t.wf(g), g.wf(), g.event(e), t.minted_below(e, 0)
     ensures replay_event(t, g, e) matches Some(u) ==> u.wf(g) && t.extends(u, e)
@@ -809,6 +1442,14 @@ pub proof fn lemma_replay_event_wf(t: TreeS, g: GraphS, e: int)
     if let Some(ops) = g.events[e].ops {
         lemma_visible_ok(t, g, e);
         lemma_replay_ops_wf(t, g, e, t.visible(g, e), ops, 0, 0);
+    } else if let Some(pieces) = g.events[e].pieces {
+        let prepare = t.visible(g, e);
+        lemma_visible_ok(t, g, e);
+        lemma_replay_pieces_wf(t, g, e, prepare, pieces, 0, ISet::empty(), None, 0);
+        if let Some((next, kept)) = replay_pieces(t, g, e, prepare, pieces, 0, ISet::empty(), None, 0) {
+            lemma_drop_unkept_wf(next, g, e, prepare, kept, 0);
+            lemma_extends_trans(t, next, drop_unkept(next, e, prepare, kept, 0), e);
+        }
     }
 }
 
@@ -1962,6 +2603,155 @@ pub proof fn lemma_replay_ops_agree(t: TreeS, u: TreeS, g: GraphS, set: ISet<int
     }
 }
 
+/// Two views naming the same elements pick the same positions for a name.
+pub proof fn lemma_pick_agree(
+    t: TreeS, u: TreeS, g: GraphS, prep_t: Seq<int>, prep_u: Seq<int>, kept: ISet<int>,
+    document: RevisionId, item: int, q: int,
+)
+    requires t.names(prep_t) == u.names(prep_u)
+    ensures pick(t, g, prep_t, kept, document, item, q) == pick(u, g, prep_u, kept, document, item, q)
+    decreases prep_t.len() - q
+{
+    assert(t.names(prep_t).len() == prep_t.len());
+    assert(u.names(prep_u).len() == prep_u.len());
+    if 0 <= q < prep_t.len() {
+        assert(t.names(prep_t)[q] == t.id(prep_t[q]));
+        assert(u.names(prep_u)[q] == u.id(prep_u[q]));
+        lemma_pick_agree(t, u, g, prep_t, prep_u, kept, document, item, q + 1);
+    }
+}
+
+/// Two views naming the same elements keep the same positions, and leave
+/// twins to anchor to.
+pub proof fn lemma_keep_run_agree(
+    t: TreeS, u: TreeS, g: GraphS, e: int, prep_t: Seq<int>, prep_u: Seq<int>, kept: ISet<int>,
+    lt: Option<int>, lu: Option<int>, document: RevisionId, first: int, count: int, k: int,
+)
+    requires
+        t.names(prep_t) == u.names(prep_u), twin_parents(t, u, g, lt, lu),
+        t.view_ok(g, e, prep_t), u.view_ok(g, e, prep_u),
+    ensures match (
+        keep_run(t, g, prep_t, kept, lt, document, first, count, k),
+        keep_run(u, g, prep_u, kept, lu, document, first, count, k),
+    ) {
+        (None, None) => true,
+        (Some((k1, l1)), Some((k2, l2))) => k1 == k2 && twin_parents(t, u, g, l1, l2),
+        _ => false,
+    }
+    decreases count - k
+{
+    assert(t.names(prep_t).len() == prep_t.len());
+    assert(u.names(prep_u).len() == prep_u.len());
+    if 0 <= k < count {
+        lemma_pick_agree(t, u, g, prep_t, prep_u, kept, document, first + k, 0);
+        lemma_pick_in(t, g, prep_t, kept, document, first + k, 0);
+        if let Some(q) = pick(t, g, prep_t, kept, document, first + k, 0) {
+            assert(t.names(prep_t)[q] == t.id(prep_t[q]));
+            assert(u.names(prep_u)[q] == u.id(prep_u[q]));
+            assert(twin_parents(t, u, g, Some(prep_t[q]), Some(prep_u[q])));
+            lemma_keep_run_agree(t, u, g, e, prep_t, prep_u, kept.insert(q), Some(prep_t[q]), Some(prep_u[q]),
+                document, first, count, k + 1);
+        }
+    }
+}
+
+pub proof fn lemma_replay_pieces_agree(
+    t: TreeS, u: TreeS, g: GraphS, set: ISet<int>, e: int, prep_t: Seq<int>, prep_u: Seq<int>,
+    pieces: Seq<PieceS>, k: int, kept: ISet<int>, lt: Option<int>, lu: Option<int>, minted: int,
+)
+    requires
+        t.wf(g), u.wf(g), g.wf(), g.event(e), covers(g, set, e), agree(t, u, set),
+        t.view_ok(g, e, prep_t), u.view_ok(g, e, prep_u), t.names(prep_t) == u.names(prep_u),
+        twin_parents(t, u, g, lt, lu), t.known_or_none(g, e, lt), u.known_or_none(g, e, lu),
+        t.minted_below(e, minted), u.minted_below(e, minted),
+    ensures match (
+        replay_pieces(t, g, e, prep_t, pieces, k, kept, lt, minted),
+        replay_pieces(u, g, e, prep_u, pieces, k, kept, lu, minted),
+    ) {
+        (None, None) => true,
+        (Some((t2, k1)), Some((u2, k2))) => agree(t2, u2, set) && k1 == k2,
+        _ => false,
+    }
+    decreases pieces.len() - k
+{
+    if 0 <= k < pieces.len() {
+        match pieces[k] {
+            PieceS::Keep { document, first, count } => {
+                lemma_keep_run_agree(t, u, g, e, prep_t, prep_u, kept, lt, lu, document, first, count, 0);
+                lemma_keep_run_known(t, g, e, prep_t, kept, lt, document, first, count, 0);
+                lemma_keep_run_known(u, g, e, prep_u, kept, lu, document, first, count, 0);
+                if let (Some((k1, l1)), Some((k2, l2))) = (
+                    keep_run(t, g, prep_t, kept, lt, document, first, count, 0),
+                    keep_run(u, g, prep_u, kept, lu, document, first, count, 0),
+                ) {
+                    lemma_replay_pieces_agree(t, u, g, set, e, prep_t, prep_u, pieces, k + 1, k1, l1, l2, minted);
+                }
+            },
+            PieceS::Insert { items } => {
+                lemma_insert_run_agree(t, u, g, set, e, items, lt, lu, minted);
+                lemma_insert_run_wf(t, g, e, items, lt, minted);
+                lemma_insert_run_wf(u, g, e, items, lu, minted);
+                let (t2, m) = insert_run(t, g, e, items, lt, minted);
+                let (u2, m2) = insert_run(u, g, e, items, lu, minted);
+                let l1 = if items.len() == 0 { lt } else { Some(t2.len() - 1) };
+                let l2 = if items.len() == 0 { lu } else { Some(u2.len() - 1) };
+                if items.len() > 0 {
+                    lemma_insert_run_last(t, g, e, items, lt, minted);
+                    lemma_insert_run_last(u, g, e, items, lu, minted);
+                    assert(t2.id(t2.len() - 1) == u2.id(u2.len() - 1));
+                } else {
+                    assert(t2 == t);
+                    assert(u2 == u);
+                }
+                assert(twin_parents(t2, u2, g, l1, l2));
+                assert(t2.known_or_none(g, e, l1));
+                assert(u2.known_or_none(g, e, l2));
+                assert(t2.view_ok(g, e, prep_t));
+                assert(u2.view_ok(g, e, prep_u));
+                assert(t2.names(prep_t) =~= t.names(prep_t));
+                assert(u2.names(prep_u) =~= u.names(prep_u));
+                lemma_replay_pieces_agree(t2, u2, g, set, e, prep_t, prep_u, pieces, k + 1, kept, l1, l2, m);
+            },
+        }
+    }
+}
+
+pub proof fn lemma_drop_unkept_agree(
+    t: TreeS, u: TreeS, g: GraphS, set: ISet<int>, e: int, prep_t: Seq<int>, prep_u: Seq<int>,
+    kept: ISet<int>, q: int,
+)
+    requires
+        t.wf(g), u.wf(g), g.wf(), g.event(e), covers(g, set, e), agree(t, u, set),
+        t.view_ok(g, e, prep_t), u.view_ok(g, e, prep_u), t.names(prep_t) == u.names(prep_u),
+    ensures agree(drop_unkept(t, e, prep_t, kept, q), drop_unkept(u, e, prep_u, kept, q), set)
+    decreases prep_t.len() - q
+{
+    assert(t.names(prep_t).len() == prep_t.len());
+    assert(u.names(prep_u).len() == prep_u.len());
+    if 0 <= q < prep_t.len() {
+        if kept.contains(q) {
+            lemma_drop_unkept_agree(t, u, g, set, e, prep_t, prep_u, kept, q + 1);
+        } else {
+            let (i, j) = (prep_t[q], prep_u[q]);
+            assert(t.names(prep_t)[q] == t.id(i));
+            assert(u.names(prep_u)[q] == u.id(j));
+            assert(set.contains(t.nodes[i].author)) by {
+                assert(known(g, e).contains(t.nodes[i].author));
+            }
+            lemma_twin(t, u, g, set, i, j);
+            lemma_delete_agree(t, u, g, set, e, i, j);
+            lemma_delete_wf(t, g, e, i);
+            lemma_delete_wf(u, g, e, j);
+            let (t2, u2) = (t.delete(i, e), u.delete(j, e));
+            assert(t2.view_ok(g, e, prep_t));
+            assert(u2.view_ok(g, e, prep_u));
+            assert(t2.names(prep_t) =~= t.names(prep_t));
+            assert(u2.names(prep_u) =~= u.names(prep_u));
+            lemma_drop_unkept_agree(t2, u2, g, set, e, prep_t, prep_u, kept, q + 1);
+        }
+    }
+}
+
 /// Lemma E. Two trees that agree on a closed set covering what `e` knows
 /// replay `e` to trees that still agree, or both refuse it.
 pub proof fn lemma_replay_event_agree(t: TreeS, u: TreeS, g: GraphS, set: ISet<int>, e: int)
@@ -1983,6 +2773,26 @@ pub proof fn lemma_replay_event_agree(t: TreeS, u: TreeS, g: GraphS, set: ISet<i
         lemma_visible_ok(t, g, e);
         lemma_visible_ok(u, g, e);
         lemma_replay_ops_agree(t, u, g, set, e, t.visible(g, e), u.visible(g, e), ops, 0, 0);
+    } else if let Some(pieces) = g.events[e].pieces {
+        assert forall|o: int| #[trigger] past(g, e).contains(o) implies set.contains(o) by {
+            assert(known(g, e).contains(o));
+        }
+        lemma_agree_mono(t, u, set, past(g, e));
+        lemma_visible_agree(t, u, g, e);
+        lemma_visible_ok(t, g, e);
+        lemma_visible_ok(u, g, e);
+        let (prep_t, prep_u) = (t.visible(g, e), u.visible(g, e));
+        lemma_replay_pieces_agree(t, u, g, set, e, prep_t, prep_u, pieces, 0, ISet::empty(), None, None, 0);
+        lemma_replay_pieces_wf(t, g, e, prep_t, pieces, 0, ISet::empty(), None, 0);
+        lemma_replay_pieces_wf(u, g, e, prep_u, pieces, 0, ISet::empty(), None, 0);
+        if let (Some((t2, k1)), Some((u2, k2))) = (
+            replay_pieces(t, g, e, prep_t, pieces, 0, ISet::empty(), None, 0),
+            replay_pieces(u, g, e, prep_u, pieces, 0, ISet::empty(), None, 0),
+        ) {
+            assert(t2.names(prep_t) =~= t.names(prep_t));
+            assert(u2.names(prep_u) =~= u.names(prep_u));
+            lemma_drop_unkept_agree(t2, u2, g, set, e, prep_t, prep_u, k1, 0);
+        }
     }
 }
 
@@ -2766,9 +3576,9 @@ spec fn y() -> ItemS { line('y') }
 spec fn ex_g() -> GraphS {
     GraphS {
         events: seq![
-            EventS { ops: Some(seq![ins(0, seq![a()])]) },
-            EventS { ops: Some(seq![ins(1, seq![x()])]) },
-            EventS { ops: Some(seq![ins(1, seq![y()])]) },
+            EventS { ops: Some(seq![ins(0, seq![a()])]), pieces: None, named: arbitrary() },
+            EventS { ops: Some(seq![ins(1, seq![x()])]), pieces: None, named: arbitrary() },
+            EventS { ops: Some(seq![ins(1, seq![y()])]), pieces: None, named: arbitrary() },
         ],
         knows: |e: int, o: int| fork_knows(e, o),
     }

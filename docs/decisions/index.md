@@ -870,7 +870,9 @@ depend on each other in.
   nothing is a cause to refuse, to exactly the file described — and the
   trusted file is `src/trusted.rs`, holding SHA-256. So is each grammar's
   `stand_in`, with decision 0014's laws, and proving them moved the store
-  to hand stand-ins over in digest order.
+  to hand stand-ins over in digest order. So is the merge walk: it builds
+  exactly the model's tree, resolutions included, and two causal orders
+  merge to one file, given an ancestry that is a partial order.
 
 - [0077 — A writer believes the catalogue it holds](0077-a-writer-believes-the-catalogue-it-holds.md)
   0036 kept one walk of `operations/` per command for writers, to learn

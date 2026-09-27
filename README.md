@@ -206,6 +206,13 @@ compiles. An ordinary build sees none of it and gains no dependency.
   ([`src/format/operations.rs`](src/format/operations.rs)) and a
   resolution's, whose `keep`s stand as they are
   ([`src/format/resolution.rs`](src/format/resolution.rs)).
+- **Merging.** The walk that merges concurrent work builds exactly the tree
+  its model describes, one revision at a time, refuses exactly where the model
+  refuses, and reads the merged file out of it as the model does; the model's
+  theorem is that any two causal orders of one history merge to the same file,
+  or both refuse. That assumes the ancestry the walk is given is a partial
+  order and its order causal, which `Ancestry::new` and `Graph::new` provide
+  and which are not yet proved ([`src/merge.rs`](src/merge.rs)).
 
 What the proofs take on trust beyond Verus is in one file,
 [`src/trusted.rs`](src/trusted.rs) — today, that SHA-256 is a function — and a

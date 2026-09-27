@@ -1,6 +1,7 @@
 # 0076 — Proofs on the code that runs
 
-> **Amended 2026-09-27.** Three of the things *Leaves open* names are done.
+> **Amended 2026-09-27.** Everything *Leaves open* names is done but caching
+> the bundle.
 > `replay::State::applied` is proved in place: it replays a document exactly
 > when nothing is a cause to refuse it, to exactly the file the document
 > describes, and every refusal names its cause. The trusted file it needed
@@ -26,6 +27,26 @@
 > order `check` already read them in. The resolution grammar's `stand_in`
 > is proved to the same statement and the same laws, with every `keep`
 > left as it is.
+>
+> The merge walk is proved too, which this called largest and last. The
+> Verus spike's model of it, and its theorem that two causal orders of one
+> history merge to the same file or both refuse, sit beside `merge.rs` in
+> `merge/proof.rs`, with decision 0032's resolutions added to the model —
+> the spike had left them out. The walk is proved to build exactly the
+> model's tree, one event at a time, refusing exactly where the model
+> refuses, and the merged file is read out of that tree as the model reads
+> it; so the theorem is about the walk that runs. It rests on two things
+> not yet proved: that `Ancestry::new`'s answer to *had this event seen
+> that one* is a partial order, and that `Graph::new` walks in a causal
+> order. Giving the code the model's shape changed no output: an element
+> records its parent and side for the proof to read, and is named
+> `(author, minted)`, which is what sibling ties were already broken by in
+> every history the walk builds; three thousand random histories, with
+> concurrent inserts, deletions and resolutions, merge byte for byte as
+> before. The proved walk is faster — 237 ms to 140 ms for a merge of 801
+> events over 21,780 lines, and 8.1 ms to 3.4 ms across a resolution of
+> 20,000 — because a removal is a vector entry rather than a map entry and
+> a resolution's names are found by index rather than by a map of digests.
 
 Two spikes asked whether historica's rules could be proved rather than
 tested. One restated the crate in Bend, whose checker proves laws of a
