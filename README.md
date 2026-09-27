@@ -210,9 +210,10 @@ compiles. An ordinary build sees none of it and gains no dependency.
   its model describes, one revision at a time, refuses exactly where the model
   refuses, and reads the merged file out of it as the model does; the model's
   theorem is that any two causal orders of one history merge to the same file,
-  or both refuse. That assumes the ancestry the walk is given is a partial
-  order and its order causal, which `Ancestry::new` and `Graph::new` provide
-  and which are not yet proved ([`src/merge.rs`](src/merge.rs)).
+  or both refuse. What that asks of the history is proved too: the ancestry
+  the walk is handed is exactly reachability along parent edges, and the
+  order it walks puts every revision after its parents
+  ([`src/merge.rs`](src/merge.rs), [`src/ancestry.rs`](src/ancestry.rs)).
 
 What the proofs take on trust beyond Verus is in one file,
 [`src/trusted.rs`](src/trusted.rs) — today, that SHA-256 is a function — and a

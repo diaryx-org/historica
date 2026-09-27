@@ -35,10 +35,15 @@
 > the spike had left them out. The walk is proved to build exactly the
 > model's tree, one event at a time, refusing exactly where the model
 > refuses, and the merged file is read out of that tree as the model reads
-> it; so the theorem is about the walk that runs. It rests on two things
-> not yet proved: that `Ancestry::new`'s answer to *had this event seen
-> that one* is a partial order, and that `Graph::new` walks in a causal
-> order. Giving the code the model's shape changed no output: an element
+> it; so the theorem is about the walk that runs. What it asks of the
+> graph is proved of the graph the walk is handed: `Ancestry::new` answers
+> *had this event seen that one* with exactly reachability along parent
+> edges, as a chain or as a matrix of bits, and the order `Graph::new`
+> walks lists every event once, each after its parents — so the answer is
+> a partial order and the walk is causal under it. Left to reading are the
+> digest sort and parent lookup that build the edges, and that the order
+> is refused only for a cycle. Giving the code the model's shape changed
+> no output: an element
 > records its parent and side for the proof to read, and is named
 > `(author, minted)`, which is what sibling ties were already broken by in
 > every history the walk builds; three thousand random histories, with

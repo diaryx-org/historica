@@ -18,9 +18,12 @@
 //!
 //! - `knows` is a relation with the properties [`GraphS::wf`] lists
 //!   (reflexive, transitive, acyclic), and the orders compared are causal
-//!   ([`valid_order`]). `Ancestry::new` and `Graph::new` are what provide
-//!   them, and neither is proved yet; `built` itself needs only an order
-//!   naming each event once.
+//!   ([`valid_order`]). `Graph::from` is proved to give both: its ancestry
+//!   is reachability along parent edges, and its order lists every event
+//!   once, each after its parents. What `Graph::new` does before it — sort
+//!   the events by digest and look each parent up by digest — is read, not
+//!   proved, and so is that the order refuses only a cycle. `built` itself
+//!   needs only an order naming each event once.
 //! - Events are indexed in digest order, as `Graph::new` sorts them, so a
 //!   comparison of indices is a comparison of digests.
 //! - `contested`, `origins` and `references` are not modelled; the theorem

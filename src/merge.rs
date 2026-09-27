@@ -40,6 +40,8 @@ use crate::format::{Item, Operation, OperationDocument, OperationKind, Piece, Re
 use crate::replay::State;
 
 #[cfg(verus_keep_ghost)]
+use crate::ancestry;
+#[cfg(verus_keep_ghost)]
 use crate::format::proof::{ItemS, PieceS};
 #[cfg(verus_keep_ghost)]
 use vstd::prelude::*;
@@ -429,6 +431,319 @@ fn walk(graph: &Graph<'_>, order: &[usize]) -> Result<Merged, MergeError> {
     Ok(built(graph, order)?.read(graph))
 }
 
+/// Kahn's algorithm: every event once, each after all of its parents, taking
+/// the lowest-numbered among those whose parents are all placed. `None`
+/// where some event is never placed, which a cycle does.
+///
+/// Proved: what it returns lists every event once, each after all of its
+/// parents. That it refuses only a cycle is argued, not proved.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
+#[cfg_attr(verus_keep_ghost, verifier::loop_isolation(false))]
+#[cfg_attr(verus_keep_ghost, verus_spec(r =>
+    requires
+        forall|e: int, k: int| 0 <= e < parents@.len() && 0 <= k < parents@[e]@.len()
+            ==> (#[trigger] parents@[e]@[k] as int) < parents@.len(),
+    ensures
+        r matches Some(order) ==> ancestry::proof::causal(ancestry::proof::parents_of(parents@), order@),
+))]
+fn causal_order(parents: &[Vec<usize>]) -> Option<Vec<usize>> {
+    #[cfg(verus_keep_ghost)]
+    proof_decl! {
+        let ghost graph = ancestry::proof::parents_of(parents@);
+    }
+    let n = parents.len();
+    // Which events each event is a parent of: the ones worth looking at
+    // again once it is placed.
+    let mut children: Vec<Vec<usize>> = Vec::with_capacity(n);
+    #[cfg_attr(verus_keep_ghost, verus_spec(
+        invariant
+            children@.len() <= n,
+            forall|e: int| 0 <= e < children@.len() ==> (#[trigger] children@[e])@.len() == 0,
+        decreases n - children@.len(),
+    ))]
+    while children.len() < n {
+        children.push(Vec::new());
+    }
+    let mut child: usize = 0;
+    #[cfg_attr(verus_keep_ghost, verus_spec(
+        invariant
+            child <= n,
+            children@.len() == n,
+            forall|e: int, k: int| 0 <= e < n && 0 <= k < children@[e]@.len()
+                ==> (#[trigger] children@[e]@[k] as int) < n,
+        decreases n - child,
+    ))]
+    while child < n {
+        let mut k: usize = 0;
+        #[cfg_attr(verus_keep_ghost, verus_spec(
+            invariant
+                k <= parents@[child as int]@.len(),
+                children@.len() == n,
+                forall|e: int, k2: int| 0 <= e < n && 0 <= k2 < children@[e]@.len()
+                    ==> (#[trigger] children@[e]@[k2] as int) < n,
+            decreases parents@[child as int]@.len() - k,
+        ))]
+        while k < parents[child].len() {
+            let parent = parents[child][k];
+            #[cfg(verus_keep_ghost)]
+            proof_decl! { let ghost before = children@; }
+            children[parent].push(child);
+            #[cfg(verus_keep_ghost)]
+            proof! {
+                assert forall|e: int, k2: int| 0 <= e < n && 0 <= k2 < children@[e]@.len()
+                    implies (#[trigger] children@[e]@[k2] as int) < n by {
+                    if e != parent as int {
+                        assert(children@[e] == before[e]);
+                    } else if k2 < before[e]@.len() {
+                        assert(children@[e]@[k2] == before[e]@[k2]);
+                    }
+                }
+            }
+            k += 1;
+        }
+        child += 1;
+    }
+    let mut placed = vec![false; n];
+    // Ready events, highest first, so that the lowest is taken next. Sorting
+    // the events by digest makes "lowest index" mean "lowest digest".
+    let mut ready: Vec<usize> = Vec::new();
+    let mut e = n;
+    #[cfg_attr(verus_keep_ghost, verus_spec(
+        invariant
+            e <= n,
+            placed@.len() == n,
+            forall|i: int| 0 <= i < n ==> !#[trigger] placed@[i],
+            descending(ready@),
+            forall|j: int| 0 <= j < ready@.len() ==> e <= #[trigger] ready@[j] < n,
+            forall|j: int| 0 <= j < ready@.len() ==> ready_for(graph, placed@, #[trigger] ready@[j] as int),
+        decreases e,
+    ))]
+    while e > 0 {
+        e -= 1;
+        if parents[e].is_empty() {
+            #[cfg(verus_keep_ghost)]
+            proof! { assert(graph[e as int] == parents@[e as int]@); }
+            ready.push(e);
+        }
+    }
+    let mut order: Vec<usize> = Vec::with_capacity(n);
+    #[cfg_attr(verus_keep_ghost, verus_spec(
+        invariant
+            placed@.len() == n,
+            children@.len() == n,
+            forall|e: int, k: int| 0 <= e < n && 0 <= k < children@[e]@.len()
+                ==> (#[trigger] children@[e]@[k] as int) < n,
+            order@.len() <= n,
+            forall|i: int| 0 <= i < order@.len() ==> (#[trigger] order@[i] as int) < n,
+            forall|i: int, j: int| 0 <= i < j < order@.len() ==> order@[i] != order@[j],
+            forall|x: int| 0 <= x < n ==> (#[trigger] placed@[x] <==> order@.contains(x as usize)),
+            ancestry::proof::parents_first(graph, order@),
+            descending(ready@),
+            forall|j: int| 0 <= j < ready@.len() ==> (#[trigger] ready@[j] as int) < n,
+            forall|j: int| 0 <= j < ready@.len() ==> ready_for(graph, placed@, #[trigger] ready@[j] as int),
+        decreases n - order@.len(),
+    ))]
+    while let Some(next) = ready.pop() {
+        #[cfg(verus_keep_ghost)]
+        proof! {
+            assert(ready_for(graph, placed@, next as int));
+            assert forall|i: int| 0 <= i < order@.len() implies #[trigger] order@[i] as int != next as int by {
+                if order@[i] == next {
+                    assert(order@.contains(next));
+                }
+            }
+            ancestry::proof::lemma_short(order@, n as int, next as int);
+            let at = order@.len() as int;
+            // Every parent of `next` is placed, so already in the order.
+            assert forall|k: int| 0 <= k < graph[next as int].len() implies
+                exists|j: int| 0 <= j < at && order@[j] == #[trigger] graph[next as int][k] by {
+                let p = graph[next as int][k];
+                assert(placed@[p as int]);
+                assert(order@.contains(p));
+            }
+        }
+        #[cfg(verus_keep_ghost)]
+        proof_decl! {
+            let ghost was_placed = placed@;
+            let ghost was_order = order@;
+        }
+        placed[next] = true;
+        order.push(next);
+        #[cfg(verus_keep_ghost)]
+        proof! {
+            assert forall|x: int| 0 <= x < n implies (#[trigger] placed@[x] <==> order@.contains(x as usize)) by {
+                if x != next as int {
+                    assert(placed@[x] == was_placed[x]);
+                    if order@.contains(x as usize) {
+                        let i = choose|i: int| 0 <= i < order@.len() && order@[i] == x as usize;
+                        assert(i < order@.len() - 1);
+                        assert(was_order[i] == x as usize);
+                    }
+                    if was_order.contains(x as usize) {
+                        let i = choose|i: int| 0 <= i < was_order.len() && was_order[i] == x as usize;
+                        assert(order@[i] == x as usize);
+                    }
+                } else {
+                    assert(order@[order@.len() - 1] == next);
+                }
+            }
+            assert forall|j: int| 0 <= j < ready@.len() implies ready_for(graph, placed@, #[trigger] ready@[j] as int) by {
+                assert(ready@[j] > next);
+                assert forall|k2: int| 0 <= k2 < graph[ready@[j] as int].len()
+                    implies #[trigger] placed@[graph[ready@[j] as int][k2] as int] by {
+                    assert(was_placed[graph[ready@[j] as int][k2] as int]);
+                }
+            }
+            assert(was_order =~= order@.drop_last());
+            assert forall|i: int, k2: int| 0 <= i < order@.len() && 0 <= k2 < graph[order@[i] as int].len()
+                implies exists|j: int| 0 <= j < i && order@[j] == #[trigger] graph[order@[i] as int][k2] by {
+                if i < was_order.len() {
+                    let j = choose|j: int| 0 <= j < i && was_order[j] == #[trigger] graph[was_order[i] as int][k2];
+                    assert(order@[j] == was_order[j]);
+                } else {
+                    assert(order@[i] == next);
+                    let j = choose|j: int| 0 <= j < was_order.len() && was_order[j] == #[trigger] graph[next as int][k2];
+                    assert(order@[j] == was_order[j]);
+                }
+            }
+            assert(ancestry::proof::parents_first(graph, order@));
+        }
+        let mut c: usize = 0;
+        #[cfg_attr(verus_keep_ghost, verus_spec(
+            invariant
+                c <= children@[next as int]@.len(),
+                descending(ready@),
+                forall|j: int| 0 <= j < ready@.len() ==> (#[trigger] ready@[j] as int) < n,
+                forall|j: int| 0 <= j < ready@.len() ==> ready_for(graph, placed@, #[trigger] ready@[j] as int),
+            decreases children@[next as int]@.len() - c,
+        ))]
+        while c < children[next].len() {
+            let child = children[next][c];
+            if !placed[child] && all_placed(&parents[child], &placed) {
+                #[cfg(verus_keep_ghost)]
+                proof_decl! {
+                    assert(graph[child as int] == parents@[child as int]@);
+                    let ghost before = ready@;
+                }
+                add_ready(&mut ready, child);
+                #[cfg(verus_keep_ghost)]
+                proof! {
+                    assert forall|j: int| 0 <= j < ready@.len() implies
+                        (#[trigger] ready@[j] as int) < n && ready_for(graph, placed@, ready@[j] as int) by {
+                        assert(ready@.contains(ready@[j]));
+                        if ready@[j] != child {
+                            assert(before.contains(ready@[j]));
+                            let i = choose|i: int| 0 <= i < before.len() && before[i] == ready@[j];
+                        }
+                    }
+                }
+            }
+            c += 1;
+        }
+    }
+    if order.len() == n {
+        #[cfg(verus_keep_ghost)]
+        proof! {
+            assert(order@.len() == graph.len());
+            assert forall|i: int| 0 <= i < order@.len() implies (#[trigger] order@[i] as int) < graph.len() by {}
+            assert forall|i: int, j: int| 0 <= i < j < order@.len() implies order@[i] != order@[j] by {}
+        }
+        Some(order)
+    } else {
+        None
+    }
+}
+
+/// Whether every one of `of` is placed.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
+#[cfg_attr(verus_keep_ghost, verus_spec(r =>
+    requires
+        forall|k: int| 0 <= k < of@.len() ==> (#[trigger] of@[k] as int) < placed@.len(),
+    ensures
+        r == forall|k: int| 0 <= k < of@.len() ==> #[trigger] placed@[of@[k] as int],
+))]
+fn all_placed(of: &[usize], placed: &[bool]) -> bool {
+    let mut k: usize = 0;
+    #[cfg_attr(verus_keep_ghost, verus_spec(
+        invariant
+            k <= of@.len(),
+            forall|k2: int| 0 <= k2 < of@.len() ==> (#[trigger] of@[k2] as int) < placed@.len(),
+            forall|k2: int| 0 <= k2 < k ==> #[trigger] placed@[of@[k2] as int],
+        decreases of@.len() - k,
+    ))]
+    while k < of.len() {
+        if !placed[of[k]] {
+            return false;
+        }
+        k += 1;
+    }
+    true
+}
+
+/// Put `event` among the ready, highest first, once.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
+#[cfg_attr(verus_keep_ghost, verus_spec(
+    requires
+        descending(old(ready)@),
+    ensures
+        descending(final(ready)@),
+        forall|x: usize| #[trigger] final(ready)@.contains(x) <==> (old(ready)@.contains(x) || x == event),
+))]
+fn add_ready(ready: &mut Vec<usize>, event: usize) {
+    let mut at: usize = 0;
+    #[cfg_attr(verus_keep_ghost, verus_spec(
+        invariant
+            at <= ready@.len(),
+            ready@ == old(ready)@,
+            descending(ready@),
+            forall|j: int| 0 <= j < at ==> #[trigger] ready@[j] > event,
+        decreases ready@.len() - at,
+    ))]
+    while at < ready.len() && ready[at] > event {
+        at += 1;
+    }
+    if at < ready.len() && ready[at] == event {
+        return;
+    }
+    #[cfg(verus_keep_ghost)]
+    proof_decl! { let ghost before = ready@; }
+    ready.insert(at, event);
+    #[cfg(verus_keep_ghost)]
+    proof! {
+        assert forall|i: int, j: int| 0 <= i < j < ready@.len() implies #[trigger] ready@[i] > #[trigger] ready@[j] by {
+            if j < at as int {
+            } else if i < at as int && j == at as int {
+            } else if i < at as int {
+                assert(ready@[j] == before[j - 1]);
+                assert(before[i] > before[j - 1] || i == j - 1);
+            } else if i == at as int {
+                assert(ready@[j] == before[j - 1]);
+                if at < before.len() {
+                    assert(before[at as int] < event);
+                    assert(before[at as int] >= before[j - 1]);
+                }
+            } else {
+                assert(ready@[i] == before[i - 1]);
+                assert(ready@[j] == before[j - 1]);
+            }
+        }
+        assert forall|x: usize| #[trigger] ready@.contains(x) <==> (before.contains(x) || x == event) by {
+            if ready@.contains(x) {
+                let i = choose|i: int| 0 <= i < ready@.len() && ready@[i] == x;
+                if i < at as int { assert(before[i] == x); }
+                else if i > at as int { assert(before[i - 1] == x); }
+            }
+            if before.contains(x) {
+                let i = choose|i: int| 0 <= i < before.len() && before[i] == x;
+                if i < at as int { assert(ready@[i] == x); } else { assert(ready@[i + 1] == x); }
+            }
+            if x == event {
+                assert(ready@[at as int] == event);
+            }
+        }
+    }
+}
+
 /// Replay a graph in one order, to the tree whose reading is the merged file.
 ///
 /// Proved to build exactly what the model's `walk` builds, and to refuse
@@ -554,43 +869,7 @@ impl<'a> Graph<'a> {
             parents.push(of);
         }
 
-        // Kahn's algorithm, taking the lowest digest among the events whose
-        // parents are all placed. Sorting the events by digest above makes
-        // "lowest index" mean "lowest digest".
-        let mut remaining: Vec<usize> = parents.iter().map(Vec::len).collect();
-        let mut children: Vec<Vec<usize>> = vec![Vec::new(); events.len()];
-        for (child, of) in parents.iter().enumerate() {
-            for parent in of {
-                children[*parent].push(child);
-            }
-        }
-        let mut ready: BTreeSet<usize> = remaining
-            .iter()
-            .enumerate()
-            .filter(|(_, count)| **count == 0)
-            .map(|(index, _)| index)
-            .collect();
-
-        let mut order = Vec::with_capacity(events.len());
-        while let Some(next) = ready.iter().next().copied() {
-            ready.remove(&next);
-            order.push(next);
-            for child in &children[next] {
-                remaining[*child] -= 1;
-                if remaining[*child] == 0 {
-                    ready.insert(*child);
-                }
-            }
-        }
-        if order.len() != events.len() {
-            return Err(MergeError::Cycle);
-        }
-
-        Ok(Self {
-            events,
-            ancestry: Ancestry::new(&order, &parents),
-            order,
-        })
+        Self::from(events, parents)
     }
 
     /// Whether this graph is one chain, so nothing in it is concurrent.
@@ -601,6 +880,48 @@ impl<'a> Graph<'a> {
     /// Whether neither of these two events had seen the other.
     fn concurrent(&self, one: usize, other: usize) -> bool {
         one != other && !self.ancestry.knows(one, other) && !self.ancestry.knows(other, one)
+    }
+}
+
+#[cfg_attr(verus_keep_ghost, cfg_eval, verus_verify)]
+impl<'a> Graph<'a> {
+    /// The graph of `events`, already in digest order, whose parents are
+    /// `parents` by index: walked in causal order, and asked what each event
+    /// had seen.
+    ///
+    /// Proved: the ancestry it holds is a partial order and the order it
+    /// walks is causal under it, which is what the walk's convergence theorem
+    /// asks of a graph. That `Graph::new` indexed the parents right is read,
+    /// not proved.
+    #[cfg_attr(verus_keep_ghost, verus_spec(r =>
+        requires
+            parents@.len() == events@.len(),
+            forall|e: int, k: int| 0 <= e < parents@.len() && 0 <= k < parents@[e]@.len()
+                ==> (#[trigger] parents@[e]@[k] as int) < parents@.len(),
+            parents@.len() + 63 <= usize::MAX,
+            parents@.len() * ((parents@.len() + 63) / 64) <= usize::MAX,
+        ensures
+            r matches Ok(graph) ==> {
+                &&& graph.holds()
+                &&& graph.events@ == events@
+                &&& graph@.wf()
+                &&& proof::valid_order(graph@, proof::ints(graph.order@))
+            },
+    ))]
+    fn from(events: Vec<Event<'a>>, parents: Vec<Vec<usize>>) -> Result<Self, MergeError> {
+        let order = match causal_order(&parents) {
+            Some(order) => order,
+            None => return Err(MergeError::Cycle),
+        };
+        let ancestry = Ancestry::new(&order, &parents);
+        let graph = Graph {
+            events,
+            ancestry,
+            order,
+        };
+        #[cfg(verus_keep_ghost)]
+        proof! { lemma_graph_sound(&graph, ancestry::proof::parents_of(parents@)); }
+        Ok(graph)
     }
 }
 
@@ -2713,6 +3034,61 @@ impl Tree {
                 None => self.elements@[i].side is Right,
             }
         }
+    }
+}
+
+/// Highest first, each once.
+spec fn descending(s: Seq<usize>) -> bool {
+    forall|i: int, j: int| 0 <= i < j < s.len() ==> #[trigger] s[i] > #[trigger] s[j]
+}
+
+/// Whether `e` may be placed next: not yet placed, and every parent placed.
+spec fn ready_for(graph: Seq<Seq<usize>>, placed: Seq<bool>, e: int) -> bool {
+    &&& 0 <= e < placed.len()
+    &&& !placed[e]
+    &&& forall|k: int| 0 <= k < graph[e].len() ==> #[trigger] placed[graph[e][k] as int]
+}
+
+/// A graph whose ancestry is reachability over a causal order is what the
+/// convergence theorem asks for: a partial order, walked causally.
+proof fn lemma_graph_sound(graph: &Graph<'_>, parents: Seq<Seq<usize>>)
+    requires
+        graph.holds(),
+        parents.len() == graph.events@.len(),
+        ancestry::proof::causal(parents, graph.order@),
+        forall|e: int, o: int| 0 <= e < parents.len() && 0 <= o < parents.len()
+            ==> (#[trigger] graph.ancestry.knows_spec(e, o) <==> ancestry::proof::reaches(parents, e, o)),
+    ensures
+        graph@.wf(),
+        proof::valid_order(graph@, proof::ints(graph.order@)),
+{
+    let g = graph@;
+    let order = graph.order@;
+    let n = parents.len() as int;
+    assert forall|e: int| g.event(e) implies g.knows(e, e) by {
+        ancestry::proof::lemma_reaches_self(parents, e);
+    }
+    assert forall|a: int, b: int, c: int| g.event(a) && g.event(b) && g.event(c)
+        && g.knows(a, b) && g.knows(b, c) implies g.knows(a, c) by {
+        ancestry::proof::lemma_reaches_trans(parents, a, b, c);
+    }
+    assert forall|a: int, b: int| g.event(a) && g.event(b) && g.knows(a, b) && g.knows(b, a) implies a == b by {
+        ancestry::proof::lemma_reaches_antisymmetric(parents, order, a, b);
+    }
+    let walked = proof::ints(order);
+    assert forall|i: int, j: int| 0 <= i < walked.len() && 0 <= j < walked.len()
+        && g.saw(walked[i], walked[j]) implies j < i by {
+        ancestry::proof::lemma_place(parents, order, walked[i]);
+        ancestry::proof::lemma_place(parents, order, walked[j]);
+        ancestry::proof::lemma_reaches_back(parents, order, walked[i], walked[j]);
+    }
+    assert forall|e: int| g.event(e) implies exists|q: int| 0 <= q < walked.len() && walked[q] == e by {
+        ancestry::proof::lemma_place(parents, order, e);
+        assert(walked[ancestry::proof::place(order, e)] == e);
+    }
+    assert forall|i: int, j: int| 0 <= i < walked.len() && 0 <= j < walked.len() && i != j
+        implies walked[i] != walked[j] by {
+        if i < j { assert(order[i] != order[j]); } else { assert(order[j] != order[i]); }
     }
 }
 
