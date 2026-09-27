@@ -427,10 +427,10 @@ pub(super) fn read<F: Filesystem + ?Sized>(
 
     // Written when the directory and the held catalogue disagreed: a path
     // this pass had to read, or one the catalogue named and the directory has
-    // since lost. Writers do not write it as they go — a `record` that
-    // rewrote the whole catalogue once per document would be quadratic in the
-    // size of the store — so this is the one place it is kept up to date, and
-    // the cost of that is the next reader reading the files this one wrote.
+    // since lost. Writers keep it too, once per revision rather than once per
+    // document — a `record` that rewrote the whole catalogue per document
+    // would be quadratic in the size of the store — which is decision 0077;
+    // this is where a store written by something else is caught up.
     if cached && (accounted != held.len() || accounted != catalogue.at.len()) {
         write(files, root, &catalogue);
     }
@@ -517,28 +517,39 @@ pub(super) fn write<F: Filesystem + ?Sized>(files: &F, root: &Path, catalogue: &
 }
 
 /// One catalogue as the bytes `cache/` holds.
+///
+/// A catalogue taken from `cache/` and added to by a writer (decision 0077)
+/// is its held lines and the writer's entries together, a writer's entry for
+/// a digest replacing the held line for it.
 fn render(catalogue: &Catalogue) -> String {
     let mut text = String::from(CATALOGUE_HEADER);
     text.push('\n');
-    // By path, so that a catalogue is a stable file: two stores holding one
-    // history write one set of bytes, and reading two catalogues against each
-    // other is about what the directories hold rather than about map order.
-    let mut lines: Vec<String> = catalogue
-        .at
-        .iter()
-        .filter_map(|(id, filed)| {
-            // A path that is not UTF-8 cannot be written to a readable file,
-            // and it is one entry rather than the whole catalogue: leaving it
-            // out costs the next reader one read of that file.
-            let path = filed.path.to_str()?;
-            let forgets = filed
-                .forgets
-                .map_or_else(|| "-".to_owned(), |target| target.to_string());
-            Some(format!("{id} {forgets} {path}\n"))
-        })
-        .collect();
-    lines.sort();
-    text.extend(lines);
+    // By digest, which is the order [`cached`] searches and refuses a file
+    // out of, and a stable one: two stores holding one history write one set
+    // of bytes, and reading two catalogues against each other is about what
+    // the directories hold rather than about map order.
+    let mut lines: BTreeMap<String, String> = BTreeMap::new();
+    if let Some(held) = &catalogue.held {
+        for index in 0..held.lines.len() {
+            let line = held.at(index);
+            if let Some((id, _)) = line.split_once(' ') {
+                lines.insert(id.to_owned(), format!("{line}\n"));
+            }
+        }
+    }
+    for (id, filed) in &catalogue.at {
+        // A path that is not UTF-8 cannot be written to a readable file, and
+        // it is one entry rather than the whole catalogue: leaving it out
+        // costs the next reader one read of that file.
+        let Some(path) = filed.path.to_str() else {
+            continue;
+        };
+        let forgets = filed
+            .forgets
+            .map_or_else(|| "-".to_owned(), |target| target.to_string());
+        lines.insert(id.to_string(), format!("{id} {forgets} {path}\n"));
+    }
+    text.extend(lines.into_values());
     text
 }
 

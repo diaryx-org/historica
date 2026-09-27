@@ -872,6 +872,16 @@ depend on each other in.
   `stand_in`, with decision 0014's laws, and proving them moved the store
   to hand stand-ins over in digest order.
 
+- [0077 — A writer believes the catalogue it holds](0077-a-writer-believes-the-catalogue-it-holds.md)
+  0036 kept one walk of `operations/` per command for writers, to learn
+  whether the bytes about to be filed were held; a walk is a directory open
+  per revision ever recorded, and it was 79% of a one-file record at 2,000
+  revisions. A writer now asks the catalogue the store holds and believes a
+  `no`, and `insert_at` keeps the catalogue as each revision lands. A wrong
+  `no` — bytes copied in without a writer — costs a second copy of them,
+  which every reader resolves and `check` notes. A removal still walks. The
+  record went from 115 ms to 33 ms at 2,000 revisions.
+
 Not a decision, but the evaluation one of them rests on:
 [`docs/loro.md`](../loro.md) — the initial Loro evaluation, and the conditions
 that would reverse it.

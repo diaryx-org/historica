@@ -83,26 +83,25 @@ recorded per revision under `Restriction::Paths` naming that file — the
 shape of a writer that records every few seconds rather than when a person
 asks.
 
-| revisions | `Store::open` | `record` |
-|---:|---:|---:|
-| 10 | 6.8 ms | 38 ms |
-| 400 | 9.3 ms | 53 ms |
-| 800 | 10.6 ms | 69 ms |
-| 1,200 | 15.9 ms | 82 ms |
-| 1,600 | 17.2 ms | 97 ms |
-| 2,000 | 22.4 ms | 113 ms |
+A restricted record went from 38 ms at the tenth revision to 113 ms at the
+two-thousandth. That slope was not this walk: sampled, 79% of it was the
+writer's walk of `operations/` that 0036 kept, which
+[0077](../decisions/0077-a-writer-believes-the-catalogue-it-holds.md)
+removes, and the same record is then 23 ms and 33 ms. What this walk costs
+there is small — at 2,000 revisions, `reachable_from` 7 ms and
+`merged_tree_of` 3 ms — because a restricted record asks the state of one
+file.
 
-About 37 ms of `record` and 8 ms of `open` per thousand revisions, and
-nothing else in the loop grows: `Working::read` holds at 17 ms and finding
-the heads under 1 ms. A restricted record surveys one file, so the growth is
-the parents' tree, which is this walk. A writer at that cadence reaches ten
-thousand revisions in weeks, where a record costs about half a second, and
-the restriction stops being what makes it cheap.
+An unrestricted record asks it of every file, and there it is the cost. On
+the same folder, with nothing changed since the head, one took 1.3 s at
+1,000 revisions and 3.4 s at 2,000: the state of each of the 5,000 files,
+each found by walking. That is the survey a writer runs when it cannot say
+which files changed — on opening a folder somebody may have edited with
+something else — and it grows with the history as fast as anything here.
 
 For comparison, the same run at `v1.0.0-rc.4`: the root revision took 32 s
-(876 ms on `main`) and an unrestricted record over the 5,000 files after
-1,000 revisions 11.2 s cold (1.3 s on `main`), so what is unreleased on
-`main` already removes everything here but the slope.
+(876 ms on `main`) and that unrestricted record after 1,000 revisions 11.2 s
+cold (1.3 s on `main`).
 
 ## Done when
 
@@ -110,8 +109,8 @@ For comparison, the same run at `v1.0.0-rc.4`: the root revision took 32 s
   no longer scaling with the number of revisions — the measurement 0035 and
   0036 were each written against, extended with a history long enough to
   show it.
-- A restricted `record` against a single head, measured as above, no longer
-  scales with the number of revisions either.
+- An unrestricted `record` over a folder unchanged since a single head,
+  measured as above, no longer scales with the number of revisions either.
 - `Store::tree`, `content_at` and `merged_content` answer from the index when
   the store holds one, and identically without it; the corpus passes both
   ways.

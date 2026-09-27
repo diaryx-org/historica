@@ -930,7 +930,7 @@ pub struct Store<F = Disk> {
     scanned: Cell<bool>,
     /// The same, built by a pass over the directory rather than taken from
     /// `cache/`. Filled when something needs an answer the cheap one cannot
-    /// give — an absence, or a writer asking what is already held — and
+    /// give — an absence, or a removal — and
     /// preferred over the cheap one from then on.
     walked: OnceCell<Catalogue>,
     /// Whether the catalogue may come from `cache/`.
@@ -941,6 +941,10 @@ pub struct Store<F = Disk> {
     /// forgets what the one thing a reader believes without re-reading it, so
     /// the command that holds a store to its own rules must not take it.
     cached: bool,
+    /// Whether a writer has filed something the catalogue in `cache/` does
+    /// not name yet. Decision 0077: set by the writers, cleared by
+    /// [`Store::keep_catalogue`].
+    unkept: Cell<bool>,
     names: BTreeMap<String, Bookmark>,
     skipped: Skipped,
 }
@@ -1228,6 +1232,7 @@ impl<F: Filesystem> Store<F> {
             read: RefCell::new(Read::default()),
             scanned: Cell::new(false),
             cached,
+            unkept: Cell::new(false),
             names,
             skipped,
         })
@@ -1402,17 +1407,52 @@ impl<F: Filesystem> Store<F> {
         Ok(())
     }
 
-    /// The same, to write into.
+    /// The walked catalogue, to take a file out of.
     ///
-    /// Catalogued first, so that a document inserted before anything read the
-    /// directory is not lost when the directory is finally walked.
+    /// Walked because a removal has to be removed from the whole of what the
+    /// directory holds: a catalogue taken from `cache/` holds its lines as
+    /// text and would go on naming the file. `forget`, `prune` and the
+    /// compliance in `receive` are the callers, and each then lets the
+    /// catalogue go or empties `cache/`. A writer adding a file asks
+    /// [`Store::catalogue_to_add`] instead, which does not walk (0077).
     fn catalogue_mut(&mut self) -> Result<&mut Catalogue, StoreError> {
-        // A writer asks the directory, because a writer is about to add to
-        // it: the question is whether the store already holds these bytes,
-        // and `no` is what a catalogue taken from `cache/` cannot be
-        // believed about. Once per command rather than once per document.
         self.upgrade()?;
         Ok(self.walked.get_mut().expect("just catalogued"))
+    }
+
+    /// The catalogue this store already holds, for a writer to add to.
+    ///
+    /// Decision 0077: a writer asks the catalogue it has whether the bytes are
+    /// held, and files them where it is not told they are. Whichever
+    /// catalogue that is — the walked one where something in this command
+    /// paid for a walk, the one taken from `cache/` otherwise, and a walk
+    /// only where neither exists — what is filed is added to it, and kept
+    /// when the revision naming it lands.
+    fn catalogue_to_add(&mut self) -> Result<&mut Catalogue, StoreError> {
+        self.catalogue()?;
+        self.unkept.set(true);
+        if self.walked.get().is_some() {
+            return Ok(self.walked.get_mut().expect("walked"));
+        }
+        Ok(self.catalogue.get_mut().expect("just catalogued"))
+    }
+
+    /// Write the catalogue back to `cache/`, if a writer added to it.
+    ///
+    /// [`Store::insert_at`] calls this as each revision lands, which is the
+    /// end of every command that files content; it is public for a caller
+    /// that files documents with no revision after them and would rather the
+    /// next reader did not walk for them. Not calling it costs exactly that:
+    /// a reader that cannot place a digest walks `operations/` once, which
+    /// reconciles the file. Every failure is ignored, as 0035 ignores every
+    /// failure to keep a cache.
+    pub fn keep_catalogue(&self) {
+        if !self.unkept.replace(false) || !self.cached {
+            return;
+        }
+        if let Some(catalogue) = self.walked.get().or_else(|| self.catalogue.get()) {
+            catalogue::write(&self.files, &self.root, catalogue);
+        }
     }
 
     /// One file in `operations/`, read and hashed before it is believed.
@@ -2907,6 +2947,11 @@ impl<F: Filesystem> Store<F> {
         let held = Document::new(document.to_revision(), bytes, path);
         let _ = held.whole.set(document.clone());
         self.documents.insert(id, held);
+        // And where the catalogue is kept, for the same reason: whatever a
+        // writer filed since the last revision is now named by one, and a
+        // reader in the next command should find it without walking
+        // `operations/` for it. Decision 0077.
+        self.keep_catalogue();
         Ok(id)
     }
 
@@ -2979,10 +3024,11 @@ impl<F: Filesystem> Store<F> {
     ) -> Result<RevisionId, StoreError> {
         let bytes = document.write();
         let id = digest(&bytes);
-        // The walked catalogue, because what is asked here is whether the
-        // store already holds these bytes, and `no` is what a cheap one
-        // cannot say.
-        self.upgrade()?;
+        // The catalogue this store holds, walked or not. Decision 0077: a `no`
+        // from one taken from `cache/` can cost a second copy of bytes that
+        // arrived without passing through here, which every reader resolves
+        // and `check` notes, and believing it is what keeps a record from
+        // walking every revision the store has ever held.
         if self.catalogue()?.at(&id).is_some() {
             return Ok(id);
         }
@@ -2993,7 +3039,7 @@ impl<F: Filesystem> Store<F> {
         // forgets, so recording does not pay for a pass over the directory
         // to learn what it has itself done.
         let filed = self.located(&path, document.forgets);
-        self.catalogue_mut()?.insert(id, filed);
+        self.catalogue_to_add()?.insert(id, filed);
         self.read
             .borrow_mut()
             .operations
@@ -3014,10 +3060,11 @@ impl<F: Filesystem> Store<F> {
     ) -> Result<RevisionId, StoreError> {
         let bytes = document.write();
         let id = digest(&bytes);
-        // The walked catalogue, because what is asked here is whether the
-        // store already holds these bytes, and `no` is what a cheap one
-        // cannot say.
-        self.upgrade()?;
+        // The catalogue this store holds, walked or not. Decision 0077: a `no`
+        // from one taken from `cache/` can cost a second copy of bytes that
+        // arrived without passing through here, which every reader resolves
+        // and `check` notes, and believing it is what keeps a record from
+        // walking every revision the store has ever held.
         if self.catalogue()?.at(&id).is_some() {
             return Ok(id);
         }
@@ -3027,7 +3074,7 @@ impl<F: Filesystem> Store<F> {
         // its `insert` pieces mint, and 0014 destroys those exactly as it
         // destroys an operation document's.
         let filed = self.located(&path, document.forgets);
-        self.catalogue_mut()?.insert(id, filed);
+        self.catalogue_to_add()?.insert(id, filed);
         self.read
             .borrow_mut()
             .resolutions
@@ -3049,17 +3096,18 @@ impl<F: Filesystem> Store<F> {
     ) -> Result<RevisionId, StoreError> {
         let bytes = document.write();
         let id = digest(&bytes);
-        // The walked catalogue, because what is asked here is whether the
-        // store already holds these bytes, and `no` is what a cheap one
-        // cannot say.
-        self.upgrade()?;
+        // The catalogue this store holds, walked or not. Decision 0077: a `no`
+        // from one taken from `cache/` can cost a second copy of bytes that
+        // arrived without passing through here, which every reader resolves
+        // and `check` notes, and believing it is what keeps a record from
+        // walking every revision the store has ever held.
         if self.catalogue()?.at(&id).is_some() {
             return Ok(id);
         }
         let path = within(&self.root.join(OPERATIONS_DIR), name);
         write_once(&self.files, &path, &bytes)?;
         let filed = self.located(&path, Some(document.forgets));
-        self.catalogue_mut()?.insert(id, filed);
+        self.catalogue_to_add()?.insert(id, filed);
         self.read.borrow_mut().forgotten.insert(id, *document);
         Ok(id)
     }
@@ -3112,10 +3160,11 @@ impl<F: Filesystem> Store<F> {
         name: &str,
         feed: &mut dyn FnMut(&mut dyn io::Write) -> io::Result<()>,
     ) -> Result<RevisionId, StoreError> {
-        // The walked catalogue, because what is asked here is whether the
-        // store already holds these bytes, and `no` is what a cheap one
-        // cannot say.
-        self.upgrade()?;
+        // The catalogue this store holds, walked or not. Decision 0077: a `no`
+        // from one taken from `cache/` can cost a second copy of bytes that
+        // arrived without passing through here, which every reader resolves
+        // and `check` notes, and believing it is what keeps a record from
+        // walking every revision the store has ever held.
         if self.catalogue()?.at(id).is_some() {
             return Ok(*id);
         }
@@ -3133,7 +3182,7 @@ impl<F: Filesystem> Store<F> {
         // there is nothing here for a reader to have learned by parsing it.
         let mut filed = self.located(&path, None);
         filed.document = false;
-        self.catalogue_mut()?.insert(*id, filed);
+        self.catalogue_to_add()?.insert(*id, filed);
         Ok(*id)
     }
 

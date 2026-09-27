@@ -1123,9 +1123,10 @@ fn a_content_read_does_not_list_the_directory_the_catalogue_places_it_in() {
         .expect("the file")
         .0;
 
-    // One read to bring `cache/` up to date with what recording wrote: the
-    // pass writes the catalogue before the documents it is about to add, so
-    // the first reader after a write is the one that pays for them.
+    // One read first, for the answer to compare against. Recording kept the
+    // catalogue as each revision landed (decision 0077), so this read pays
+    // for nothing either; `a_record_lists_nothing_its_catalogue_already_names`
+    // is where that is held.
     let opened = Store::open_on(files.clone(), Path::new(ROOT).join("history")).expect("the store");
     let first = opened.content(&second, &file).expect("the content");
     drop(opened);
@@ -1150,5 +1151,151 @@ fn a_content_read_does_not_list_the_directory_the_catalogue_places_it_in() {
     assert!(
         files.listings_under("history/operations") > listings,
         "an absence was reported without reading the directory"
+    );
+}
+
+/// Decision 0077: a writer asks the catalogue it holds whether the bytes it is
+/// about to file are there, rather than walking `operations/` to find out, and
+/// keeps the catalogue as the revision lands. So a record into a store whose
+/// `cache/` is current lists nothing under `operations/`, and the next reader
+/// places what it wrote without listing either. The walk this removes grew
+/// with every revision the store had ever held, and was most of what a
+/// one-file record cost on a long history.
+#[test]
+fn a_record_lists_nothing_its_catalogue_already_names() {
+    let files = Stamped::new();
+    files
+        .create_directory(Path::new(ROOT))
+        .expect("the working copy");
+    let history = Path::new(ROOT).join("history");
+    let notes = Path::new(ROOT).join("notes.md");
+    let mut store = Store::init_on(files.clone(), &history).expect("a new store");
+    files.write(&notes, b"First thought.\n").expect("a journal");
+    let first = record_at(&files, &mut store, Vec::new(), "a journal");
+    drop(store);
+
+    // A later command, as every command is: a store opened afresh, over a
+    // `cache/` the last one kept.
+    files
+        .write(&notes, b"First thought.\nSecond thought.\n")
+        .expect("a second thought");
+    let mut store = Store::open_on(files.clone(), &history).expect("the store");
+    let listings = files.listings_under("history/operations");
+    let second = record_at(&files, &mut store, vec![first], "a second thought");
+    assert_eq!(
+        files.listings_under("history/operations"),
+        listings,
+        "recording walked operations/ to learn what it already held"
+    );
+    drop(store);
+
+    let store = Store::open_on(files.clone(), &history).expect("the store");
+    let file = *store
+        .tree(&second)
+        .expect("a tree")
+        .files()
+        .next()
+        .expect("the file")
+        .0;
+    let cheap = store.content(&second, &file).expect("the content");
+    assert_eq!(
+        files.listings_under("history/operations"),
+        listings,
+        "a reader walked for what the record had just filed"
+    );
+    let read =
+        Store::open_reading_everything_on(files.clone(), &history).expect("the store, read whole");
+    assert_eq!(
+        cheap,
+        read.content(&second, &file).expect("the content"),
+        "the kept catalogue changed an answer"
+    );
+}
+
+/// The price 0077 names. A `no` from a catalogue taken from `cache/` is
+/// believed, so bytes that reached `operations/` without passing through a
+/// writer — copied there by hand, or by a sync that knows nothing of historica
+/// — and are then filed again land as a second copy. A digest held twice is
+/// one every reader already resolves and `check` already notes, so nothing is
+/// lost and no answer changes; what it costs is the bytes.
+#[test]
+fn bytes_the_catalogue_does_not_name_are_filed_again_and_only_noted() {
+    let (memory, store, _, second) = history();
+    let edited = *store
+        .get(&second)
+        .expect("readable")
+        .expect("held")
+        .edited
+        .values()
+        .next()
+        .expect("the second revision edited a file");
+    let document = store
+        .operation(&edited)
+        .expect("readable")
+        .expect("the document it names");
+    let file = *store
+        .get(&second)
+        .expect("readable")
+        .expect("held")
+        .edited
+        .keys()
+        .next()
+        .expect("the file");
+    let before = store.content(&second, &file).expect("the content");
+    drop(store);
+
+    // A catalogue that does not name the document: what `cache/` holds when
+    // the document arrived by a copy rather than through a writer.
+    let catalogue = Path::new(ROOT).join("history/cache/operations.txt");
+    let text = String::from_utf8(memory.read(&catalogue).expect("a kept catalogue")).expect("text");
+    let wanted = edited.to_string();
+    let stale: String = text
+        .lines()
+        .filter(|line| !line.starts_with(&wanted))
+        .map(|line| format!("{line}\n"))
+        .collect();
+    assert_ne!(
+        stale, text,
+        "the catalogue named the document to begin with"
+    );
+    memory
+        .write(&catalogue, stale.as_bytes())
+        .expect("a stale catalogue");
+
+    let mut store =
+        Store::open_on(memory.clone(), Path::new(ROOT).join("history")).expect("the store");
+    let files_before = memory.count();
+    let filed = store
+        .insert_operation_at(
+            &document,
+            &format!("again{}", historica::store::OPERATION_SUFFIX),
+        )
+        .expect("filed");
+    assert_eq!(filed, edited, "the same bytes are the same digest");
+    assert_eq!(
+        memory.count(),
+        files_before + 1,
+        "believing the catalogue files the bytes a second time"
+    );
+    assert_eq!(
+        store.content(&second, &file).expect("the content"),
+        before,
+        "a digest held twice changed an answer"
+    );
+
+    let report = Store::check_on(&memory.clone(), Path::new(ROOT).join("history"));
+    let duplicates: Vec<_> = report
+        .findings()
+        .iter()
+        .filter(|finding| matches!(finding, historica::store::Finding::DuplicateContent { .. }))
+        .collect();
+    assert_eq!(duplicates.len(), 1, "check names the second copy");
+    assert!(
+        report
+            .findings()
+            .iter()
+            .all(|finding| finding.severity() != Severity::Error),
+        "a second copy is a note, never a fault: {:?}",
+        report.findings()
     );
 }
