@@ -56,6 +56,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::io;
 use std::path::{Component, Path, PathBuf};
+use std::rc::Rc;
 
 use crate::core::{ChangeId, FileId, History, Revision, RevisionId};
 use crate::format::{
@@ -696,7 +697,11 @@ enum Stated {
     /// disagrees with nobody about it.
     Absent,
     /// The file, stated.
-    Known(State),
+    ///
+    /// Shared, because most revisions say nothing about a given file and so
+    /// hold what their parent holds: one state stands for the whole run of
+    /// them rather than being copied into each.
+    Known(Rc<State>),
 }
 
 /// What several parents agree one file holds.
@@ -707,14 +712,14 @@ enum Stated {
 /// side that disagrees, so it is dropped rather than counted as empty; if
 /// what is left disagrees, the merge owed a resolution and this rule stops.
 fn agreed<'a>(parents: impl IntoIterator<Item = &'a Stated>) -> Stated {
-    let mut agreed: Option<&State> = None;
+    let mut agreed: Option<&Rc<State>> = None;
     for parent in parents {
         match parent {
             Stated::Unstated => return Stated::Unstated,
             Stated::Absent => continue,
             Stated::Known(state) => match agreed {
                 None => agreed = Some(state),
-                Some(held) if held == state => {}
+                Some(held) if Rc::ptr_eq(held, state) || held == state => {}
                 Some(_) => return Stated::Unstated,
             },
         }
@@ -764,6 +769,11 @@ fn minted_by(document: &OperationDocument) -> Vec<Item> {
 }
 
 /// How many revisions a walk must replay before its answer is worth keeping.
+///
+/// Replaying a revision is applying the operations it states for the file. A
+/// revision that says nothing about the file is passed rather than replayed —
+/// it holds its parent's state, shared rather than copied — so a file written
+/// once at the root of a long history costs its walk nothing to keep.
 ///
 /// A cache with no limit on it grows one entry per file per revision anybody
 /// ever looked at, which on this store's own history is a `cache/` many times
@@ -2295,7 +2305,7 @@ impl<F: Filesystem> Store<F> {
         caching: Caching,
     ) -> Result<Option<State>, MaterialiseError> {
         match self.stated_content(head, file, caching)? {
-            Stated::Known(state) => Ok(Some(state)),
+            Stated::Known(state) => Ok(Some(Rc::unwrap_or_clone(state))),
             Stated::Absent => Ok(None),
             // A merge that states no resolution lands here — a hand that
             // omitted it — and reads by the algorithm instead.
@@ -2356,8 +2366,10 @@ impl<F: Filesystem> Store<F> {
     ) -> Result<Stated, MaterialiseError> {
         let mut known: BTreeMap<RevisionId, Stated> = BTreeMap::new();
         let mut stack = vec![*head];
-        // What this walk cost, in revisions it had to replay rather than
-        // read. It is what decides whether the answer is kept.
+        // What this walk cost, in operation documents it had to apply rather
+        // than read an answer for. It is what decides whether the answer is
+        // kept. A revision that says nothing about the file costs nothing to
+        // pass — it shares its parent's state — so it does not count.
         let mut replayed = 0usize;
         while let Some(id) = stack.last().copied() {
             if known.contains_key(&id) {
@@ -2383,7 +2395,7 @@ impl<F: Filesystem> Store<F> {
                     .map_err(MaterialiseError::unreadable)?
                 && let Some(state) = self.cached(&result)
             {
-                known.insert(id, Stated::Known(state));
+                known.insert(id, Stated::Known(Rc::new(state)));
                 stack.pop();
                 continue;
             }
@@ -2396,7 +2408,7 @@ impl<F: Filesystem> Store<F> {
                     .map_err(MaterialiseError::unreadable)?
             {
                 let assembled = self.assemble(&resolution, id, *file)?;
-                known.insert(id, Stated::Known(assembled));
+                known.insert(id, Stated::Known(Rc::new(assembled)));
                 stack.pop();
                 continue;
             }
@@ -2434,11 +2446,10 @@ impl<F: Filesystem> Store<F> {
                     })?,
                     None => State::empty(),
                 };
-                known.insert(id, Stated::Known(created));
+                known.insert(id, Stated::Known(Rc::new(created)));
                 continue;
             }
 
-            replayed += 1;
             let base = agreed(document.parents.iter().map(|parent| &known[parent]));
             let stated = match document.edited.get(file) {
                 Some(named) => match base {
@@ -2446,6 +2457,7 @@ impl<F: Filesystem> Store<F> {
                     // A file nothing said anything about before is one whose
                     // operations are counted into an empty state.
                     base => {
+                        replayed += 1;
                         let operations = self
                             .effective_operation(named)
                             .map_err(MaterialiseError::unreadable)?
@@ -2454,16 +2466,16 @@ impl<F: Filesystem> Store<F> {
                                 named_by: id,
                             })?;
                         let before = match base {
-                            Stated::Known(state) => state,
+                            Stated::Known(state) => Rc::unwrap_or_clone(state),
                             _ => State::empty(),
                         };
-                        Stated::Known(before.applied(&operations).map_err(|error| {
+                        Stated::Known(Rc::new(before.applied(&operations).map_err(|error| {
                             MaterialiseError::Content {
                                 revision: id,
                                 file: *file,
                                 error,
                             }
-                        })?)
+                        })?))
                     }
                 },
                 // A revision that says nothing about the file says what its
@@ -2475,6 +2487,9 @@ impl<F: Filesystem> Store<F> {
         }
 
         let stated = known.remove(head).unwrap_or(Stated::Unstated);
+        // The states the rest of the walk shared go with it, so the one asked
+        // for is usually held once and is handed over rather than copied.
+        drop(known);
         // Keep what the walk cost, so the next reader does not pay it again —
         // and only when it cost something. One entry, for the state that was
         // asked for: writing every step would be the whole file once per

@@ -122,6 +122,40 @@ fn walking_a_history_leaves_an_entry_and_reading_it_again_agrees() {
     assert!(first.contains(&format!("as revision {REVISIONS} left it")));
 }
 
+/// A walk past revisions that never touched the file cost nothing, and keeps
+/// nothing: what earns an entry is operations applied, not history passed.
+#[test]
+fn a_walk_that_replayed_nothing_leaves_nothing() {
+    let directory = scratch("untouched");
+    assert!(run(&directory, &["init"]).status.success());
+    fs::write(directory.join("notes.txt"), "written once\n").expect("writing the file");
+    for revision in 0..=REVISIONS {
+        fs::write(
+            directory.join("other.txt"),
+            format!("revision {revision}\n"),
+        )
+        .expect("writing the other file");
+        let message = format!("revision {revision}");
+        assert!(
+            run(&directory, &["record", "-m", &message])
+                .status
+                .success(),
+            "recording revision {revision}"
+        );
+    }
+    let head = head(&directory);
+    let _ = fs::remove_dir_all(cache_of(&directory));
+
+    assert_eq!(
+        stdout(&directory, &["cat", &head, "notes.txt"]),
+        "written once\n"
+    );
+    assert!(
+        entries(&directory).is_empty(),
+        "a file created once and never edited has nothing to check a walk against"
+    );
+}
+
 #[test]
 fn deleting_every_entry_loses_neither_information_nor_meaning() {
     let directory = recorded("disposable");
