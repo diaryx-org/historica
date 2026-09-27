@@ -1962,9 +1962,11 @@ impl<F: Filesystem> Store<F> {
     /// catalogue is, and by decision 0067 hashed *in pieces*, so that finding
     /// a video costs a buffer rather than the video.
     ///
-    /// This is the primitive every other payload read is built on, and it is
-    /// what lets a streamed read still verify before it hands anything over:
+    /// This is the primitive every streamed payload read is built on, and it
+    /// is what lets such a read still verify before it hands anything over:
     /// the file is hashed here, and only then are its bytes given to anybody.
+    /// [`Store::payload`], which wants the bytes whole anyway, hashes the
+    /// bytes it read instead.
     pub fn payload_file(&self, id: &RevisionId) -> Result<Option<PathBuf>, StoreError> {
         if let Some(filed) = self.catalogue()?.at(id)
             && !filed.document
@@ -1989,7 +1991,22 @@ impl<F: Filesystem> Store<F> {
     /// somewhere should not pay: [`Store::payload_in_pieces`] and
     /// [`Store::copy_payload_to`] are the same content without the buffer.
     pub fn payload(&self, id: &RevisionId) -> Result<Option<Vec<u8>>, StoreError> {
-        let Some(path) = self.payload_file(id)? else {
+        // Where the catalogue says it is, the file is read once and the bytes
+        // read are the bytes hashed: finding it with [`Store::payload_file`]
+        // and then reading it would open and hash every payload twice, and a
+        // `status` asks for thousands.
+        if let Some(filed) = self.catalogue()?.at(id)
+            && !filed.document
+        {
+            let path = self.root.join(&filed.path);
+            match self.files.read(&path) {
+                Ok(bytes) if digest(&bytes) == *id => return Ok(Some(bytes)),
+                Ok(_) => {}
+                Err(error) if error.kind() == io::ErrorKind::NotFound => {}
+                Err(error) => return Err(StoreError::io(&path, error)),
+            }
+        }
+        let Some(path) = self.scan_for_payload(id)? else {
             return Ok(None);
         };
         let bytes = self
@@ -1997,7 +2014,7 @@ impl<F: Filesystem> Store<F> {
             .read(&path)
             .map_err(|error| StoreError::io(&path, error))?;
         // Hashed again, because the read above is a second look at a file the
-        // first one only measured, and a payload's whole claim is its digest.
+        // scan only measured, and a payload's whole claim is its digest.
         Ok((digest(&bytes) == *id).then_some(bytes))
     }
 
