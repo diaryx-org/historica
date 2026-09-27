@@ -18,6 +18,7 @@
 //! it can start, so its build time is paid several times over per push.
 
 mod bench;
+mod proofs;
 
 use std::env;
 use std::path::{Path, PathBuf};
@@ -104,6 +105,14 @@ const JOBS: &[Job] = &[
         builds: true,
         about: "build on the minimum supported Rust version",
         run: msrv,
+    },
+    Job {
+        id: "proofs",
+        name: "Proofs",
+        components: "",
+        builds: false,
+        about: "Verus over the library, fetching the pinned release once",
+        run: proofs::proofs,
     },
 ];
 
@@ -306,6 +315,13 @@ fn msrv(sh: &Sh) -> Result<()> {
 // ---------------------------------------------------------------------------
 
 fn main() -> ExitCode {
+    // Called by cargo as the compiler wrapper the `proofs` job sets up, not by
+    // a person — and before `env::args`, which would refuse a path cargo
+    // passed that is not UTF-8.
+    if let Some(verus) = env::var_os(proofs::WRAPPER) {
+        return proofs::wrap(verus);
+    }
+
     let args: Vec<String> = env::args().skip(1).collect();
     let sh = Sh::new();
 

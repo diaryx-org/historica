@@ -181,6 +181,26 @@ target may be, how a path is told apart from a file identifier, and why `check`
 separates the faults that mean a store contradicts itself from the notes that
 never fail.
 
+## Verified
+
+Parts of the library are proved correct with
+[Verus](https://github.com/verus-lang/verus), in place: the specifications sit
+on the code that runs, and the proofs sit beside it in modules only Verus
+compiles. An ordinary build sees none of it and gains no dependency.
+
+- **The order of a document's operations.** What the parser admits is ordered
+  pairwise, every operation against every one before it, and an operation is
+  refused exactly when admitting it would break that
+  ([`src/format/order.rs`](src/format/order.rs)).
+
+Nothing in `src/` is taken on trust by the proofs, and a test fails if that
+changes. [Decision 0076](docs/decisions/0076-proofs-on-the-code-that-runs.md)
+is how this is arranged and what it costs. To check the proofs:
+
+```console
+cargo xtask proofs     # fetches the pinned Verus release once, then verifies
+```
+
 ## Decisions
 
 Choices that constrain later work are written down as they are made.
@@ -197,7 +217,7 @@ the same order, against the same commands:
 
 ```console
 cargo xtask            # what the jobs are
-cargo xtask ci         # all of them: fmt, clippy, test, msrv
+cargo xtask ci         # all of them: fmt, clippy, test, msrv, proofs
 cargo xtask clippy     # or one
 ```
 

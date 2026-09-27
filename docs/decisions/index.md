@@ -850,6 +850,22 @@ depend on each other in.
   number of the interrupted set's files torn rather than one. Leaves open a
   drain of `record`'s own, and staging documents so none is ever torn.
 
+- [0076 — Proofs on the code that runs](0076-proofs-on-the-code-that-runs.md)
+  Two spikes proved historica's rules of a copy — a Bend rewrite and a Verus
+  port — and a proof of a copy is about the code only while someone keeps
+  the two the same. Puts the proof on the function that runs, as
+  `fs-transaction` does: its specification in a `verus_spec` attribute and
+  its lemmas in a `proof.rs` beside it, both behind `verus_keep_ghost`, a cfg
+  only Verus sets, so an ordinary build sees neither and the manifest names
+  no prover. `cargo xtask proofs` fetches a pinned Verus, builds the
+  dependencies with its Rust, and hands the library's compile to `verus`;
+  CI runs it. Costs code written in the part of Rust Verus reads, and a
+  1.4 GB prover. What the proofs take on trust is nothing in `src/`, and a
+  test holds that. The first proof is the parser's ordering rule, pairwise,
+  and it fails with the check 15ba1b3 added taken out. Rejects proving a
+  port and fingerprinting its source, and `vstd` as a dependency. Leaves the
+  merge model on the spike branch as the plan for proving `merge.rs`.
+
 Not a decision, but the evaluation one of them rests on:
 [`docs/loro.md`](../loro.md) — the initial Loro evaluation, and the conditions
 that would reverse it.
