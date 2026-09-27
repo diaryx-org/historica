@@ -36,14 +36,23 @@ use std::fmt;
 
 use crate::ancestry::Ancestry;
 use crate::core::RevisionId;
-use crate::format::{Item, OperationDocument, OperationKind, Piece, ResolutionDocument};
+use crate::format::{Item, Operation, OperationDocument, OperationKind, Piece, ResolutionDocument};
 use crate::replay::State;
+
+#[cfg(verus_keep_ghost)]
+use crate::format::proof::ItemS;
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
+#[cfg(verus_keep_ghost)]
+pub(crate) mod proof;
 
 /// What one revision stated about one file.
 ///
 /// Two spellings, and decision 0032 is the second: a revision either says what
 /// it *did* to the file, against the state at its parents, or — where a merge's
 /// parents disagree — says what the file *is*, whole, by reference.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
 #[derive(Debug, Clone, Copy)]
 pub enum Stated<'a> {
     /// Decision 0007's operations, positioned into the state at the parents.
@@ -56,6 +65,7 @@ pub enum Stated<'a> {
 ///
 /// A revision that changed nothing about the file still appears, because its
 /// causal edges are part of the graph the merge walks.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
 #[derive(Debug, Clone)]
 #[non_exhaustive]
 pub struct Event<'a> {
@@ -365,12 +375,14 @@ pub fn quotes<'a>(events: impl IntoIterator<Item = Event<'a>>) -> Result<Vec<Quo
         .into_iter()
         .map(|at| {
             let element = &tree.elements[at];
+            // In event order, whatever order the walk met them in.
+            let mut deleted_by = element.deleted_by.clone();
+            deleted_by.sort_by_key(|(event, _)| *event);
             Quoted {
                 written_by: graph.events[element.author].revision,
                 write: element.wrote,
                 text: element.item.text.clone(),
-                deletes: element
-                    .deleted_by
+                deletes: deleted_by
                     .iter()
                     .filter_map(|(event, quote)| {
                         // A resolution drops an item by not keeping it, and a
@@ -379,8 +391,7 @@ pub fn quotes<'a>(events: impl IntoIterator<Item = Event<'a>>) -> Result<Vec<Quo
                         Some((graph.events[*event].revision, operation, item))
                     })
                     .collect(),
-                dropped_by: element
-                    .deleted_by
+                dropped_by: deleted_by
                     .iter()
                     .filter(|(_, quote)| quote.is_none())
                     .map(|(event, _)| graph.events[*event].revision)
@@ -427,6 +438,7 @@ fn walk(graph: &Graph<'_>, order: &[usize]) -> Result<Merged, MergeError> {
 }
 
 /// The event graph, indexed and causally ordered.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
 struct Graph<'a> {
     events: Vec<Event<'a>>,
     /// Which events each event had seen.
@@ -505,11 +517,22 @@ impl<'a> Graph<'a> {
     fn concurrent(&self, one: usize, other: usize) -> bool {
         one != other && !self.ancestry.knows(one, other) && !self.ancestry.knows(other, one)
     }
+}
 
+#[cfg_attr(verus_keep_ghost, cfg_eval, verus_verify)]
+impl Graph<'_> {
     /// Whether the author of `event` had seen `other`, or is `other`.
     ///
     /// The view an insertion is placed against: an element written earlier by
     /// this same revision is one its author can see, because they wrote it.
+    #[cfg_attr(verus_keep_ghost, verus_spec(r =>
+        requires
+            self.holds(),
+            event < self.events@.len(),
+            other < self.events@.len(),
+        ensures
+            r == self@.knows(event as int, other as int),
+    ))]
     fn knows(&self, event: usize, other: usize) -> bool {
         self.ancestry.knows(event, other)
     }
@@ -519,12 +542,21 @@ impl<'a> Graph<'a> {
     /// The view an operation's positions are counted into: what the author had
     /// before they started, which is their parents' state and nothing of their
     /// own.
+    #[cfg_attr(verus_keep_ghost, verus_spec(r =>
+        requires
+            self.holds(),
+            event < self.events@.len(),
+            other < self.events@.len(),
+        ensures
+            r == self@.saw(event as int, other as int),
+    ))]
     fn saw(&self, event: usize, other: usize) -> bool {
         self.ancestry.saw(event, other)
     }
 }
 
 /// Which side of its parent an element sits on.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Side {
     Left,
@@ -533,20 +565,25 @@ enum Side {
 
 /// One item in the transient structure, alive or tombstoned.
 ///
-/// Which element it was attached to, and on which side, is not a field: it is
-/// recorded by the child list it was put into, and the in-order reading of
-/// those lists is the file.
-#[derive(Debug, Clone)]
+/// Which element it was attached to, and on which side, is written down twice:
+/// in `parent` and `side`, and by the child list it was put into, whose
+/// in-order reading is the file. The walk reads the lists; the proof reads the
+/// fields, and [`Tree::attach`] is the one place either is written.
+///
+/// Its name is `(author, minted)`: the event that wrote it, and how many items
+/// that event had minted before it. Events are indexed in digest order, so the
+/// first half compares as decision 0007's digest does, and sibling ties are
+/// broken by the name.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
+#[derive(Debug)]
 struct Element {
-    /// `(R, i)`: the revision that wrote it, and its index within that
-    /// revision. Derived, never stored, and unique because a digest is.
-    id: (RevisionId, usize),
     /// The name a `keep` line quotes: the *document* that minted the item, and
     /// the item's ordinal in that document's order.
     ///
     /// Decision 0032 counts references this way because a person reading a
     /// resolution has the `edit` line in front of them, not the revision's
-    /// digest. It is coarser than `id` by exactly one case — two concurrent
+    /// digest. Its ordinal is the element's `minted`. It is coarser than the
+    /// element's name by exactly one case — two concurrent
     /// revisions naming one byte-identical document — where the elements it
     /// cannot tell apart hold the same text but not the same place. A
     /// resolution written against such a view keeps the shared name once per
@@ -568,12 +605,29 @@ struct Element {
     ///
     /// `None` where the removal quotes nothing: decision 0032's resolution
     /// drops an item by not keeping it, and there is no line of text for a
-    /// redaction to chase.
-    deleted_by: BTreeMap<usize, Option<(usize, usize)>>,
+    /// redaction to chase. In the order the walk met them; one event removes
+    /// an element at most once.
+    deleted_by: Vec<(usize, Option<(usize, usize)>)>,
+    /// The element it was attached to, `None` for the document's top level.
+    /// Read only by the proof, which only Verus compiles.
+    #[allow(dead_code)]
+    parent: Option<usize>,
+    /// Which side of `parent` it was attached on. Read only by the proof.
+    #[allow(dead_code)]
+    side: Side,
     left: Vec<usize>,
     right: Vec<usize>,
 }
 
+/// One step of reading the tree out in order: a subtree still to be read, or
+/// an element to write down.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
+enum Work {
+    Expand(usize),
+    Emit(usize),
+}
+
+#[cfg_attr(verus_keep_ghost, verus_verify)]
 #[derive(Debug, Default)]
 struct Tree {
     elements: Vec<Element>,
@@ -581,49 +635,856 @@ struct Tree {
     root: Vec<usize>,
 }
 
+#[cfg_attr(verus_keep_ghost, cfg_eval, verus_verify)]
 impl Tree {
     /// Every element, in the order the document reads.
     ///
     /// Iterative because a file typed from beginning to end is a chain of
-    /// right children as deep as the file is long.
+    /// right children as deep as the file is long. What the stack holds is
+    /// what is still to be read, top first, and it is proved to be read out
+    /// in the in-order reading of the tree.
+    #[cfg_attr(verus_keep_ghost, verifier::loop_isolation(false))]
+    #[cfg_attr(verus_keep_ghost, verus_spec(r =>
+        requires
+            self.holds_shape(),
+        ensures
+            proof::ints(r@) == self@.order(),
+    ))]
     fn order(&self) -> Vec<usize> {
-        enum Work {
-            Expand(usize),
-            Emit(usize),
+        #[cfg(verus_keep_ghost)]
+        proof_decl! {
+            let ghost t = self@;
+            self.lemma_listed(self.root@, None, true);
+            reveal(proof::TreeS::order);
+            lemma_read_all_reads(t, proof::ints(self.root@), -1);
         }
-        let mut out = Vec::with_capacity(self.elements.len());
-        let mut stack: Vec<Work> = self.root.iter().rev().map(|at| Work::Expand(*at)).collect();
+        let mut out: Vec<usize> = Vec::with_capacity(self.elements.len());
+        let mut stack: Vec<Work> = Vec::with_capacity(self.root.len());
+        self.push_reversed(&self.root, &mut stack);
+        #[cfg(verus_keep_ghost)]
+        proof! { assert(pending(t, Seq::<Work>::empty()) == Seq::<int>::empty()); }
+        #[cfg_attr(verus_keep_ghost, verus_spec(
+            invariant
+                proof::ints(out@) + pending(t, stack@) == t.order(),
+                forall|k: int| 0 <= k < stack@.len() ==> match #[trigger] stack@[k] {
+                    Work::Expand(at) => at < self.elements@.len(),
+                    Work::Emit(_) => true,
+                },
+            decreases pending(t, stack@).len(), pending(t, stack@).len() - emits(stack@),
+        ))]
         while let Some(work) = stack.pop() {
             match work {
                 Work::Expand(at) => {
-                    let element = &self.elements[at];
-                    for child in element.right.iter().rev() {
-                        stack.push(Work::Expand(*child));
+                    #[cfg(verus_keep_ghost)]
+                    proof_decl! {
+                        let ghost rest = stack@;
+                        let ghost element = self.elements@[at as int];
+                        self.lemma_listed(element.left@, Some(at as int), false);
+                        self.lemma_listed(element.right@, Some(at as int), true);
+                        lemma_read_all_reads(t, proof::ints(element.left@), at as int);
+                        lemma_read_all_reads(t, proof::ints(element.right@), at as int);
+                        assert(t.nodes[at as int] == element@);
                     }
+                    let element = &self.elements[at];
+                    self.push_reversed(&element.right, &mut stack);
+                    #[cfg(verus_keep_ghost)]
+                    proof! { lemma_push(t, stack@, Work::Emit(at)); }
                     stack.push(Work::Emit(at));
-                    for child in element.left.iter().rev() {
-                        stack.push(Work::Expand(*child));
+                    self.push_reversed(&element.left, &mut stack);
+                    #[cfg(verus_keep_ghost)]
+                    proof! {
+                        let (left, right) = (reads(t, proof::ints(element.left@)), reads(t, proof::ints(element.right@)));
+                        assert(left + (seq![at as int] + (right + pending(t, rest)))
+                            =~= t.read(at as int) + pending(t, rest));
+                        lemma_emits_bound(t, stack@);
                     }
                 }
-                Work::Emit(at) => out.push(at),
+                Work::Emit(at) => {
+                    out.push(at);
+                    #[cfg(verus_keep_ghost)]
+                    proof! { lemma_emits_bound(t, stack@); }
+                }
             }
         }
         out
     }
 
-    /// The elements one event's author could see, in order.
-    fn visible(&self, order: &[usize], graph: &Graph<'_>, event: usize) -> Vec<usize> {
-        order
-            .iter()
-            .copied()
-            .filter(|at| {
-                let element = &self.elements[*at];
-                graph.saw(event, element.author)
-                    && !element.deleted_by.keys().any(|by| graph.saw(event, *by))
-            })
-            .collect()
+    /// Push a subtree to read for each of `siblings`, last first, so that
+    /// the stack reads them in their order before what it held.
+    #[cfg_attr(verus_keep_ghost, verifier::loop_isolation(false))]
+    #[cfg_attr(verus_keep_ghost, verus_spec(
+        requires
+            forall|k: int| 0 <= k < siblings@.len() ==> #[trigger] siblings@[k] < self.elements@.len(),
+            forall|k: int| 0 <= k < old(stack)@.len() ==> match #[trigger] old(stack)@[k] {
+                Work::Expand(at) => at < self.elements@.len(),
+                Work::Emit(_) => true,
+            },
+        ensures
+            pending(self@, final(stack)@) == reads(self@, proof::ints(siblings@)) + pending(self@, old(stack)@),
+            emits(final(stack)@) == emits(old(stack)@),
+            forall|k: int| 0 <= k < final(stack)@.len() ==> match #[trigger] final(stack)@[k] {
+                Work::Expand(at) => at < self.elements@.len(),
+                Work::Emit(_) => true,
+            },
+    ))]
+    fn push_reversed(&self, siblings: &[usize], stack: &mut Vec<Work>) {
+        #[cfg(verus_keep_ghost)]
+        proof_decl! {
+            let ghost t = self@;
+            let ghost below = stack@;
+            assert(proof::ints(siblings@).skip(siblings@.len() as int) =~= Seq::<int>::empty());
+        }
+        let mut c = siblings.len();
+        #[cfg_attr(verus_keep_ghost, verus_spec(
+            invariant
+                c <= siblings@.len(),
+                pending(t, stack@) == reads(t, proof::ints(siblings@).skip(c as int)) + pending(t, below),
+                emits(stack@) == emits(below),
+                forall|k: int| 0 <= k < stack@.len() ==> match #[trigger] stack@[k] {
+                    Work::Expand(at) => at < self.elements@.len(),
+                    Work::Emit(_) => true,
+                },
+            decreases c,
+        ))]
+        while c > 0 {
+            c -= 1;
+            #[cfg(verus_keep_ghost)]
+            proof! {
+                let more = proof::ints(siblings@).skip(c as int);
+                assert(more.drop_first() =~= proof::ints(siblings@).skip(c as int + 1));
+                assert(more[0] == siblings@[c as int] as int);
+                lemma_push(t, stack@, Work::Expand(siblings@[c as int]));
+                assert(reads(t, more) == t.read(more[0]) + reads(t, more.drop_first()));
+                assert(reads(t, more) + pending(t, below)
+                    =~= t.read(more[0]) + (reads(t, more.drop_first()) + pending(t, below)));
+            }
+            stack.push(Work::Expand(siblings[c]));
+        }
+        #[cfg(verus_keep_ghost)]
+        proof! { assert(proof::ints(siblings@).skip(0) =~= proof::ints(siblings@)); }
     }
 
+    /// Decision 0007's operations, replayed against what their author saw.
+    ///
+    /// Every operation of one revision is stated against the state at its
+    /// parents, so that view is computed once and never moves under them.
+    /// Proved to do exactly what the model's `replay_ops` says, refusing
+    /// exactly where it refuses.
+    #[cfg_attr(verus_keep_ghost, verifier::loop_isolation(false))]
+    #[cfg_attr(verus_keep_ghost, verus_spec(r =>
+        requires
+            old(self).holds(graph.events@.len()),
+            graph.holds(),
+            event < graph.events@.len(),
+        ensures
+            final(self).holds(graph.events@.len()),
+            ({
+                let t = old(self)@;
+                let replayed = proof::replay_ops(
+                    t,
+                    graph@,
+                    event as int,
+                    t.visible(graph@, event as int),
+                    document.operations.deep_view(),
+                    0,
+                    0,
+                );
+                &&& (r is Ok <==> replayed is Some)
+                &&& (r is Ok ==> final(self)@ == replayed->Some_0)
+            }),
+    ))]
+    fn operations(
+        &mut self,
+        graph: &Graph<'_>,
+        event: usize,
+        named: RevisionId,
+        document: &OperationDocument,
+    ) -> Result<(), MergeError> {
+        let revision = graph.events[event].revision;
+        let order = self.order();
+        let prepare = self.visible(&order, graph, event);
+        // How many items this document has minted so far, which is the ordinal
+        // half of the name decision 0032 lets a `keep` quote, is how many
+        // elements it has added.
+        let base = self.elements.len();
+        #[cfg(verus_keep_ghost)]
+        proof_decl! {
+            let ghost t = self@;
+            let ghost g = graph@;
+            let ghost ops = document.operations.deep_view();
+            let ghost view = proof::ints(prepare@);
+            let ghost replayed = proof::replay_ops(t, g, event as int, view, ops, 0, 0);
+            proof::lemma_visible_ok(t, g, event as int);
+            assert forall|q: int| 0 <= q < prepare@.len() implies #[trigger] prepare@[q] < self.elements@.len() by {
+                assert(view[q] == prepare@[q] as int);
+            }
+        }
+        let mut index: usize = 0;
+        #[cfg_attr(verus_keep_ghost, verus_spec(
+            invariant
+                index <= document.operations@.len(),
+                self.holds(graph.events@.len()),
+                base <= self.elements@.len(),
+                forall|q: int| 0 <= q < prepare@.len() ==> #[trigger] prepare@[q] < self.elements@.len(),
+                replayed == proof::replay_ops(self@, g, event as int, view, ops, index as int,
+                    self.elements@.len() - base),
+            decreases document.operations@.len() - index,
+        ))]
+        while index < document.operations.len() {
+            let operation = &document.operations[index];
+            #[cfg(verus_keep_ghost)]
+            proof! { assert(ops[index as int] == operation.deep_view()); }
+            let at = operation.at;
+            match operation.kind {
+                OperationKind::Delete => {
+                    let count = operation.items.len();
+                    if count > prepare.len() || at > prepare.len() - count {
+                        return Err(MergeError::OutOfRange {
+                            revision,
+                            position: at.saturating_add(count),
+                            length: prepare.len(),
+                        });
+                    }
+                    self.delete_run(graph, event, &prepare, index, operation)?;
+                }
+                OperationKind::Insert => {
+                    if at > prepare.len() {
+                        return Err(MergeError::OutOfRange {
+                            revision,
+                            position: at,
+                            length: prepare.len(),
+                        });
+                    }
+                    let left = if at == 0 { None } else { Some(prepare[at - 1]) };
+                    self.insert_run(graph, event, named, base, left, index, operation);
+                }
+            }
+            index += 1;
+        }
+        Ok(())
+    }
+
+    /// One `delete`'s items, each held against the item its author saw at
+    /// that position and marked removed by `event`.
+    #[cfg_attr(verus_keep_ghost, verifier::loop_isolation(false))]
+    #[cfg_attr(verus_keep_ghost, verus_spec(r =>
+        requires
+            old(self).holds(graph.events@.len()),
+            graph.holds(),
+            event < graph.events@.len(),
+            operation.at + operation.items@.len() <= prepare@.len(),
+            prepare@.len() <= usize::MAX,
+            forall|q: int| 0 <= q < prepare@.len() ==> #[trigger] prepare@[q] < old(self).elements@.len(),
+        ensures
+            final(self).holds(graph.events@.len()),
+            final(self).elements@.len() == old(self).elements@.len(),
+            match proof::delete_run(
+                old(self)@,
+                graph@,
+                event as int,
+                proof::ints(prepare@),
+                operation.at as int,
+                operation.items.deep_view(),
+                0,
+            ) {
+                None => r is Err,
+                Some(next) => r is Ok && final(self)@ == next,
+            },
+    ))]
+    fn delete_run(
+        &mut self,
+        graph: &Graph<'_>,
+        event: usize,
+        prepare: &[usize],
+        index: usize,
+        operation: &Operation,
+    ) -> Result<(), MergeError> {
+        #[cfg(verus_keep_ghost)]
+        proof_decl! {
+            let ghost g = graph@;
+            let ghost view = proof::ints(prepare@);
+            let ghost items = operation.items.deep_view();
+            let ghost ran = proof::delete_run(self@, g, event as int, view, operation.at as int, items, 0);
+        }
+        let at = operation.at;
+        let mut offset: usize = 0;
+        #[cfg_attr(verus_keep_ghost, verus_spec(
+            invariant
+                offset <= operation.items@.len(),
+                self.holds(graph.events@.len()),
+                self.elements@.len() == old(self).elements@.len(),
+                ran == proof::delete_run(self@, g, event as int, view, at as int, items, offset as int),
+            decreases operation.items@.len() - offset,
+        ))]
+        while offset < operation.items.len() {
+            let recorded = &operation.items[offset];
+            let target = prepare[at + offset];
+            let found = &self.elements[target].item;
+            #[cfg(verus_keep_ghost)]
+            proof! {
+                assert(items[offset as int] == recorded@);
+                assert(view[at + offset] == target as int);
+                assert(self@.nodes[target as int] == self.elements@[target as int]@);
+            }
+            // A forgotten item on either side matches, per decision 0014: the
+            // redundancy its text paid for is exactly what was destroyed.
+            if !recorded.matches(found) {
+                return Err(MergeError::ItemDisagrees {
+                    revision: graph.events[event].revision,
+                    position: at + offset,
+                    recorded: recorded.text.clone(),
+                    found: found.text.clone(),
+                });
+            }
+            #[cfg(verus_keep_ghost)]
+            proof_decl! {
+                let ghost before = self.elements@;
+                let ghost old_view = self@;
+                let ghost marked = self@.delete(target as int, event as int);
+            }
+            self.elements[target]
+                .deleted_by
+                .push((event, Some((index, offset))));
+            #[cfg(verus_keep_ghost)]
+            proof! {
+                let was = before[target as int].deleted_by@.map_values(|by: (usize, Option<(usize, usize)>)| by.0 as int);
+                let now = self.elements@[target as int].deleted_by@.map_values(|by: (usize, Option<(usize, usize)>)| by.0 as int);
+                assert(now =~= was.push(event as int));
+                assert forall|d: int| now.to_set().contains(d) == was.to_set().insert(event as int).contains(d) by {
+                    if now.contains(d) {
+                        let q = choose|q: int| 0 <= q < now.len() && now[q] == d;
+                        if q < was.len() {
+                            assert(was[q] == d);
+                        }
+                    }
+                    if was.contains(d) {
+                        let q = choose|q: int| 0 <= q < was.len() && was[q] == d;
+                        assert(now[q] == d);
+                    }
+                    if d == event as int {
+                        assert(now[was.len() as int] == d);
+                    }
+                }
+                assert(now.to_set() =~= was.to_set().insert(event as int));
+                assert(self.elements@[target as int]@.deleted == before[target as int]@.deleted.insert(event as int));
+                assert(self@.nodes =~= marked.nodes);
+                assert forall|parent: Option<int>, right: bool| #[trigger] self@.children(parent, right)
+                    == old_view.children(parent, right) by {
+                    assert forall|i: int| 0 <= i < self@.len() implies #[trigger] proof::placed_alike(old_view, self@, i) by {
+                        assert(old_view.nodes[i] == before[i]@);
+                    }
+                    proof::lemma_children_placed(old_view, self@, parent, right);
+                }
+                assert forall|i: int| 0 <= i < self.elements@.len() implies {
+                    &&& (#[trigger] self.elements@[i]).author < graph.events@.len()
+                    &&& forall|k: int| 0 <= k < self.elements@[i].deleted_by@.len()
+                        ==> #[trigger] self.elements@[i].deleted_by@[k].0 < graph.events@.len()
+                } by {
+                    if i != target {
+                        assert(self.elements@[i] == before[i]);
+                    }
+                }
+            }
+            offset += 1;
+        }
+        Ok(())
+    }
+
+    /// One `insert`'s items, each anchored after the one before it.
+    #[cfg_attr(verus_keep_ghost, verifier::loop_isolation(false))]
+    #[cfg_attr(verus_keep_ghost, verus_spec(
+        requires
+            old(self).holds(graph.events@.len()),
+            graph.holds(),
+            event < graph.events@.len(),
+            base <= old(self).elements@.len(),
+            left matches Some(l) ==> l < old(self).elements@.len(),
+        ensures
+            final(self).holds(graph.events@.len()),
+            ({
+                let (next, minted) = proof::insert_run(
+                    old(self)@,
+                    graph@,
+                    event as int,
+                    operation.items.deep_view(),
+                    proof::opt(left),
+                    old(self).elements@.len() - base,
+                );
+                &&& final(self)@ == next
+                &&& final(self).elements@.len() - base == minted
+                &&& final(self).elements@.len() >= old(self).elements@.len()
+            }),
+    ))]
+    #[allow(clippy::too_many_arguments)]
+    fn insert_run(
+        &mut self,
+        graph: &Graph<'_>,
+        event: usize,
+        named: RevisionId,
+        base: usize,
+        left: Option<usize>,
+        index: usize,
+        operation: &Operation,
+    ) {
+        #[cfg(verus_keep_ghost)]
+        proof_decl! {
+            let ghost g = graph@;
+            let ghost items = operation.items.deep_view();
+            let ghost ran = proof::insert_run(self@, g, event as int, items, proof::opt(left), self.elements@.len() - base);
+            assert(items.skip(0) =~= items);
+        }
+        let mut left = left;
+        let mut offset: usize = 0;
+        #[cfg_attr(verus_keep_ghost, verus_spec(
+            invariant
+                offset <= operation.items@.len(),
+                self.holds(graph.events@.len()),
+                base <= self.elements@.len(),
+                self.elements@.len() >= old(self).elements@.len(),
+                left matches Some(l) ==> l < self.elements@.len(),
+                ran == proof::insert_run(self@, g, event as int, items.skip(offset as int), proof::opt(left),
+                    self.elements@.len() - base),
+            decreases operation.items@.len() - offset,
+        ))]
+        while offset < operation.items.len() {
+            let (parent, side) = self.anchor(left, graph, event);
+            let minted = self.elements.len() - base;
+            #[cfg(verus_keep_ghost)]
+            proof! {
+                let rest = items.skip(offset as int);
+                assert(rest[0] == operation.items@[offset as int]@);
+                assert(rest.drop_first() =~= items.skip(offset as int + 1));
+            }
+            left = Some(self.attach(
+                (named, minted),
+                operation.items[offset].copied(),
+                event,
+                (index, offset),
+                parent,
+                side,
+            ));
+            offset += 1;
+        }
+        #[cfg(verus_keep_ghost)]
+        proof! { assert(items.skip(offset as int) =~= Seq::<ItemS>::empty()); }
+    }
+
+    /// The elements one event's author could see, in order.
+    #[cfg_attr(verus_keep_ghost, verifier::loop_isolation(false))]
+    #[cfg_attr(verus_keep_ghost, verus_spec(r =>
+        requires
+            self.holds(graph.events@.len()),
+            graph.holds(),
+            event < graph.events@.len(),
+            proof::ints(order@) == self@.order(),
+        ensures
+            proof::ints(r@) == self@.visible(graph@, event as int),
+    ))]
+    fn visible(&self, order: &[usize], graph: &Graph<'_>, event: usize) -> Vec<usize> {
+        #[cfg(verus_keep_ghost)]
+        proof_decl! {
+            let ghost t = self@;
+            let ghost seen = |i: int| t.seen(graph@, event as int, i);
+            reveal(proof::TreeS::visible);
+            reveal(proof::TreeS::order);
+            proof::lemma_read_all_nodes(t, t.children(None, true), -1);
+            assert(proof::ints(order@).take(0) =~= Seq::<int>::empty());
+        }
+        let mut visible = Vec::new();
+        let mut k: usize = 0;
+        #[cfg_attr(verus_keep_ghost, verus_spec(
+            invariant
+                k <= order@.len(),
+                proof::ints(visible@) == proof::sel(proof::ints(order@).take(k as int), seen),
+            decreases order@.len() - k,
+        ))]
+        while k < order.len() {
+            let at = order[k];
+            #[cfg(verus_keep_ghost)]
+            proof_decl! {
+                assert(proof::ints(order@)[k as int] == at as int);
+                assert(t.node(at as int));
+                let ghost upto = proof::ints(order@).take(k as int + 1);
+                assert(upto.drop_last() =~= proof::ints(order@).take(k as int));
+                assert(upto.last() == at as int);
+                let ghost before = visible@;
+            }
+            if self.seen(at, graph, event) {
+                visible.push(at);
+                #[cfg(verus_keep_ghost)]
+                proof! { assert(proof::ints(visible@) =~= proof::ints(before).push(at as int)); }
+            }
+            k += 1;
+        }
+        #[cfg(verus_keep_ghost)]
+        proof! { assert(proof::ints(order@).take(order@.len() as int) =~= proof::ints(order@)); }
+        visible
+    }
+
+    /// Whether `event`'s author saw the element at `at`: written in their
+    /// past, and removed by nothing in it.
+    #[cfg_attr(verus_keep_ghost, verifier::loop_isolation(false))]
+    #[cfg_attr(verus_keep_ghost, verus_spec(r =>
+        requires
+            self.holds(graph.events@.len()),
+            graph.holds(),
+            event < graph.events@.len(),
+            at < self.elements@.len(),
+        ensures
+            r == self@.seen(graph@, event as int, at as int),
+    ))]
+    fn seen(&self, at: usize, graph: &Graph<'_>, event: usize) -> bool {
+        let element = &self.elements[at];
+        #[cfg(verus_keep_ghost)]
+        proof_decl! {
+            let ghost node = self@.nodes[at as int];
+            assert(node == element@);
+            let ghost removers = element.deleted_by@.map_values(|by: (usize, Option<(usize, usize)>)| by.0 as int);
+        }
+        if !graph.saw(event, element.author) {
+            return false;
+        }
+        let mut k: usize = 0;
+        #[cfg_attr(verus_keep_ghost, verus_spec(
+            invariant
+                k <= element.deleted_by@.len(),
+                forall|q: int| 0 <= q < k ==> !graph@.saw(event as int, #[trigger] removers[q]),
+            decreases element.deleted_by@.len() - k,
+        ))]
+        while k < element.deleted_by.len() {
+            if graph.saw(event, element.deleted_by[k].0) {
+                #[cfg(verus_keep_ghost)]
+                proof! {
+                    assert(removers[k as int] == element.deleted_by@[k as int].0 as int);
+                    assert(removers.to_set().contains(removers[k as int]));
+                }
+                return false;
+            }
+            #[cfg(verus_keep_ghost)]
+            proof! { assert(removers[k as int] == element.deleted_by@[k as int].0 as int); }
+            k += 1;
+        }
+        #[cfg(verus_keep_ghost)]
+        proof! {
+            assert forall|d: int| node.deleted.contains(d) implies !graph@.saw(event as int, d) by {
+                assert(removers.contains(d));
+                let q = choose|q: int| 0 <= q < removers.len() && removers[q] == d;
+            }
+        }
+        true
+    }
+
+    /// The first of `children` whose author `event` knows.
+    #[cfg_attr(verus_keep_ghost, verifier::loop_isolation(false))]
+    #[cfg_attr(verus_keep_ghost, verus_spec(r =>
+        requires
+            self.holds(graph.events@.len()),
+            graph.holds(),
+            event < graph.events@.len(),
+            forall|k: int| 0 <= k < children@.len() ==> #[trigger] children@[k] < self.elements@.len(),
+        ensures
+            proof::opt(r) == self@.first_known(graph@, event as int, proof::ints(children@)),
+    ))]
+    fn first_known(&self, children: &[usize], graph: &Graph<'_>, event: usize) -> Option<usize> {
+        let mut k: usize = 0;
+        #[cfg(verus_keep_ghost)]
+        proof! { assert(proof::ints(children@).skip(0) =~= proof::ints(children@)); }
+        #[cfg_attr(verus_keep_ghost, verus_spec(
+            invariant
+                k <= children.len(),
+                self@.first_known(graph@, event as int, proof::ints(children@))
+                    == self@.first_known(graph@, event as int, proof::ints(children@).skip(k as int)),
+            decreases children.len() - k,
+        ))]
+        while k < children.len() {
+            let child = children[k];
+            #[cfg(verus_keep_ghost)]
+            proof! {
+                let rest = proof::ints(children@).skip(k as int);
+                assert(rest[0] == child as int);
+                assert(rest.drop_first() =~= proof::ints(children@).skip(k as int + 1));
+                assert(self@.nodes[child as int] == self.elements@[child as int]@);
+            }
+            if graph.knows(event, self.elements[child].author) {
+                return Some(child);
+            }
+            k += 1;
+        }
+        #[cfg(verus_keep_ghost)]
+        proof! { assert(proof::ints(children@).skip(k as int) =~= Seq::<int>::empty()); }
+        None
+    }
+
+    /// Where an element written after `left` belongs in the tree.
+    ///
+    /// Fugue's rule, in its tree formulation: an element attaches to its left
+    /// neighbour when that neighbour has nothing to its right yet, and
+    /// otherwise as a left child of the element that follows the left
+    /// neighbour in its author's view of the tree — *tombstones included*,
+    /// which is why the author's next visible element cannot say where. That
+    /// next element is the leftmost known node under the left neighbour's
+    /// first known right child, so a run written by one author becomes one
+    /// subtree, read out contiguously — the guarantee against interleaving
+    /// that decision 0007 chose Fugue for — and two elements only ever become
+    /// same-side siblings when their authors had not seen each other, which
+    /// is what entitles [`Tree::attach`] to break sibling ties by name.
+    #[cfg_attr(verus_keep_ghost, verifier::loop_isolation(false))]
+    #[cfg_attr(verus_keep_ghost, verus_spec(r =>
+        requires
+            self.holds(graph.events@.len()),
+            graph.holds(),
+            event < graph.events@.len(),
+            left matches Some(at) ==> at < self.elements@.len(),
+        ensures
+            proof::opt(r.0) == self@.anchor(graph@, event as int, proof::opt(left)).0,
+            (r.1 is Right) == self@.anchor(graph@, event as int, proof::opt(left)).1,
+            r.0 matches Some(p) ==> p < self.elements@.len(),
+            r.0 is None ==> r.1 is Right,
+    ))]
+    fn anchor(
+        &self,
+        left: Option<usize>,
+        graph: &Graph<'_>,
+        event: usize,
+    ) -> (Option<usize>, Side) {
+        #[cfg(verus_keep_ghost)]
+        proof! {
+            match left {
+                Some(at) => self.lemma_listed(self.elements@[at as int].right@, Some(at as int), true),
+                None => self.lemma_listed(self.root@, None, true),
+            }
+        }
+        let found = match left {
+            Some(at) => self.first_known(&self.elements[at].right, graph, event),
+            None => self.first_known(&self.root, graph, event),
+        };
+        let first = match found {
+            Some(first) => first,
+            None => return (left, Side::Right),
+        };
+        #[cfg(verus_keep_ghost)]
+        proof! {
+            let above = self@.children(proof::opt(left), true);
+            proof::lemma_first_known_known(self@, graph@, event as int, above);
+            proof::lemma_children_nodes(self@, proof::opt(left), true);
+            assert(self@.hangs(first as int, proof::opt(left), true));
+        }
+        // Down the known left children, as far as they go.
+        let mut at = first;
+        let mut descending = true;
+        #[cfg_attr(verus_keep_ghost, verus_spec(
+            invariant
+                at < self.elements@.len(),
+                self@.leftmost_known(graph@, event as int, first as int)
+                    == self@.leftmost_known(graph@, event as int, at as int),
+                !descending ==> self@.first_known(graph@, event as int, self@.children(Some(at as int), false)) is None,
+            decreases self.elements@.len() - at + if descending { 1int } else { 0int },
+        ))]
+        while descending {
+            #[cfg(verus_keep_ghost)]
+            proof! { self.lemma_listed(self.elements@[at as int].left@, Some(at as int), false); }
+            match self.first_known(&self.elements[at].left, graph, event) {
+                Some(next) => {
+                    #[cfg(verus_keep_ghost)]
+                    proof! {
+                        let below = self@.children(Some(at as int), false);
+                        proof::lemma_first_known_known(self@, graph@, event as int, below);
+                        let k = choose|k: int| 0 <= k < below.len() && below[k] == next as int;
+                        assert(self.elements@[at as int].left@[k] == next);
+                        proof::lemma_children_nodes(self@, Some(at as int), false);
+                        assert(self@.hangs(next as int, Some(at as int), false));
+                        assert(self@.nodes[next as int] == self.elements@[next as int]@);
+                    }
+                    at = next;
+                }
+                None => descending = false,
+            }
+        }
+        (Some(at), Side::Left)
+    }
+
+    /// Put an element into the tree, among its siblings in name order.
+    ///
+    /// The place among the siblings is found before the element is added, so
+    /// that the list is read and then written rather than taken out and put
+    /// back, which is the one shape of this the prover follows.
+    #[cfg_attr(verus_keep_ghost, verifier::loop_isolation(false))]
+    #[cfg_attr(verus_keep_ghost, verus_spec(r =>
+        requires
+            old(self).holds_shape(),
+            parent matches Some(p) ==> p < old(self).elements@.len(),
+            parent is None ==> side is Right,
+        ensures
+            r == old(self).elements@.len(),
+            final(self).holds_shape(),
+            final(self)@ == old(self)@.attach(
+                author as int,
+                reference.1 as int,
+                item@,
+                (proof::opt(parent), side is Right),
+            ),
+            final(self).elements@.len() == old(self).elements@.len() + 1,
+            final(self).elements@[r as int].reference == reference,
+            final(self).elements@[r as int].author == author,
+            final(self).elements@[r as int].deleted_by@.len() == 0,
+            forall|i: int| 0 <= i < old(self).elements@.len() ==> {
+                &&& (#[trigger] final(self).elements@[i]).reference == old(self).elements@[i].reference
+                &&& final(self).elements@[i].author == old(self).elements@[i].author
+                &&& final(self).elements@[i].deleted_by == old(self).elements@[i].deleted_by
+            },
+            forall|events: nat| old(self).holds(events) && author < events ==> #[trigger] final(self).holds(events),
+    ))]
+    fn attach(
+        &mut self,
+        reference: (RevisionId, usize),
+        item: Item,
+        author: usize,
+        wrote: (usize, usize),
+        parent: Option<usize>,
+        side: Side,
+    ) -> usize {
+        let at = self.elements.len();
+        let minted = reference.1;
+        #[cfg(verus_keep_ghost)]
+        proof_decl! {
+            let ghost t = self@;
+            let ghost before = self.elements@;
+            let ghost root = self.root@;
+            let ghost place = (proof::opt(parent), side is Right);
+            let ghost u = t.attach(author as int, minted as int, item@, place);
+        }
+        let siblings = match parent {
+            None => &self.root,
+            Some(p) => match side {
+                Side::Left => &self.elements[p].left,
+                Side::Right => &self.elements[p].right,
+            },
+        };
+        #[cfg(verus_keep_ghost)]
+        proof! {
+            self.lemma_listed(siblings@, place.0, place.1);
+            assert(proof::ints(siblings@).skip(0) =~= proof::ints(siblings@));
+        }
+        // Ties between concurrent elements are broken by name: by digest,
+        // which is event order, then by how many the event had minted.
+        let mut position: usize = 0;
+        #[cfg_attr(verus_keep_ghost, verus_spec(
+            invariant
+                position <= siblings.len(),
+                u.first_greater(proof::ints(siblings@), t.len(), 0)
+                    == u.first_greater(proof::ints(siblings@), t.len(), position as int),
+            decreases siblings.len() - position,
+        ))]
+        while position < siblings.len() && {
+            let other = &self.elements[siblings[position]];
+            !(other.author > author || (other.author == author && other.reference.1 > minted))
+        } {
+            #[cfg(verus_keep_ghost)]
+            proof! {
+                let other = siblings@[position as int] as int;
+                assert(u.nodes[other] == t.nodes[other]);
+                assert(t.nodes[other] == self.elements@[other]@);
+            }
+            position += 1;
+        }
+        #[cfg(verus_keep_ghost)]
+        proof! {
+            if position < siblings.len() {
+                let other = siblings@[position as int] as int;
+                assert(u.nodes[other] == t.nodes[other]);
+                assert(t.nodes[other] == self.elements@[other]@);
+            }
+        }
+        self.elements.push(Element {
+            reference,
+            item,
+            author,
+            wrote,
+            deleted_by: Vec::new(),
+            parent,
+            side,
+            left: Vec::new(),
+            right: Vec::new(),
+        });
+        #[cfg(verus_keep_ghost)]
+        proof_decl! {
+            let ghost pushed = self.elements@;
+            assert(pushed[at as int]@.deleted =~= Set::<int>::empty());
+            assert(self@.nodes =~= u.nodes);
+        }
+        match parent {
+            None => self.root.insert(position, at),
+            Some(p) => match side {
+                Side::Left => self.elements[p].left.insert(position, at),
+                Side::Right => self.elements[p].right.insert(position, at),
+            },
+        }
+        #[cfg(verus_keep_ghost)]
+        proof! {
+            assert(self.elements@.len() == pushed.len());
+            assert forall|i: int| 0 <= i < pushed.len() implies #[trigger] self.elements@[i]@ == pushed[i]@ by {}
+            assert(self@.nodes =~= u.nodes);
+            let inserted = proof::ints(siblings@).insert(position as int, at as int);
+            proof::lemma_children_attach(t, author as int, minted as int, item@, place, place.0, place.1);
+            assert(u.insert_sorted(t.children(place.0, place.1), t.len()) =~= inserted);
+            assert(u.children(place.0, place.1) == inserted);
+
+            // The new element has nothing under it yet.
+            assert forall|j: int, r: bool| 0 <= j < u.len() implies !u.hangs(j, Some(at as int), r) by {
+                if j < at {
+                    assert(u.nodes[j] == before[j]@);
+                }
+            }
+            proof::lemma_children_none(u, Some(at as int), false, u.len());
+            proof::lemma_children_none(u, Some(at as int), true, u.len());
+
+            // Every other list is the one it was, and so is the model's.
+            proof::lemma_children_attach(t, author as int, minted as int, item@, place, None, true);
+            if place.0 is None {
+                assert(proof::ints(self.root@) =~= inserted);
+            } else {
+                assert(self.root@ == root);
+            }
+            assert forall|i: int| 0 <= i < self.elements@.len() implies {
+                &&& proof::ints((#[trigger] self.elements@[i]).left@) == u.children(Some(i), false)
+                &&& proof::ints(self.elements@[i].right@) == u.children(Some(i), true)
+                &&& match self.elements@[i].parent {
+                    Some(p) => p < i,
+                    None => self.elements@[i].side is Right,
+                }
+            } by {
+                if i < at {
+                    proof::lemma_children_attach(t, author as int, minted as int, item@, place, Some(i), false);
+                    proof::lemma_children_attach(t, author as int, minted as int, item@, place, Some(i), true);
+                    if place == (Some(i), false) {
+                        assert(proof::ints(self.elements@[i].left@) =~= inserted);
+                    }
+                    if place == (Some(i), true) {
+                        assert(proof::ints(self.elements@[i].right@) =~= inserted);
+                    }
+                } else {
+                    assert(proof::ints(self.elements@[i].left@) =~= Seq::<int>::empty());
+                    assert(proof::ints(self.elements@[i].right@) =~= Seq::<int>::empty());
+                }
+            }
+            assert forall|events: nat| old(self).holds(events) && author < events implies #[trigger] self.holds(events) by {
+                assert forall|i: int| 0 <= i < self.elements@.len() implies {
+                    &&& (#[trigger] self.elements@[i]).author < events
+                    &&& forall|k: int| 0 <= k < self.elements@[i].deleted_by@.len()
+                        ==> #[trigger] self.elements@[i].deleted_by@[k].0 < events
+                } by {
+                    if i < at {
+                        assert(self.elements@[i].author == before[i].author);
+                        assert(self.elements@[i].deleted_by == before[i].deleted_by);
+                    }
+                }
+            }
+        }
+        at
+    }
+}
+
+impl Tree {
     fn replay(&mut self, graph: &Graph<'_>, event: usize) -> Result<(), MergeError> {
         match graph.events[event].stated {
             None => Ok(()),
@@ -701,7 +1562,6 @@ impl Tree {
                     for (offset, item) in items.iter().enumerate() {
                         let (parent, side) = self.anchor(left, graph, event);
                         left = Some(self.attach(
-                            (revision, minted),
                             (named, minted),
                             item.clone(),
                             event,
@@ -720,171 +1580,10 @@ impl Tree {
         // states what survives rather than what went.
         for (position, at) in prepare.iter().enumerate() {
             if !kept.contains(&position) {
-                self.elements[*at].deleted_by.insert(event, None);
+                self.elements[*at].deleted_by.push((event, None));
             }
         }
         Ok(())
-    }
-
-    fn operations(
-        &mut self,
-        graph: &Graph<'_>,
-        event: usize,
-        named: RevisionId,
-        document: &OperationDocument,
-    ) -> Result<(), MergeError> {
-        let revision = graph.events[event].revision;
-        let order = self.order();
-        // Every operation of one revision is stated against the state at its
-        // parents, so this view is computed once and never moves under them.
-        let prepare = self.visible(&order, graph, event);
-        // How many items this document has minted so far, which is the ordinal
-        // half of the name decision 0032 lets a `keep` quote.
-        let mut minted = 0usize;
-
-        for (index, operation) in document.operations.iter().enumerate() {
-            let at = operation.at;
-            match operation.kind {
-                OperationKind::Delete => {
-                    let end = at.saturating_add(operation.items.len());
-                    if end > prepare.len() {
-                        return Err(MergeError::OutOfRange {
-                            revision,
-                            position: end,
-                            length: prepare.len(),
-                        });
-                    }
-                    for (offset, recorded) in operation.items.iter().enumerate() {
-                        let target = prepare[at + offset];
-                        let found = &self.elements[target].item;
-                        // A forgotten item on either side matches, per
-                        // decision 0014: the redundancy its text paid for is
-                        // exactly what was destroyed.
-                        if !recorded.matches(found) {
-                            return Err(MergeError::ItemDisagrees {
-                                revision,
-                                position: at + offset,
-                                recorded: recorded.text.clone(),
-                                found: found.text.clone(),
-                            });
-                        }
-                        self.elements[target]
-                            .deleted_by
-                            .insert(event, Some((index, offset)));
-                    }
-                }
-                OperationKind::Insert => {
-                    if at > prepare.len() {
-                        return Err(MergeError::OutOfRange {
-                            revision,
-                            position: at,
-                            length: prepare.len(),
-                        });
-                    }
-                    let mut left = at.checked_sub(1).map(|before| prepare[before]);
-                    for (offset, item) in operation.items.iter().enumerate() {
-                        let (parent, side) = self.anchor(left, graph, event);
-                        left = Some(self.attach(
-                            (revision, index + offset),
-                            (named, minted),
-                            item.clone(),
-                            event,
-                            (index, offset),
-                            parent,
-                            side,
-                        ));
-                        minted += 1;
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// Where an element written after `left` belongs in the tree.
-    ///
-    /// Fugue's rule, in its tree formulation: an element attaches to its left
-    /// neighbour when that neighbour has nothing to its right yet, and
-    /// otherwise as a left child of the element that follows the left
-    /// neighbour in its author's view of the tree — *tombstones included*,
-    /// which is why the author's next visible element cannot say where. That
-    /// next element is the leftmost known node under the left neighbour's
-    /// first known right child, so a run written by one author becomes one
-    /// subtree, read out contiguously — the guarantee against interleaving
-    /// that decision 0007 chose Fugue for — and two elements only ever become
-    /// same-side siblings when their authors had not seen each other, which
-    /// is what entitles [`Tree::attach`] to break sibling ties by digest.
-    fn anchor(
-        &self,
-        left: Option<usize>,
-        graph: &Graph<'_>,
-        event: usize,
-    ) -> (Option<usize>, Side) {
-        let known = |children: &[usize]| {
-            children
-                .iter()
-                .copied()
-                .find(|child| graph.knows(event, self.elements[*child].author))
-        };
-        let children = match left {
-            Some(at) => &self.elements[at].right,
-            None => &self.root,
-        };
-        let Some(mut at) = known(children) else {
-            return (left, Side::Right);
-        };
-        while let Some(next) = known(&self.elements[at].left) {
-            at = next;
-        }
-        (Some(at), Side::Left)
-    }
-
-    /// Put an element into the tree, among its siblings in name order.
-    #[allow(clippy::too_many_arguments)]
-    fn attach(
-        &mut self,
-        id: (RevisionId, usize),
-        reference: (RevisionId, usize),
-        item: Item,
-        author: usize,
-        wrote: (usize, usize),
-        parent: Option<usize>,
-        side: Side,
-    ) -> usize {
-        let at = self.elements.len();
-        self.elements.push(Element {
-            id,
-            reference,
-            item,
-            author,
-            wrote,
-            deleted_by: BTreeMap::new(),
-            left: Vec::new(),
-            right: Vec::new(),
-        });
-
-        let siblings = match (parent, side) {
-            (None, _) => &mut self.root,
-            (Some(parent), Side::Left) => &mut self.elements[parent].left,
-            (Some(parent), Side::Right) => &mut self.elements[parent].right,
-        };
-        let siblings = std::mem::take(siblings);
-        let mut placed = siblings;
-        // Ties between concurrent elements are broken by digest, then by
-        // index, which is the name each of them already has.
-        let position = placed
-            .iter()
-            .position(|other| self.elements[*other].id > id)
-            .unwrap_or(placed.len());
-        placed.insert(position, at);
-
-        let restored = match (parent, side) {
-            (None, _) => &mut self.root,
-            (Some(parent), Side::Left) => &mut self.elements[parent].left,
-            (Some(parent), Side::Right) => &mut self.elements[parent].right,
-        };
-        *restored = placed;
-        at
     }
 
     /// Where two revisions that had not seen each other met.
@@ -959,7 +1658,7 @@ impl Tree {
                 continue;
             }
             if let Some(previous) = before {
-                for by in element.deleted_by.keys() {
+                for (by, _) in &element.deleted_by {
                     if graph.concurrent(self.elements[previous].author, *by) {
                         mark(
                             &mut found,
@@ -970,7 +1669,7 @@ impl Tree {
                     }
                 }
             }
-            pending.extend(element.deleted_by.keys().copied());
+            pending.extend(element.deleted_by.iter().map(|(by, _)| *by));
         }
         found
     }
@@ -1039,6 +1738,7 @@ impl Tree {
 ///
 /// As everywhere else, none of these mean the algorithm failed. The algorithm
 /// never fails; these mean the events handed to it do not describe one history.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum MergeError {
@@ -1135,6 +1835,200 @@ impl fmt::Display for MergeError {
 }
 
 impl std::error::Error for MergeError {}
+
+#[cfg(verus_keep_ghost)]
+verus! {
+
+impl View for Element {
+    type V = proof::Node;
+
+    closed spec fn view(&self) -> proof::Node {
+        proof::Node {
+            author: self.author as int,
+            minted: self.reference.1 as int,
+            item: self.item@,
+            parent: proof::opt(self.parent),
+            right: self.side is Right,
+            deleted: self.deleted_by@.map_values(|by: (usize, Option<(usize, usize)>)| by.0 as int).to_set(),
+        }
+    }
+}
+
+impl View for Tree {
+    type V = proof::TreeS;
+
+    closed spec fn view(&self) -> proof::TreeS {
+        proof::TreeS { nodes: self.elements@.map_values(|element: Element| element@) }
+    }
+}
+
+impl Tree {
+    /// What the walk keeps true of the tree between steps, for a graph of
+    /// `events` events: each child list is the model's, a parent comes before
+    /// its child, the top level is all right children, and every author and
+    /// remover is an event.
+    closed spec fn holds(&self, events: nat) -> bool {
+        &&& self.holds_shape()
+        &&& forall|i: int| 0 <= i < self.elements@.len() ==> {
+            &&& (#[trigger] self.elements@[i]).author < events
+            &&& forall|k: int| 0 <= k < self.elements@[i].deleted_by@.len()
+                ==> #[trigger] self.elements@[i].deleted_by@[k].0 < events
+        }
+    }
+
+    /// The tree's shape: each child list is the model's, a parent comes
+    /// before its child, and the top level is all right children.
+    closed spec fn holds_shape(&self) -> bool {
+        let t = self@;
+        &&& proof::ints(self.root@) == t.children(None, true)
+        &&& forall|i: int| 0 <= i < self.elements@.len() ==> {
+            &&& proof::ints((#[trigger] self.elements@[i]).left@) == t.children(Some(i), false)
+            &&& proof::ints(self.elements@[i].right@) == t.children(Some(i), true)
+            &&& match self.elements@[i].parent {
+                Some(p) => p < i,
+                None => self.elements@[i].side is Right,
+            }
+        }
+    }
+}
+
+/// What a stack of work still has to write, top first.
+spec fn pending(t: proof::TreeS, stack: Seq<Work>) -> Seq<int>
+    decreases stack.len()
+{
+    if stack.len() == 0 {
+        Seq::empty()
+    } else {
+        let rest = pending(t, stack.drop_last());
+        match stack.last() {
+            Work::Expand(at) => t.read(at as int) + rest,
+            Work::Emit(at) => seq![at as int] + rest,
+        }
+    }
+}
+
+/// How many of the steps on a stack write an element down directly.
+spec fn emits(stack: Seq<Work>) -> nat
+    decreases stack.len()
+{
+    if stack.len() == 0 {
+        0
+    } else {
+        emits(stack.drop_last()) + if stack.last() is Emit { 1nat } else { 0nat }
+    }
+}
+
+/// Pushing a step puts what it writes in front of what was pending.
+proof fn lemma_push(t: proof::TreeS, stack: Seq<Work>, work: Work)
+    ensures
+        pending(t, stack.push(work)) == match work {
+            Work::Expand(at) => t.read(at as int) + pending(t, stack),
+            Work::Emit(at) => seq![at as int] + pending(t, stack),
+        },
+        emits(stack.push(work)) == emits(stack) + if work is Emit { 1nat } else { 0nat },
+{
+    assert(stack.push(work).drop_last() =~= stack);
+}
+
+/// Each of a list of siblings read in turn, whatever is above them.
+spec fn reads(t: proof::TreeS, siblings: Seq<int>) -> Seq<int>
+    decreases siblings.len()
+{
+    if siblings.len() == 0 {
+        Seq::empty()
+    } else {
+        t.read(siblings[0]) + reads(t, siblings.drop_first())
+    }
+}
+
+/// Where every sibling is a node below `above`, the model's reading of
+/// them is each read in turn.
+proof fn lemma_read_all_reads(t: proof::TreeS, siblings: Seq<int>, above: int)
+    requires
+        forall|k: int| 0 <= k < siblings.len() ==> above < #[trigger] siblings[k] < t.len(),
+    ensures
+        t.read_all(siblings, above) == reads(t, siblings),
+    decreases siblings.len()
+{
+    if siblings.len() > 0 {
+        assert forall|k: int| 0 <= k < siblings.drop_first().len() implies above < #[trigger] siblings.drop_first()[k] < t.len() by {
+            assert(siblings.drop_first()[k] == siblings[k + 1]);
+        }
+        lemma_read_all_reads(t, siblings.drop_first(), above);
+    }
+}
+
+proof fn lemma_emits_bound(t: proof::TreeS, stack: Seq<Work>)
+    ensures
+        emits(stack) <= pending(t, stack).len(),
+    decreases stack.len()
+{
+    if stack.len() > 0 {
+        lemma_emits_bound(t, stack.drop_last());
+    }
+}
+
+impl<'a> View for Event<'a> {
+    type V = proof::EventS;
+
+    closed spec fn view(&self) -> proof::EventS {
+        proof::EventS {
+            ops: match self.stated {
+                Some((_, Stated::Operations(document))) => Some(document.operations.deep_view()),
+                _ => None,
+            },
+        }
+    }
+}
+
+impl<'a> View for Graph<'a> {
+    type V = proof::GraphS;
+
+    closed spec fn view(&self) -> proof::GraphS {
+        let events = self.events@.len();
+        proof::GraphS {
+            events: self.events@.map_values(|event: Event<'a>| event@),
+            knows: |e: int, o: int| 0 <= e < events && 0 <= o < events && self.ancestry.knows_spec(e, o),
+        }
+    }
+}
+
+impl Tree {
+    /// Every index in a child list is an element hanging there, and so a
+    /// node after its parent.
+    proof fn lemma_listed(&self, listed: Seq<usize>, parent: Option<int>, right: bool)
+        requires
+            self.holds_shape(),
+            proof::ints(listed) == self@.children(parent, right),
+        ensures
+            forall|k: int| 0 <= k < listed.len() ==> {
+                &&& #[trigger] listed[k] < self.elements@.len()
+                &&& self@.hangs(listed[k] as int, parent, right)
+                &&& (parent matches Some(p) ==> p < listed[k])
+            },
+    {
+        proof::lemma_children_nodes(self@, parent, right);
+        assert forall|k: int| 0 <= k < listed.len() implies {
+            &&& #[trigger] listed[k] < self.elements@.len()
+            &&& self@.hangs(listed[k] as int, parent, right)
+            &&& (parent matches Some(p) ==> p < listed[k])
+        } by {
+            assert(proof::ints(listed)[k] == listed[k] as int);
+            let j = listed[k] as int;
+            assert(self@.hangs(j, parent, right));
+            assert(self@.nodes[j] == self.elements@[j]@);
+        }
+    }
+}
+
+impl Graph<'_> {
+    /// The ancestry answers for exactly these events.
+    closed spec fn holds(&self) -> bool {
+        self.ancestry.holds() && self.ancestry.events() == self.events@.len()
+    }
+}
+
+} // verus!
 
 #[cfg(test)]
 mod tests {

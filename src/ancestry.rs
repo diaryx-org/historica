@@ -21,7 +21,11 @@
 //! of an ancestry question over a DAG; what it is not is quadratic in
 //! *allocations*, which is what a set per event was.
 
+#[cfg(verus_keep_ghost)]
+use vstd::prelude::*;
+
 /// Which events each event had seen, in whichever form the graph allows.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
 pub(crate) enum Ancestry {
     /// One chain: `position[e]` is where `e` sits in the single causal order,
     /// and `o` is in `e`'s past exactly when it sits no later.
@@ -32,6 +36,10 @@ pub(crate) enum Ancestry {
     /// A DAG: one row of bits per event, a set bit meaning "in this event's
     /// causal past, itself included".
     Matrix {
+        /// How many events there are, and rows. Read only by the proof,
+        /// which only Verus compiles.
+        #[allow(dead_code)]
+        events: usize,
         /// Words per row: `ceil(events / 64)`.
         words: usize,
         /// `events * words` words, row `e` starting at `e * words`.
@@ -70,17 +78,42 @@ impl Ancestry {
             }
             bits[event * words + event / 64] |= 1 << (event % 64);
         }
-        Ancestry::Matrix { words, bits }
+        Ancestry::Matrix {
+            events: parents.len(),
+            words,
+            bits,
+        }
     }
+}
 
+#[cfg_attr(verus_keep_ghost, cfg_eval, verus_verify)]
+impl Ancestry {
     /// Whether `other` is in `event`'s causal past, `event` itself included.
     ///
     /// The view an insertion is placed against: an element written earlier by
     /// this same revision is one its author can see, because they wrote it.
+    #[cfg_attr(verus_keep_ghost, verus_spec(r =>
+        requires
+            self.holds(),
+            event < self.events(),
+            other < self.events(),
+        ensures
+            r == self.knows_spec(event as int, other as int),
+    ))]
     pub(crate) fn knows(&self, event: usize, other: usize) -> bool {
         match self {
             Ancestry::Chain { position } => position[other] <= position[event],
-            Ancestry::Matrix { words, bits } => {
+            Ancestry::Matrix { words, bits, .. } => {
+                #[cfg(verus_keep_ghost)]
+                proof! {
+                    let (n, w) = (self.events() as int, *words as int);
+                    assert(event * w + w <= n * w) by (nonlinear_arith)
+                        requires event < n, 0 <= w;
+                    assert(other / 64 < w) by (nonlinear_arith)
+                        requires 0 <= other < n, n <= 64 * w;
+                    assert(event * w <= n * w) by (nonlinear_arith)
+                        requires event < n, 0 <= w;
+                }
                 bits[event * words + other / 64] & (1 << (other % 64)) != 0
             }
         }
@@ -91,10 +124,56 @@ impl Ancestry {
     /// The view an operation's positions are counted into: what the author had
     /// before they started, which is their parents' state and nothing of their
     /// own.
+    #[cfg_attr(verus_keep_ghost, verus_spec(r =>
+        requires
+            self.holds(),
+            event < self.events(),
+            other < self.events(),
+        ensures
+            r == (other != event && self.knows_spec(event as int, other as int)),
+    ))]
     pub(crate) fn saw(&self, event: usize, other: usize) -> bool {
         other != event && self.knows(event, other)
     }
 }
+
+#[cfg(verus_keep_ghost)]
+verus! {
+
+impl Ancestry {
+    /// How many events this answers for.
+    pub(crate) closed spec fn events(&self) -> nat {
+        match self {
+            Ancestry::Chain { position } => position@.len(),
+            Ancestry::Matrix { events, .. } => *events as nat,
+        }
+    }
+
+    /// The shape `new` builds: a position per event, or a row of words per
+    /// event with a bit per event in it.
+    pub(crate) closed spec fn holds(&self) -> bool {
+        match self {
+            Ancestry::Chain { .. } => true,
+            Ancestry::Matrix { events, words, bits } => {
+                &&& bits@.len() == *events as int * *words as int
+                &&& bits@.len() <= usize::MAX
+                &&& *events as int <= 64 * *words as int
+            },
+        }
+    }
+
+    /// Whether `other` is in `event`'s causal past, `event` itself included,
+    /// as this answers it.
+    pub(crate) closed spec fn knows_spec(&self, event: int, other: int) -> bool {
+        match self {
+            Ancestry::Chain { position } => position@[other] <= position@[event],
+            Ancestry::Matrix { words, bits, .. } =>
+                bits@[event * *words as int + other / 64] & (1u64 << (other % 64) as u64) != 0,
+        }
+    }
+}
+
+} // verus!
 
 /// `row[into] |= row[from]`, for two rows of one matrix.
 fn union_row(bits: &mut [u64], words: usize, into: usize, from: usize) {
