@@ -44,9 +44,14 @@ use crate::core::RevisionId;
 use vstd::prelude::*;
 
 use super::order::Ordered;
+#[cfg(verus_keep_ghost)]
+use super::proof::DocumentS;
 use super::{
     Lines, PREAMBLE, ParseError, ParseErrorKind, check_byte_order_mark, check_preamble, digest,
 };
+
+#[cfg(verus_keep_ghost)]
+pub(crate) mod proof;
 
 /// The line that says the item above it is the file's last and unterminated.
 pub const NO_NEWLINE: &str = "\\ no newline";
@@ -110,16 +115,6 @@ impl Item {
         }
     }
 
-    /// This item with its text destroyed, keeping its terminator.
-    #[must_use]
-    pub fn forgetting(&self) -> Self {
-        Self {
-            text: String::new(),
-            terminated: self.terminated,
-            forgotten: true,
-        }
-    }
-
     /// What this item shows a reader: its text, or the mark of its absence.
     pub fn shown(&self) -> &str {
         if self.forgotten {
@@ -141,6 +136,32 @@ impl Item {
 
 #[cfg_attr(verus_keep_ghost, cfg_eval, verus_verify)]
 impl Item {
+    /// This item with its text destroyed, keeping its terminator.
+    #[must_use]
+    #[cfg_attr(verus_keep_ghost, verus_spec(r =>
+        ensures r@ == proof::forgetting(self@),
+    ))]
+    pub fn forgetting(&self) -> Self {
+        Self {
+            text: String::new(),
+            terminated: self.terminated,
+            forgotten: true,
+        }
+    }
+
+    /// This item with its own copy of the text: the derived `Clone`, spelled
+    /// out so that a proof knows what it made.
+    #[cfg_attr(verus_keep_ghost, verus_spec(r =>
+        ensures r@ == self@,
+    ))]
+    pub(crate) fn copied(&self) -> Self {
+        Self {
+            text: self.text.clone(),
+            terminated: self.terminated,
+            forgotten: self.forgotten,
+        }
+    }
+
     /// Whether a quoted item holds against the item actually found.
     ///
     /// Decision 0014: a forgotten item matches whatever stands at its
@@ -359,26 +380,181 @@ impl fmt::Display for OperationDocument {
 /// `base` is the original document, where the store still holds it; with the
 /// original destroyed, the first forgetting document is the shape and the
 /// rest union into it. A forgetting document whose shape disagrees is set
-/// aside rather than merged, and `check` is where that is reported.
+/// aside rather than merged. So where the original is destroyed, which
+/// document comes first is the one order that matters, and a store hands
+/// them over in digest order.
+///
+/// Proved (decision 0076): what this returns is the shape, with each item
+/// forgotten exactly where the shape or a forgetting document of its shape
+/// forgets it; the laws above are proved of that statement. It is written as
+/// loops over positions, which the prover reads, where zipped iterators
+/// would be shorter.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
+#[cfg_attr(verus_keep_ghost, verifier::loop_isolation(false))]
+#[cfg_attr(verus_keep_ghost, verus_spec(r =>
+    ensures
+        r is None <==> base is None && forgetting@.len() == 0,
+        r is Some ==> r->Some_0.deep_view() == proof::stood(
+            proof::shape_of(base.deep_view(), forgetting.deep_view()),
+            forgetting.deep_view(),
+        ),
+))]
 pub fn stand_in(
     base: Option<&OperationDocument>,
     forgetting: &[&OperationDocument],
 ) -> Option<OperationDocument> {
-    let mut effective = match base {
-        Some(document) => document.clone(),
-        None => (*forgetting.first()?).clone(),
-    };
-    for document in forgetting {
-        if !same_shape(&effective, document) {
-            continue;
+    let held = match base {
+        Some(document) => document,
+        None => {
+            if forgetting.is_empty() {
+                return None;
+            }
+            forgetting[0]
         }
-        for (stated, held) in document.operations.iter().zip(&mut effective.operations) {
-            for (item, kept) in stated.items.iter().zip(&mut held.items) {
-                if item.forgotten && !kept.forgotten {
-                    *kept = kept.forgetting();
+    };
+    #[cfg(verus_keep_ghost)]
+    proof_decl! {
+        let ghost shape = held.operations.deep_view();
+        let ghost stated = forgetting.deep_view();
+        assert(held.deep_view() == proof::shape_of(base.deep_view(), stated));
+    }
+    // Which documents have the shape, asked once each rather than per item.
+    let mut shaped: Vec<bool> = Vec::with_capacity(forgetting.len());
+    let mut k: usize = 0;
+    #[cfg_attr(verus_keep_ghost, verus_spec(
+        invariant
+            k <= forgetting.len(),
+            shaped@.len() == k,
+            forall|q: int| 0 <= q < k ==> #[trigger] shaped@[q] == proof::same_shape(shape, stated[q].operations),
+        decreases forgetting.len() - k,
+    ))]
+    while k < forgetting.len() {
+        #[cfg(verus_keep_ghost)]
+        proof! { assert(stated[k as int] == forgetting@[k as int].deep_view()); }
+        shaped.push(same_shape(held, forgetting[k]));
+        k += 1;
+    }
+    let mut operations = Vec::with_capacity(held.operations.len());
+    let mut i: usize = 0;
+    #[cfg_attr(verus_keep_ghost, verus_spec(
+        invariant
+            i <= held.operations.len(),
+            operations.deep_view().len() == i,
+            forall|p: int| 0 <= p < i ==> #[trigger] operations.deep_view()[p]
+                == proof::stood_operation(shape, stated, p),
+        decreases held.operations.len() - i,
+    ))]
+    while i < held.operations.len() {
+        let operation = &held.operations[i];
+        #[cfg(verus_keep_ghost)]
+        proof! { assert(shape[i as int] == operation.deep_view()); }
+        let mut items = Vec::with_capacity(operation.items.len());
+        let mut j: usize = 0;
+        #[cfg_attr(verus_keep_ghost, verus_spec(
+            invariant
+                j <= operation.items.len(),
+                items.deep_view().len() == j,
+                forall|q: int| 0 <= q < j ==> #[trigger] items.deep_view()[q] == proof::stood_item(
+                    shape[i as int].items[q],
+                    proof::forgotten_by(shape, stated, i as int, q),
+                ),
+            decreases operation.items.len() - j,
+        ))]
+        while j < operation.items.len() {
+            let item = &operation.items[j];
+            #[cfg(verus_keep_ghost)]
+            proof! { assert(shape[i as int].items[j as int] == item@); }
+            let mut forgotten = false;
+            if !item.forgotten {
+                let mut k: usize = 0;
+                #[cfg_attr(verus_keep_ghost, verus_spec(
+                    invariant
+                        k <= forgetting.len(),
+                        forgotten ==> proof::forgotten_by(shape, stated, i as int, j as int),
+                        !forgotten ==> forall|q: int| 0 <= q < k ==> !(proof::same_shape(
+                            shape,
+                            (#[trigger] stated[q]).operations,
+                        ) && stated[q].operations[i as int].items[j as int].forgotten),
+                    decreases forgetting.len() - k,
+                ))]
+                while !forgotten && k < forgetting.len() {
+                    #[cfg(verus_keep_ghost)]
+                    proof! {
+                        let other = forgetting@[k as int];
+                        assert(stated[k as int] == other.deep_view());
+                        if shaped@[k as int] {
+                            assert(proof::same_operation(shape[i as int], stated[k as int].operations[i as int]));
+                            assert(stated[k as int].operations[i as int] == other.operations@[i as int].deep_view());
+                            assert(stated[k as int].operations[i as int].items[j as int]
+                                == other.operations@[i as int].items@[j as int]@);
+                        }
+                    }
+                    forgotten = shaped[k] && forgetting[k].operations[i].items[j].forgotten;
+                    #[cfg(verus_keep_ghost)]
+                    proof! {
+                        if forgotten {
+                            assert(stated.contains(stated[k as int]));
+                        }
+                    }
+                    k += 1;
+                }
+                #[cfg(verus_keep_ghost)]
+                proof! {
+                    if !forgotten && proof::forgotten_by(shape, stated, i as int, j as int) {
+                        let d = choose|d: DocumentS| #[trigger] stated.contains(d)
+                            && proof::same_shape(shape, d.operations)
+                            && d.operations[i as int].items[j as int].forgotten;
+                        let q = choose|q: int| 0 <= q < stated.len() && stated[q] == d;
+                        assert(!(proof::same_shape(shape, stated[q].operations)
+                            && stated[q].operations[i as int].items[j as int].forgotten));
+                    }
                 }
             }
+            let stood = if forgotten {
+                item.forgetting()
+            } else {
+                item.copied()
+            };
+            #[cfg(verus_keep_ghost)]
+            proof_decl! {
+                let ghost pre = items.deep_view();
+                assert(stood@ == proof::stood_item(
+                    shape[i as int].items[j as int],
+                    proof::forgotten_by(shape, stated, i as int, j as int),
+                ));
+            }
+            items.push(stood);
+            #[cfg(verus_keep_ghost)]
+            proof! { assert(items.deep_view() =~= pre.push(stood@)); }
+            j += 1;
         }
+        #[cfg(verus_keep_ghost)]
+        proof! {
+            assert(items.deep_view() =~= proof::stood_operation(shape, stated, i as int).items);
+        }
+        let stood = Operation {
+            kind: operation.kind,
+            at: operation.at,
+            items,
+        };
+        #[cfg(verus_keep_ghost)]
+        proof_decl! {
+            let ghost pre = operations.deep_view();
+            assert(stood.deep_view() == proof::stood_operation(shape, stated, i as int));
+        }
+        operations.push(stood);
+        #[cfg(verus_keep_ghost)]
+        proof! { assert(operations.deep_view() =~= pre.push(stood.deep_view())); }
+        i += 1;
+    }
+    let effective = OperationDocument {
+        forgets: held.forgets,
+        result: held.result,
+        operations,
+    };
+    #[cfg(verus_keep_ghost)]
+    proof! {
+        assert(effective.operations.deep_view() =~= proof::stood(held.deep_view(), stated).operations);
     }
     Some(effective)
 }
@@ -387,22 +563,72 @@ pub fn stand_in(
 ///
 /// Shape is what a forgetting document preserves: kinds, positions, counts,
 /// and terminators. Text is exactly what it does not.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
+#[cfg_attr(verus_keep_ghost, verus_spec(r =>
+    ensures r == proof::same_shape(left.operations.deep_view(), right.operations.deep_view()),
+))]
 fn same_shape(left: &OperationDocument, right: &OperationDocument) -> bool {
-    left.operations.len() == right.operations.len()
-        && left
-            .operations
-            .iter()
-            .zip(&right.operations)
-            .all(|(mine, theirs)| {
-                mine.kind == theirs.kind
-                    && mine.at == theirs.at
-                    && mine.items.len() == theirs.items.len()
-                    && mine
-                        .items
-                        .iter()
-                        .zip(&theirs.items)
-                        .all(|(a, b)| a.terminated == b.terminated)
-            })
+    if left.operations.len() != right.operations.len() {
+        return false;
+    }
+    let mut i: usize = 0;
+    #[cfg_attr(verus_keep_ghost, verus_spec(
+        invariant
+            i <= left.operations.len(),
+            left.operations.len() == right.operations.len(),
+            forall|p: int| 0 <= p < i ==> #[trigger] proof::same_operation(
+                left.operations.deep_view()[p],
+                right.operations.deep_view()[p],
+            ),
+        decreases left.operations.len() - i,
+    ))]
+    while i < left.operations.len() {
+        #[cfg(verus_keep_ghost)]
+        proof! {
+            assert(left.operations.deep_view()[i as int] == left.operations@[i as int].deep_view());
+            assert(right.operations.deep_view()[i as int] == right.operations@[i as int].deep_view());
+        }
+        if !same_operation(&left.operations[i], &right.operations[i]) {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+/// Whether two operations are of one shape: [`same_shape`], one at a time.
+#[cfg_attr(verus_keep_ghost, verus_verify)]
+#[cfg_attr(verus_keep_ghost, verus_spec(r =>
+    ensures r == proof::same_operation(mine.deep_view(), theirs.deep_view()),
+))]
+fn same_operation(mine: &Operation, theirs: &Operation) -> bool {
+    if matches!(mine.kind, OperationKind::Delete) != matches!(theirs.kind, OperationKind::Delete)
+        || mine.at != theirs.at
+        || mine.items.len() != theirs.items.len()
+    {
+        return false;
+    }
+    let mut j: usize = 0;
+    #[cfg_attr(verus_keep_ghost, verus_spec(
+        invariant
+            j <= mine.items.len(),
+            mine.items.len() == theirs.items.len(),
+            forall|q: int| 0 <= q < j ==> (#[trigger] mine.items.deep_view()[q]).terminated
+                == theirs.items.deep_view()[q].terminated,
+        decreases mine.items.len() - j,
+    ))]
+    while j < mine.items.len() {
+        #[cfg(verus_keep_ghost)]
+        proof! {
+            assert(mine.items.deep_view()[j as int] == mine.items@[j as int]@);
+            assert(theirs.items.deep_view()[j as int] == theirs.items@[j as int]@);
+        }
+        if mine.items[j].terminated != theirs.items[j].terminated {
+            return false;
+        }
+        j += 1;
+    }
+    true
 }
 
 /// Where one `\ no newline` marker was, so a misplaced one can name its line.

@@ -1,6 +1,6 @@
 # 0076 — Proofs on the code that runs
 
-> **Amended 2026-09-27.** Two of the things *Leaves open* names are done.
+> **Amended 2026-09-27.** Three of the things *Leaves open* names are done.
 > `replay::State::applied` is proved in place: it replays a document exactly
 > when nothing is a cause to refuse it, to exactly the file the document
 > describes, and every refusal names its cause. The trusted file it needed
@@ -11,6 +11,20 @@
 > binaries alternated on one store with `cache/` emptied before each run —
 > it is the same within the noise: 774 and 775 ms, fastest of twelve, for a
 > cold `status` on the largest store to hand.
+>
+> `format::stand_in` is proved as well: what a reader consumes for a
+> document that forgetting documents stand in for is its shape with each
+> item forgotten exactly where the shape, or a forgetting document of that
+> shape, forgets it. The laws the Bend spike stated of decision 0014's rule
+> are proved of that statement: the order the documents arrive in and how
+> often one does make no difference, more of them only forget more, and
+> they destroy text and never write any. Stating it found the rule's one
+> order. With the original destroyed the first stand-in is the shape, and
+> the store handed them over in whatever order it had listed or learned of
+> them, so two that disagreed about the shape read differently depending on
+> what their files were called. It now hands them over in digest order, the
+> order `check` already read them in. The resolution grammar's `stand_in`
+> has the same shape and is not yet proved.
 
 Two spikes asked whether historica's rules could be proved rather than
 tested. One restated the crate in Bend, whose checker proves laws of a

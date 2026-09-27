@@ -450,20 +450,6 @@ impl State {
     }
 }
 
-/// An item with its own copy of the text: the derived `Clone`, spelled out
-/// so that the proof knows what it made.
-#[cfg_attr(verus_keep_ghost, verus_verify)]
-#[cfg_attr(verus_keep_ghost, verus_spec(r =>
-    ensures r@ == item@,
-))]
-fn copy(item: &Item) -> Item {
-    Item {
-        text: item.text.clone(),
-        terminated: item.terminated,
-        forgotten: item.forgotten,
-    }
-}
-
 /// Copies of `items`, after what `run` already holds.
 #[cfg_attr(verus_keep_ghost, verus_verify)]
 #[cfg_attr(verus_keep_ghost, verus_spec(
@@ -479,7 +465,7 @@ fn extend(run: &mut Vec<Item>, items: &[Item]) {
         decreases items.len() - i,
     ))]
     while i < items.len() {
-        let item = copy(&items[i]);
+        let item = items[i].copied();
         #[cfg(verus_keep_ghost)]
         proof_decl! {
             let ghost pre = run.deep_view();
@@ -801,7 +787,7 @@ impl std::error::Error for ReplayError {}
 #[cfg(verus_keep_ghost)]
 verus! {
 
-broadcast use vstd::std_specs::btree::group_btree_axioms, vstd::laws_cmp::group_laws_cmp;
+broadcast use {vstd::std_specs::btree::group_btree_axioms, vstd::laws_cmp::group_laws_cmp};
 
 impl View for State {
     type V = Seq<crate::format::proof::ItemS>;

@@ -197,6 +197,12 @@ compiles. An ordinary build sees none of it and gains no dependency.
   to exactly the file its operations describe, read position by position
   against the parent; every refusal names a cause that holds
   ([`src/replay.rs`](src/replay.rs)).
+- **Reading through a redaction.** What a reader consumes for a document that
+  forgetting documents stand in for is that document with each item forgotten
+  exactly where one of them of its shape forgets it. Decision 0014's laws are
+  proved of that: the order they arrive in and how often do not matter, more
+  of them only forget more, and they destroy text without ever writing any
+  ([`src/format/operations.rs`](src/format/operations.rs)).
 
 What the proofs take on trust beyond Verus is in one file,
 [`src/trusted.rs`](src/trusted.rs) — today, that SHA-256 is a function — and a
