@@ -2778,9 +2778,23 @@ impl<F: Filesystem> Store<F> {
         heads: &[RevisionId],
         file: &FileId,
     ) -> Result<Content, MaterialiseError> {
-        let merged = self.merged_tree_of(heads)?;
-        let entry = merged
-            .tree
+        self.content_in(&self.merged_tree_of(heads)?.tree, heads, file)
+    }
+
+    /// What one file holds at several heads, given the tree they leave.
+    ///
+    /// [`Store::content_at_heads`] without the merge that finds the file's
+    /// kind: `tree` is [`Store::merged_tree_of`] those heads, which a caller
+    /// asking after every file in it — a comparison, a survey of the folder —
+    /// already holds, and would otherwise have merged again for each file.
+    /// Handed a tree from other heads, this answers from that tree's file set.
+    pub fn content_in(
+        &self,
+        tree: &Tree,
+        heads: &[RevisionId],
+        file: &FileId,
+    ) -> Result<Content, MaterialiseError> {
+        let entry = tree
             .entry(file)
             .ok_or(MaterialiseError::NoSuchFile { file: *file })?;
         match entry.kind {

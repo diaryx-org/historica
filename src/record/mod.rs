@@ -1060,7 +1060,7 @@ pub fn survey<F: Filesystem>(
         }
     }
 
-    survey.renames = renames(store, parents, &survey.dropped, &arrived)?;
+    survey.renames = renames(store, parents, &tree, &survey.dropped, &arrived)?;
     survey.held = held;
     // Decision 0043: one write, here, where the folder has finished being
     // asked. A survey that wrote after every question would rewrite the whole
@@ -1207,9 +1207,12 @@ fn joined_content<F: Filesystem>(
 /// the one thing about it this whole format takes for its identity, both sides
 /// of the comparison already have one, and a match that put two photographs in
 /// memory to confirm what two numbers said would be the arithmetic done twice.
+///
+/// `tree` is the one the parents leave, which the survey has already merged.
 fn renames<F: Filesystem>(
     store: &Store<F>,
     parents: &[RevisionId],
+    tree: &Tree,
     dropped: &BTreeMap<FileId, String>,
     arrived: &BTreeMap<String, RevisionId>,
 ) -> Result<Vec<(String, String)>, RecordError> {
@@ -1229,7 +1232,7 @@ fn renames<F: Filesystem>(
     for (file, path) in dropped {
         // Whichever kind the file is: an image moved with `mv` is the same
         // question a paragraph moved with `mv` is.
-        let found = match store.content_at_heads(parents, file) {
+        let found = match store.content_in(tree, parents, file) {
             Ok(content) => content.digest(),
             // A file whose content two branches disagree about is not a file
             // this can offer a rename for, and neither is a link: decision
