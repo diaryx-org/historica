@@ -1604,17 +1604,25 @@ impl<F: Filesystem> Store<F> {
     /// and is the better answer, because it was read rather than believed.
     /// Where no pass has happened the catalogue's account stands, which is
     /// decision 0036's one unread claim.
+    ///
+    /// In digest order, whatever order they were listed or arrived in. With
+    /// the original destroyed, the first is the shape `format::stand_in`
+    /// reads the rest into, so two stand-ins that disagree about it are read
+    /// alike by every store holding both — and alike by `check`, which reads
+    /// them in this order too.
     fn standing(&self, target: &RevisionId) -> Result<Vec<RevisionId>, StoreError> {
-        if self.scanned.get() {
-            return Ok(self
-                .read
+        let mut standing = if self.scanned.get() {
+            self.read
                 .borrow()
                 .forgetting
                 .get(target)
                 .cloned()
-                .unwrap_or_default());
-        }
-        Ok(self.catalogue()?.forgetting(target).to_vec())
+                .unwrap_or_default()
+        } else {
+            self.catalogue()?.forgetting(target).to_vec()
+        };
+        standing.sort_unstable();
+        Ok(standing)
     }
 
     /// Every held forgetting document standing in for `target`.

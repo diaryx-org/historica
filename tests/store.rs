@@ -1631,3 +1631,38 @@ fn files_under(directory: &Path) -> Vec<PathBuf> {
     }
     found
 }
+
+#[test]
+fn stand_ins_for_a_destroyed_document_read_alike_whichever_is_listed_first() {
+    // Decision 0014: two replicas may redact one document differently, both
+    // redactions survive the sync, and the rule that reads them together
+    // must not depend on which arrived first. With the original destroyed
+    // the first stand-in is the shape, so two that disagree about it have to
+    // be read in one order everywhere — and a file's name is presentation,
+    // so the order the directory lists them in cannot be it.
+    let original =
+        OperationDocument::parse(b"historica\n\ninsert 0\n+one\n+two\n").expect("a document");
+    let target = original.id();
+    let mut narrow = original.clone();
+    narrow.forgets = Some(target);
+    narrow.operations[0].items[0] = narrow.operations[0].items[0].forgetting();
+    let mut askew =
+        OperationDocument::parse(b"historica\n\ninsert 3\n+three\n").expect("a document");
+    askew.forgets = Some(target);
+
+    let read = |test: &str, first: &OperationDocument, second: &OperationDocument| {
+        let root = scratch(test).join("history");
+        Store::init(&root).expect("a new store");
+        fs::write(root.join("operations/a.ops.txt"), first.write()).expect("writing");
+        fs::write(root.join("operations/b.ops.txt"), second.write()).expect("writing");
+        let store = Store::open(&root).expect("reopening");
+        store
+            .effective_operation(&target)
+            .expect("a read")
+            .expect("a stand-in")
+    };
+    assert_eq!(
+        read("stand_ins_listed_narrow_first", &narrow, &askew),
+        read("stand_ins_listed_askew_first", &askew, &narrow),
+    );
+}

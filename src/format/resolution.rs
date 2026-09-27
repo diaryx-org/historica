@@ -434,8 +434,9 @@ impl Parser<'_> {
 ///
 /// `base` is the original where the store still holds it; with the original
 /// destroyed, the first forgetting resolution is the shape and the rest union
-/// into it. One whose shape disagrees is set aside rather than merged, and
-/// `check` is where that is reported.
+/// into it. One whose shape disagrees is set aside rather than merged. So
+/// where the original is destroyed, which comes first is the one order that
+/// matters, and a store hands them over in digest order.
 pub fn stand_in(
     base: Option<&ResolutionDocument>,
     forgetting: &[&ResolutionDocument],

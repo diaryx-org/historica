@@ -1,5 +1,15 @@
 # 0014 — Forgetting
 
+> **Amended 2026-09-27.** *Forgetting is monotone, so it converges* reads
+> every stand-in into the original, which fixes the shape. With the
+> original destroyed there is nothing to fix it, and stand-ins that
+> disagree about it cannot all be read: the one whose digest sorts first is
+> the shape, the rest union into it, and one of another shape is set aside.
+> Any fixed choice would converge; this is the one a reader can make with
+> nothing but the digests in hand, and the one `check` already made. Found
+> proving the rule (decision 0076), where the store's choice had been the
+> order it listed the files in.
+
 Decision 0013 kept two acts apart — abandoning, which is a fact recorded in the
 graph, and pruning, which is disk — and then said a third thing outright:
 pruning **is not secrecy**, and the answer to a recorded secret is to rotate

@@ -73,7 +73,8 @@ depend on each other in.
   operation document's payload and preserves its arithmetic, so everything
   downstream still materialises and merges; forgetting converges by union, an
   item is forgotten wherever it is quoted, and what survives is shape,
-  authorship, and paths.
+  authorship, and paths. Amended: with the original destroyed, the stand-in
+  whose digest sorts first is the shape.
 
 - [0015 — Status](0015-status.md)
   What status shows and what it is allowed to know: a comparison derived from
