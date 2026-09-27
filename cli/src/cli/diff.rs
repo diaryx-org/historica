@@ -342,27 +342,26 @@ fn recorded(
         }
         // Decision 0040: a link holds a target instead of content, so asking
         // for its content would be asking a question it has no answer to.
-        let content = |entry: Option<&historica::tree::Entry>, at: RevisionId| {
+        // Each side is asked of the tree already merged for it, rather than
+        // having the whole tree merged again for every file.
+        let content = |entry: Option<&historica::tree::Entry>, tree: &Tree, at: RevisionId| {
             match entry {
                 Some(entry) if entry.kind != Kind::Link => {
-                    Some(store.content_at(&at, &file).map_err(Failure::error))
+                    Some(store.content_in(tree, &[at], &file).map_err(Failure::error))
                 }
                 _ => None,
             }
             .transpose()
         };
         let held = match left {
-            Some(id) => content(was, id)?,
+            Some(id) => content(was, &before, id)?,
             None => None,
         };
-        let holds = content(now, right)?;
-        let pair = Pair {
+        let holds = content(now, &after, right)?;
+        let mut pair = Pair {
             from: was.map(|entry| entry.path.clone()),
             to: now.map(|entry| entry.path.clone()),
-            sizes: (
-                stored_size(store, held.as_ref()),
-                stored_size(store, holds.as_ref()),
-            ),
+            sizes: (None, None),
             before: held,
             after: holds,
             modes: match (was, now) {
@@ -375,6 +374,13 @@ fn recorded(
             ),
         };
         if pair.differs() {
+            // Measured only for what is shown: finding a stored payload
+            // hashes it, and most files on either side of a comparison differ
+            // in nothing.
+            pair.sizes = (
+                stored_size(store, pair.before.as_ref()),
+                stored_size(store, pair.after.as_ref()),
+            );
             pairs.push(pair);
         }
     }
@@ -435,9 +441,11 @@ fn folder(
         let entry = file.and_then(|file| tree.entry(&file));
         let recorded_link = entry.filter(|entry| entry.kind == Kind::Link);
         let before = match (file, left) {
-            (Some(file), Some(id)) if recorded_link.is_none() => {
-                Some(store.content_at(&id, &file).map_err(Failure::error)?)
-            }
+            (Some(file), Some(id)) if recorded_link.is_none() => Some(
+                store
+                    .content_in(&tree, &[id], &file)
+                    .map_err(Failure::error)?,
+            ),
             _ => None,
         };
         // Decision 0040: a link on either side has a target instead of
@@ -504,16 +512,17 @@ fn folder(
             }
             _ => None,
         };
-        let pair = Pair {
+        let mut pair = Pair {
             from: file.map(|_| path.clone()),
             to: there.then(|| path.clone()),
-            sizes: (stored_size(store, before.as_ref()), held),
+            sizes: (None, held),
             before,
             after,
             modes,
             targets,
         };
         if pair.differs() {
+            pair.sizes.0 = stored_size(store, pair.before.as_ref());
             pairs.push(pair);
         }
     }
