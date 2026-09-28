@@ -77,6 +77,9 @@ pub fn update(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
             for remove in &update.removes {
                 writeln!(out, "{:<7} {}", "remove", remove.path)?;
             }
+            for moving in &update.moves {
+                writeln!(out, "{:<7} {} -> {}", "move", moving.from, moving.to)?;
+            }
             for chmod in &update.modes {
                 writeln!(out, "{:<7} {}  ({})", "mode", chmod.path, chmod.mode)?;
             }
@@ -90,8 +93,9 @@ pub fn update(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
             if update.is_settled() {
                 writeln!(
                     out,
-                    "the folder already holds {}",
-                    target::spelled(&store, &target)
+                    "the folder already holds {}{}",
+                    target::spelled(&store, &target),
+                    but_for(&update.elsewhere)
                 )?;
             }
             Ok(())
@@ -106,8 +110,9 @@ pub fn update(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
             absent(out, &update.elsewhere)?;
             writeln!(
                 out,
-                "the folder already holds {}",
-                target::spelled(&store, &target)
+                "the folder already holds {}{}",
+                target::spelled(&store, &target),
+                but_for(&update.elsewhere)
             )
         });
     }
@@ -120,6 +125,9 @@ pub fn update(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
         }
         for path in &applied.removed {
             writeln!(out, "{:<7} {}", "removed", path)?;
+        }
+        for (from, to) in &applied.moved {
+            writeln!(out, "{:<7} {from} -> {to}", "moved")?;
         }
         // Decision 0034: making a file runnable is a change to a file in
         // somebody's folder, and `prune` already sets the rule that such a
@@ -135,9 +143,22 @@ pub fn update(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
         for (path, because) in update.leaves.iter().chain(&applied.left) {
             writeln!(out, "left {path} alone: {because}")?;
         }
-        absent(out, &update.elsewhere)?;
+        // A path whose earlier version was to go and changed first is not
+        // absent: it holds whatever it was changed to, which is said above.
+        let absent_now: Vec<String> = update
+            .elsewhere
+            .iter()
+            .filter(|path| !applied.left.iter().any(|(left, _)| left == *path))
+            .cloned()
+            .collect();
+        absent(out, &absent_now)?;
         if applied.folded.is_empty() && applied.left.is_empty() {
-            writeln!(out, "the folder holds {}", target::spelled(&store, &target))?;
+            writeln!(
+                out,
+                "the folder holds {}{}",
+                target::spelled(&store, &target),
+                but_for(&absent_now)
+            )?;
         }
         Ok(())
     })?;
@@ -159,6 +180,15 @@ pub fn update(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
         ));
     }
     Ok(code)
+}
+
+/// What the folder holding a head leaves out, said after it.
+fn but_for(elsewhere: &[String]) -> &'static str {
+    match elsewhere.len() {
+        0 => "",
+        1 => ", but for the file of bytes absent above",
+        _ => ", but for the files of bytes absent above",
+    }
 }
 
 /// The files of bytes the head holds and the folder is left without, because

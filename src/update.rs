@@ -219,6 +219,26 @@ pub struct Remove {
     pub link: Option<String>,
 }
 
+/// One file the update moves: bytes the folder holds at a path the target
+/// does not, which the target names at a path the folder lacks, where this
+/// store does not hold them.
+///
+/// The proposal *Bytes held elsewhere*. The folder's copy is the only one
+/// here, so it cannot be removed and written again; left where it is, the
+/// next `record` would add it at the old path and then drop the new one,
+/// undoing a rename somebody else recorded. So it is moved, which is what the
+/// rename said.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Move {
+    /// Where the file sits, relative to the repository root.
+    pub from: String,
+    /// Where the target holds those bytes.
+    pub to: String,
+    /// What the plan found `from` to hash to, so that applying can look again.
+    pub held: RevisionId,
+}
+
 /// What one update would do, computed before anything is done.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[non_exhaustive]
@@ -231,6 +251,8 @@ pub struct Update {
     pub kept: Vec<String>,
     /// Files whose bytes are right and whose mode is not, in path order.
     pub modes: Vec<Chmod>,
+    /// The files to move, whose bytes only the folder holds, in path order.
+    pub moves: Vec<Move>,
     /// The links to make, in path order.
     pub links: Vec<Linking>,
     /// Paths left alone, with the reason: a tracked file the target does not
@@ -253,6 +275,7 @@ impl Update {
         self.writes.is_empty()
             && self.removes.is_empty()
             && self.modes.is_empty()
+            && self.moves.is_empty()
             && self.links.is_empty()
     }
 }
@@ -268,6 +291,8 @@ pub struct Applied {
     pub wrote: Vec<String>,
     /// The paths removed.
     pub removed: Vec<String>,
+    /// The files moved, as (from, to).
+    pub moved: Vec<(String, String)>,
     /// Paths left alone at apply time, with the reason.
     pub left: Vec<(String, String)>,
     /// Paths whose read-back did not hold the bytes just written: the folder
@@ -840,6 +865,9 @@ pub(crate) fn plan_at<F: Filesystem, G: Filesystem>(
 
     let recorded = RecordedBytes::over(store, overwrite);
     let mut update = Update::default();
+    // The paths left without a file for want of bytes, by those bytes, which
+    // a file the folder holds somewhere else may be moved to.
+    let mut absent: BTreeMap<RevisionId, Vec<String>> = BTreeMap::new();
 
     for (path, files) in &placed {
         let [file] = files.as_slice() else {
@@ -1027,6 +1055,7 @@ pub(crate) fn plan_at<F: Filesystem, G: Filesystem>(
             }
         } else if elsewhere {
             update.elsewhere.push((*path).to_owned());
+            absent.entry(wanted.digest()).or_default().push((*path).to_owned());
         } else {
             let on_disk = repository.join(path);
             match look(working.filesystem(), &on_disk)? {
@@ -1095,9 +1124,22 @@ pub(crate) fn plan_at<F: Filesystem, G: Filesystem>(
                 held: Some(held),
                 link: None,
             }),
-            // Recorded, so said out loud whether or not a head tracks it: a
-            // person who expected it gone is owed the reason it is not.
-            Standing::Elsewhere => update.leaves.push((path.clone(), ONLY_COPY.to_owned())),
+            // The only copy here, of bytes the target names at a path the
+            // folder lacks: moved there rather than left to be recorded as
+            // a file the target does not have. Otherwise recorded, so said
+            // out loud whether or not a head tracks it: a person who expected
+            // it gone is owed the reason it is not.
+            Standing::Elsewhere => match absent.get_mut(&held).and_then(Vec::pop) {
+                Some(to) => {
+                    update.elsewhere.retain(|path| *path != to);
+                    update.moves.push(Move {
+                        from: path.clone(),
+                        to,
+                        held,
+                    });
+                }
+                None => update.leaves.push((path.clone(), ONLY_COPY.to_owned())),
+            },
             Standing::Unrecorded if tracked.contains(path) => {
                 update.leaves.push((path.clone(), UNRECORDED.to_owned()));
             }
@@ -1224,6 +1266,32 @@ pub fn apply<F: Filesystem, G: Filesystem>(
             }
             None => {} // Already gone, which is where a removal was headed.
         }
+    }
+
+    // A move is looked at again at both ends: the bytes the plan saw at the
+    // one, and nothing yet at the other.
+    for moving in &update.moves {
+        let from = on_disk(&moving.from);
+        let to = repository.join(&moving.to);
+        if hashed(filesystem, &from)? != Some(moving.held) || look(filesystem, &to)?.is_some() {
+            applied.left.push((
+                moving.from.clone(),
+                "it changed underneath the update".to_owned(),
+            ));
+            continue;
+        }
+        if let Some(directory) = to.parent().filter(|held| !held.as_os_str().is_empty()) {
+            filesystem
+                .create_directory(directory)
+                .map_err(|error| UpdateError::Io {
+                    path: directory.to_path_buf(),
+                    error,
+                })?;
+        }
+        filesystem
+            .rename(&from, &to)
+            .map_err(|error| UpdateError::Io { path: from, error })?;
+        applied.moved.push((moving.from.clone(), moving.to.clone()));
     }
 
     // The look at the destination and the write are one question to the

@@ -325,8 +325,10 @@ A file of bytes the store does not hold is left out of the folder rather than
 refusing the update, and printed as `absent`; an earlier version of it the
 folder holds is removed, so that the next `record` does not read it as the file
 going back. What `update` removes or writes over is only ever bytes this store
-holds, since bytes a revision names and the store does not hold are the only
-copy on this machine.
+holds, checked by hashing them, since bytes a revision names and the store does
+not hold are the only copy on this machine. Such a copy at a path the head has
+renamed away from, where the head names those bytes at a path the folder lacks,
+is moved there, so that the next `record` does not undo the rename.
 
 ### `amend`
 

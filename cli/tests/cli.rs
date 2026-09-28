@@ -5769,6 +5769,38 @@ fn diff_of_a_named_file_held_elsewhere_shows_what_record_would_drop() {
     assert!(named.contains("photo.bin"), "{named}");
 }
 
+/// A file of bytes somebody renamed, whose only copy here is the folder's at
+/// the old name, is moved to the new one rather than left to be recorded as a
+/// file the head does not have.
+#[test]
+fn update_moves_the_only_copy_of_a_renamed_file_of_bytes() {
+    let directory = repository("update-moves-only-copy");
+    fs::write(directory.join("photo.bin"), [0xffu8, 0x00, 0x51]).expect("a payload");
+    out(recorded(&directory, &["record", "-m", "first"]));
+    fs::rename(directory.join("photo.bin"), directory.join("pic.bin")).expect("the rename");
+    out(recorded(
+        &directory,
+        &["record", "--move", "photo.bin=pic.bin", "-m", "renamed"],
+    ));
+    // The folder as it stood before the rename arrived, holding the only copy.
+    fs::rename(directory.join("pic.bin"), directory.join("photo.bin")).expect("back");
+    let payload = find_bytes(&directory.join("history/operations"), &[0xffu8, 0x00, 0x51])
+        .expect("the payload");
+    fs::remove_file(payload).expect("removing the payload");
+
+    let said = stdout(&directory, &["update", "--dry-run"]);
+    assert!(said.contains("move    photo.bin -> pic.bin"), "{said}");
+    let said = stdout(&directory, &["update"]);
+    assert!(said.contains("moved   photo.bin -> pic.bin"), "{said}");
+    assert!(!directory.join("photo.bin").exists());
+    assert_eq!(
+        fs::read(directory.join("pic.bin")).expect("moved"),
+        [0xffu8, 0x00, 0x51]
+    );
+    let status = stdout(&directory, &["status"]);
+    assert!(status.contains("nothing here differs"), "{status}");
+}
+
 /// A payload damaged where it sits is not one the store holds, so the
 /// folder's intact copy of those bytes is the only one, and is not written
 /// over.
