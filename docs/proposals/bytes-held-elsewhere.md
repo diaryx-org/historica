@@ -89,13 +89,16 @@ This proposal needs no list. The store already says which bytes it holds.
   them. In a store that does not, it can delete the only copy on this
   machine. The check becomes whether the store holds them.
 
-- **`fetch` takes a choice of which payloads to leave.** The library's plan
-  offers the payloads that are files of bytes to a predicate the caller
-  supplies, and fetches only those it keeps. On the command line,
-  `fetch --no-bytes` leaves every one. A text payload is always fetched: it is
-  the base every later operation document of that file is replayed onto
-  (0017), so without it the file
-  cannot be read at any revision at all.
+- **`fetch --no-bytes` leaves every file of bytes behind, and fetches
+  everything else.** The line is the one 0017 already draws, and nothing
+  else: no size, no caller's predicate. It is the line because it is the only
+  one that costs history nothing. Nothing historica does with a file of bytes
+  reads it. It is recorded whole, merged by choosing a digest, and diffed as
+  *changed*. A text payload is the base every later operation document of
+  its file is replayed onto (0017), so without it `record` cannot diff an
+  edit, `merge` cannot replay one, and `cat`, `diff` and `blame` fail at
+  every revision. A text file left behind would be a file this copy can
+  neither read nor change.
 
   To know which payloads are files of bytes, the fetch reads the revision
   documents that name them. It asks for those first, since they are among the
@@ -198,9 +201,12 @@ available. It is state only this device holds, and if it is lost, the next
 `record` drops every file on it. It would also be the first file in the
 store that a person has to back up in order not to lose history.
 
-**Leaving text payloads behind too.** A large text file is rare, and one
-whose bytes are missing cannot be replayed, blamed or diffed. That is
-a different tool with different refusals, and nobody has asked for it.
+**Leaving large text files behind too**, over a megabyte say. The file
+could not be edited on this copy at all, for the reasons above. The listing
+states no lengths, so a size would also need a new page grammar. Choosing by
+size is choosing by a caller's policy, and a caller's predicate over which
+payloads to keep was the draft before this one. It was dropped for the rule
+above, which needs nothing from the caller and nothing from the listing.
 
 ## What this changes
 
@@ -224,14 +230,7 @@ a different tool with different refusals, and nobody has asked for it.
 
 ## Open questions
 
-1. **Whether a listing states a payload's length.** Leaving everything over
-   ten megabytes is the policy most callers will want, and they cannot apply
-   it without the length. The listing has no field for it. Adding one after
-   the path is impossible, and before the path breaks every reader of
-   `historica-offer-page-1`, so it needs a new page number, as `-2` was for
-   the manifest. Recommended, but as its own decision, because it is the one
-   change here to a format rather than to a command.
-2. **What `evict` believes.** A listing is the publisher's word that the
+1. **What `evict` believes.** A listing is the publisher's word that the
    bytes are there, not proof
    ([0049](/docs/decisions/0049-what-a-lookup-does-not-prove.md)). The only
    proof is to download and hash the whole file, which is what evicting
@@ -239,7 +238,7 @@ a different tool with different refusals, and nobody has asked for it.
    when it refuses. The other choice is to refuse any payload no second copy
    is known to hold, which needs a way to know about a second copy that this
    format does not have.
-3. **Whether `record` takes the bytes from the folder when they match.**
+2. **Whether `record` takes the bytes from the folder when they match.**
    Where the folder holds a file whose digest is exactly the unheld payload,
    `record` could file it and end the held-elsewhere state at no cost.
    Nothing needs this yet, and it makes `record` write in the store when
@@ -258,6 +257,14 @@ the store, and nothing above depends on it.
 matters most for exactly these files, and it is independent: leaving a file
 behind and fetching half of one are different problems.
 
-**What to leave, and when to fetch it.** Which payloads a phone keeps, what
-is fetched when a document opens, and when a copy evicts are policy. They
-belong to whoever supplies the predicate and calls `fetch` and `evict`.
+**A large text file recorded as bytes.** 0017 fixes a file's kind when it
+is added, and `record` makes a file text when it is valid UTF-8 with no NUL
+byte. A text file big enough to be treated like an attachment would have to
+be recorded as bytes when it is added, and then everything above applies to
+it unchanged. That is a writing-side question with its own cost: every edit
+to a file of bytes stores the whole file again, so a 50 MB log that gains a
+line a day grows the store by 50 MB a day rather than by a line.
+
+**When to fetch, and when to evict.** What is fetched when a document opens,
+and when a copy lets go of what it holds, are policy. They belong to whoever
+calls `fetch <path>` and `evict`.
