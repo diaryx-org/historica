@@ -36,6 +36,30 @@ body below is left as it was argued, and the build differs from it here:
   store that was right wrong, and checking hashes every payload the store
   holds.
 
+A review before the release candidate changed these, all unreleased:
+
+- **"The store holds it" is hashed, not looked up.** `holds_payload` hashes
+  the file the catalogue places, since a payload damaged in place or a path
+  refilled by `arrange` after `prune` answered wrongly, and `update` would
+  have written over the folder's only good copy.
+- **What the folder lacks is read against the revision the folder holds.**
+  `amend` surveys against its predecessor's parents, so it asks the
+  predecessor, and refuses a file of bytes that revision changed or added
+  whose bytes are not here, since the folder cannot state it.
+- **`merge` leaves a file held elsewhere absent**, as `update` does, and a
+  contested file of bytes the folder holds no version of needs `--accept`
+  before `record --merge` drops it.
+- **`update` moves the only copy of a renamed file of bytes** to the path the
+  head names it at, where leaving it would have had `record` undo the rename.
+- **`evict` lets go of the store's copy before the folder's**, the reverse of
+  the order argued below: an interruption between them must leave a folder
+  that `record` reads as unchanged, not one missing a file the store holds.
+  A payload already let go of is not refused, so running it again finishes
+  it, and bytes something here forgot are neither fetched back nor evicted.
+- **Naming a directory does not drop what is held elsewhere beneath it.**
+  Only naming the file does, since recording the one picture changed in a
+  folder of them says nothing about the ones this copy never held.
+
 A store of photographs, recordings or scans is mostly payloads. A laptop that
 wants the history of that store has to download all of them, and a phone
 cannot keep them. What either copy needs for most of its work is the history:
