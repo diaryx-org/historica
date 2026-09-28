@@ -474,6 +474,17 @@ cannot list the directory it is fetching from — decision
 [0056](decisions/0056-listing-what-it-cannot-read.md). It writes nothing;
 redirect it beside the copy, as `offer.txt`, after the `export` that made it.
 
+`offer <dir> --into offer.txt` keeps a paged manifest there instead — decision
+[0080](decisions/0080-a-listing-in-pages.md). Each run that finds the copy
+changed writes one page, under `offer-pages/`, stating what it added and
+withdrew, and a manifest naming the pages; a run that finds nothing changed
+writes nothing. A fetcher that took the pages before reads the manifest and
+the page it lacks, which is the same few hundred bytes at any length of
+history, rather than a listing of the whole store. After sixteen pages, or
+once the pages outweigh the base they follow, the next run writes a fresh base
+and removes the pages it replaced. A fetch built before 0080 cannot read a
+paged manifest, and says to fetch the archive instead.
+
 `fetch` takes what a published copy holds and this store lacks, adding history
 and stopping — `update` is the folder's catch-up. Decision
 [0048](decisions/0048-asking-for-what-is-missing.md) puts the transport in the

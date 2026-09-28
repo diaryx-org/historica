@@ -142,11 +142,30 @@
 //! is the cache, exactly as every other reading command does, which decision
 //! 0035 makes disposable and 0036 makes silent about failing.
 //!
+//! # Pages
+//!
+//! Decision 0080 adds a second shape, kept rather than printed. A whole
+//! listing is linear in the store, and a fetcher that was current reads all of
+//! it to learn about its last few lines. [`Store::publish_offer`] keeps a
+//! [`Tip`] at a file beside the copy instead — the heads and the pages, named
+//! by their digests — and writes one [`Page`] per publish that changed
+//! anything, stating what it added and withdrew. A fetcher that remembers the
+//! pages it has applied reads the tip and the pages after them, and one that
+//! does not reads them all, which composes to exactly this listing. The first
+//! page is a base listing everything, and a fresh one replaces the chain once
+//! it is long enough, so the tip stays small at any length of history.
+//!
+//! That is the one place this module writes, and it writes beside the copy
+//! rather than into it: the tip and the pages are the publisher's, as a
+//! redirected listing always was, and the previous tip is what the next
+//! publish reads to learn what it listed last.
+//!
 //! [`Travel::TravelsAndUnions`]: super::Travel::TravelsAndUnions
 
+use std::collections::BTreeMap;
 use std::fmt;
 use std::io;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::core::RevisionId;
 use crate::fs::Filesystem;
@@ -363,42 +382,100 @@ impl Offer {
                 );
                 continue;
             }
-            // Decision 0043, read from the other side: split three times and
-            // no further, so the path keeps whatever spaces it has.
-            let mut fields = line.splitn(4, ' ');
-            let (Some(kind), Some(digest), Some(forgets), Some(path)) =
-                (fields.next(), fields.next(), fields.next(), fields.next())
-            else {
-                return Err(stated(
-                    "a line with fewer than four fields; an entry is \
-                     `<kind> <digest> <forgets|-> <path>`",
-                ));
-            };
-            // Discarded rather than refused, and discarded *after* the shape
-            // is checked: a line this reader cannot classify is still a line
-            // this grammar has to hold together.
-            let Some(kind) = OfferKind::parse(kind) else {
-                continue;
-            };
-            entries.push(Offered {
-                kind,
-                digest: digest
-                    .parse()
-                    .map_err(|_| stated("a digest that is not a digest"))?,
-                forgets: match forgets {
-                    "-" => None,
-                    target => Some(
-                        target
-                            .parse()
-                            .map_err(|_| stated("a forgotten digest that is not a digest"))?,
-                    ),
-                },
-                path: path.to_owned(),
-            });
+            if let Some(entry) = entry_in(line, at)? {
+                entries.push(entry);
+            }
         }
 
         Ok(Self { heads, entries })
     }
+
+    /// The listing a chain of pages states, applied in order from nothing.
+    ///
+    /// Decision 0080. Each page withdraws what it says is gone and then adds
+    /// what it lists, and the result is put in [`Offer::entries`]'s order, so
+    /// a chain composes to exactly the listing [`Store::offer`] writes whole
+    /// for the same copy — which is what a publisher checks before it trusts a
+    /// chain it wrote, and what a fetcher relies on when it reads one.
+    ///
+    /// A withdrawal of something no earlier page listed is nothing to do: a
+    /// fetcher that skipped the pages it had already applied composes the
+    /// rest over nothing, and a page may withdraw what one of those listed.
+    pub fn composed(heads: Vec<RevisionId>, pages: &[Page]) -> Self {
+        let mut held: BTreeMap<String, Offered> = BTreeMap::new();
+        for page in pages {
+            for entry in &page.gone {
+                held.remove(&entry.to_string());
+            }
+            for entry in &page.added {
+                held.insert(entry.to_string(), entry.clone());
+            }
+        }
+        let mut entries: Vec<Offered> = held.into_values().collect();
+        canonical(&mut entries);
+        Self { heads, entries }
+    }
+}
+
+/// One entry line, read: `None` where its kind is one this reader has never
+/// heard of.
+///
+/// Discarded rather than refused, and discarded *after* the shape is checked:
+/// a line this reader cannot classify is still a line this grammar has to hold
+/// together. Decision 0043, read from the other side: split three times and no
+/// further, so the path keeps whatever spaces it has.
+fn entry_in(line: &str, at: usize) -> Result<Option<Offered>, OfferError> {
+    let stated = |because: &str| OfferError::Malformed {
+        line: at,
+        because: because.to_owned(),
+    };
+    let mut fields = line.splitn(4, ' ');
+    let (Some(kind), Some(digest), Some(forgets), Some(path)) =
+        (fields.next(), fields.next(), fields.next(), fields.next())
+    else {
+        return Err(stated(
+            "a line with fewer than four fields; an entry is \
+             `<kind> <digest> <forgets|-> <path>`",
+        ));
+    };
+    let Some(kind) = OfferKind::parse(kind) else {
+        return Ok(None);
+    };
+    Ok(Some(Offered {
+        kind,
+        digest: digest
+            .parse()
+            .map_err(|_| stated("a digest that is not a digest"))?,
+        forgets: match forgets {
+            "-" => None,
+            target => Some(
+                target
+                    .parse()
+                    .map_err(|_| stated("a forgotten digest that is not a digest"))?,
+            ),
+        },
+        path: path.to_owned(),
+    }))
+}
+
+/// Put entries in the order [`Offer::entries`] states: by group, and within a
+/// group by path.
+fn canonical(entries: &mut [Offered]) {
+    fn group(kind: OfferKind) -> u8 {
+        match kind {
+            OfferKind::Payload => 0,
+            OfferKind::Operation => 1,
+            OfferKind::Revision => 2,
+            OfferKind::Rule => 3,
+            OfferKind::Reserved => 4,
+            OfferKind::Name => 5,
+        }
+    }
+    entries.sort_by(|left, right| {
+        group(left.kind)
+            .cmp(&group(right.kind))
+            .then_with(|| left.path.cmp(&right.path))
+    });
 }
 
 impl fmt::Display for Offer {
@@ -452,6 +529,271 @@ impl fmt::Display for OfferError {
 }
 
 impl std::error::Error for OfferError {}
+
+/// The line a paged manifest starts with (decision 0080).
+///
+/// A second number rather than a second meaning for the first: a reader of
+/// `historica-offer-1` that met a manifest naming pages would find no files in
+/// it and fetch nothing, where a reader that does not know this spelling
+/// refuses it and says to fetch the archive.
+pub const PAGED_HEADER: &str = "historica-offer-2";
+
+/// The line one page of a paged manifest starts with.
+pub const PAGE_HEADER: &str = "historica-offer-page-1";
+
+/// How many pages a manifest names after its base before the next publish
+/// that changes anything writes a fresh base instead.
+///
+/// What bounds the manifest itself, which names each page: sixteen lines, at
+/// any length of history, is what a fetcher that was current reads beside the
+/// one page it lacks.
+const MOST_PAGES: usize = 16;
+
+/// A manifest as a fetcher finds it at the URL it was given.
+///
+/// Decision 0080 adds the second shape. A whole listing is what `historica
+/// offer` prints and what every publisher wrote before; a paged manifest is
+/// what `historica offer --into` keeps, and names the pages a fetcher reads.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum Manifest {
+    /// Every transferable file, listed whole (decision 0048).
+    Whole(Offer),
+    /// The heads and the pages that state the listing (decision 0080).
+    Paged(Tip),
+}
+
+impl Manifest {
+    /// Read a manifest in either spelling, and refuse any other.
+    pub fn parse(text: &str) -> Result<Self, OfferError> {
+        match text.lines().next() {
+            Some(PAGED_HEADER) => Tip::parse(text).map(Manifest::Paged),
+            _ => Offer::parse(text).map(Manifest::Whole),
+        }
+    }
+}
+
+/// What a paged manifest holds: the heads, and the pages in the order they
+/// apply.
+///
+/// ```text
+/// historica-offer-2
+/// head <digest>
+/// page <digest> <path>
+/// ```
+///
+/// The first page is the **base**, which lists the whole copy as it stood when
+/// it was written; each page after it states what one publish added and
+/// withdrew. Each page is named by the digest of its bytes and never
+/// rewritten, so a fetcher that has applied the base and some of the pages
+/// after it reads this file and the pages it has not applied, and nothing
+/// else. The heads are the copy's heads, and answer relatedness and nothing
+/// else, as decision 0052 has them do in a whole listing.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Tip {
+    heads: Vec<RevisionId>,
+    pages: Vec<PageRef>,
+}
+
+/// One page, as a paged manifest names it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct PageRef {
+    /// The digest of the page's bytes, which a fetcher hashes it against.
+    pub digest: RevisionId,
+    /// Where it is, relative to the manifest's own directory.
+    pub path: String,
+}
+
+impl Tip {
+    /// Every head the copy has, in digest order.
+    pub fn heads(&self) -> &[RevisionId] {
+        &self.heads
+    }
+
+    /// The pages, the base first and each after it in the order it applies.
+    pub fn pages(&self) -> &[PageRef] {
+        &self.pages
+    }
+
+    /// Read a paged manifest.
+    ///
+    /// Held to [`Offer::parse`]'s standards: a line of a kind this reader has
+    /// never heard of is discarded, and a `head` or `page` line that does not
+    /// say what it appears to is refused, as is a `head` below a page.
+    pub fn parse(text: &str) -> Result<Self, OfferError> {
+        let mut lines = text.lines().enumerate();
+        match lines.next() {
+            Some((_, PAGED_HEADER)) => {}
+            other => {
+                return Err(OfferError::UnknownFormat {
+                    found: other.map(|(_, line)| line.to_owned()).unwrap_or_default(),
+                });
+            }
+        }
+        let mut tip = Tip::default();
+        for (at, line) in lines {
+            let at = at + 1;
+            let stated = |because: &str| OfferError::Malformed {
+                line: at,
+                because: because.to_owned(),
+            };
+            if let Some(head) = line.strip_prefix("head ") {
+                if !tip.pages.is_empty() {
+                    return Err(stated(
+                        "a `head` line below a page; the heads come first, \
+                         above every page",
+                    ));
+                }
+                tip.heads.push(
+                    head.parse()
+                        .map_err(|_| stated("a head that is not a digest"))?,
+                );
+            } else if let Some(rest) = line.strip_prefix("page ") {
+                let Some((digest, path)) = rest.split_once(' ') else {
+                    return Err(stated(
+                        "a page line with no path; a page is `page <digest> <path>`",
+                    ));
+                };
+                tip.pages.push(PageRef {
+                    digest: digest
+                        .parse()
+                        .map_err(|_| stated("a page whose digest is not a digest"))?,
+                    path: path.to_owned(),
+                });
+            }
+        }
+        Ok(tip)
+    }
+}
+
+impl fmt::Display for Tip {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "{PAGED_HEADER}")?;
+        for head in &self.heads {
+            writeln!(f, "head {head}")?;
+        }
+        for page in &self.pages {
+            writeln!(f, "page {} {}", page.digest, page.path)?;
+        }
+        Ok(())
+    }
+}
+
+/// What one publish changed in a copy's listing, or the whole of it for a
+/// base.
+///
+/// ```text
+/// historica-offer-page-1
+/// <kind> <digest> <forgets|-> <path>
+/// gone <kind> <digest> <forgets|-> <path>
+/// ```
+///
+/// An entry line is a whole listing's, and means the file is there. A `gone`
+/// line is a whole listing's line that the previous one stated and this one
+/// does not: a file withdrawn, which is how a `forget`, a `prune`, a target
+/// moving off a branch and a bookmark moving each reach a page. Both are in
+/// [`Offer::entries`]'s order, the additions first.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Page {
+    added: Vec<Offered>,
+    gone: Vec<Offered>,
+}
+
+impl Page {
+    /// What the page lists.
+    pub fn added(&self) -> &[Offered] {
+        &self.added
+    }
+
+    /// What the page withdraws from the pages before it.
+    pub fn gone(&self) -> &[Offered] {
+        &self.gone
+    }
+
+    /// Whether the page states nothing.
+    pub fn is_empty(&self) -> bool {
+        self.added.is_empty() && self.gone.is_empty()
+    }
+
+    /// The page that takes one listing to another.
+    pub fn between(before: &[Offered], after: &[Offered]) -> Self {
+        let lines = |entries: &[Offered]| -> BTreeMap<String, Offered> {
+            entries
+                .iter()
+                .map(|entry| (entry.to_string(), entry.clone()))
+                .collect()
+        };
+        let (was, is) = (lines(before), lines(after));
+        let mut added: Vec<Offered> = is
+            .iter()
+            .filter(|(line, _)| !was.contains_key(*line))
+            .map(|(_, entry)| entry.clone())
+            .collect();
+        let mut gone: Vec<Offered> = was
+            .iter()
+            .filter(|(line, _)| !is.contains_key(*line))
+            .map(|(_, entry)| entry.clone())
+            .collect();
+        canonical(&mut added);
+        canonical(&mut gone);
+        Self { added, gone }
+    }
+
+    /// Read a page, held to [`Offer::parse`]'s standards.
+    pub fn parse(text: &str) -> Result<Self, OfferError> {
+        let mut lines = text.lines().enumerate();
+        match lines.next() {
+            Some((_, PAGE_HEADER)) => {}
+            other => {
+                return Err(OfferError::UnknownFormat {
+                    found: other.map(|(_, line)| line.to_owned()).unwrap_or_default(),
+                });
+            }
+        }
+        let mut page = Page::default();
+        for (at, line) in lines {
+            let at = at + 1;
+            match line.strip_prefix("gone ") {
+                Some(rest) => page.gone.extend(entry_in(rest, at)?),
+                None => page.added.extend(entry_in(line, at)?),
+            }
+        }
+        Ok(page)
+    }
+}
+
+impl fmt::Display for Page {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        writeln!(f, "{PAGE_HEADER}")?;
+        for entry in &self.added {
+            writeln!(f, "{entry}")?;
+        }
+        for entry in &self.gone {
+            writeln!(f, "gone {entry}")?;
+        }
+        Ok(())
+    }
+}
+
+/// What [`Store::publish_offer`] did to the manifest beside a copy.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Published {
+    /// The page this run wrote, or `None` where the listing had not changed.
+    pub page: Option<RevisionId>,
+    /// Whether that page is a fresh base, listing the whole copy.
+    pub base: bool,
+    /// How many pages the manifest now names, its base included.
+    pub pages: usize,
+    /// How many pages the manifest no longer names were removed from beside
+    /// it.
+    pub removed: usize,
+}
+
+/// A page read back from beside a manifest: where the manifest names it, what
+/// it says, and how many bytes it is.
+type Kept = (PageRef, Page, usize);
 
 impl<F: Filesystem> Store<F> {
     /// List every transferable file this store holds, for a reader that cannot
@@ -607,6 +949,185 @@ impl<F: Filesystem> Store<F> {
             entries,
         })
     }
+}
+
+impl<F: Filesystem> Store<F> {
+    /// Keep a paged manifest at `manifest`, beside the copy this store is.
+    ///
+    /// Decision 0080. The listing is [`Store::offer`]'s, for `prefix`. What is
+    /// kept beside the copy is the manifest, naming the heads and the pages,
+    /// and the pages themselves in a directory named after it — `offer-pages/`
+    /// beside `offer.txt`. A run compares the listing with what the pages it
+    /// finds already state, and:
+    ///
+    /// - where nothing changed, writes nothing, so a copy nothing changed
+    ///   keeps a manifest nothing changed;
+    /// - where something did, writes one page stating what was added and what
+    ///   withdrawn, and a manifest naming it after the others;
+    /// - where there are already sixteen pages after the base, or the pages
+    ///   after it would come to more bytes than the base, or there is no
+    ///   manifest it can read back whole, writes a fresh base listing
+    ///   everything, and a manifest naming it alone.
+    ///
+    /// The page is written before the manifest, and a page is never rewritten,
+    /// so a fetcher holding the previous manifest reads the pages it names. A
+    /// page no manifest names any more is removed last; a fetcher still
+    /// working from it is told nothing is there, and reads the manifest again,
+    /// which is decision 0048's answer to a publisher who moved on.
+    pub fn publish_offer(&self, prefix: &str, manifest: &Path) -> Result<Published, StoreError> {
+        let listing = self.offer(prefix)?;
+        let beside = manifest.parent().map(Path::to_path_buf).unwrap_or_default();
+        let directory = pages_directory(manifest);
+
+        let mut chain: Vec<(PageRef, usize)> = Vec::new();
+        let mut published = Published::default();
+        if let Some(kept) = kept_pages(&self.files, manifest, &beside) {
+            let pages: Vec<Page> = kept.iter().map(|(_, page, _)| page.clone()).collect();
+            let before = Offer::composed(Vec::new(), &pages);
+            let page = Page::between(before.entries(), listing.entries());
+            chain = kept
+                .iter()
+                .map(|(at, _, size)| (at.clone(), *size))
+                .collect();
+            if !page.is_empty() {
+                let size = page.to_string().len();
+                let base = chain.first().map_or(0, |(_, size)| *size);
+                let after: usize = chain.iter().skip(1).map(|(_, size)| size).sum();
+                if chain.len() > MOST_PAGES || after + size > base {
+                    chain.clear();
+                } else {
+                    let written = write_page(&self.files, &beside, &directory, &page)?;
+                    published.page = Some(written.0.digest);
+                    chain.push(written);
+                }
+            }
+        }
+        if chain.is_empty() {
+            let base = Page {
+                added: listing.entries().to_vec(),
+                gone: Vec::new(),
+            };
+            let written = write_page(&self.files, &beside, &directory, &base)?;
+            published.page = Some(written.0.digest);
+            published.base = true;
+            chain.push(written);
+        }
+
+        let tip = Tip {
+            heads: listing.heads().to_vec(),
+            pages: chain.iter().map(|(at, _)| at.clone()).collect(),
+        };
+        let text = tip.to_string();
+        let unchanged = self
+            .files
+            .read(manifest)
+            .is_ok_and(|held| held == text.as_bytes());
+        if !unchanged {
+            self.files
+                .write(manifest, text.as_bytes())
+                .map_err(|error| StoreError::io(manifest, error))?;
+        }
+        published.pages = tip.pages.len();
+
+        // Last, so that a fetcher reading the manifest just replaced finds
+        // every page it names. Only a file named as a page is: whatever else
+        // somebody keeps in the directory is theirs.
+        let named: Vec<RevisionId> = tip.pages.iter().map(|page| page.digest).collect();
+        let pages = beside.join(&directory);
+        let entries = match self.files.entries(&pages) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Vec::new(),
+            Err(error) => return Err(StoreError::io(&pages, error)),
+        };
+        for entry in entries {
+            let Some(digest) = entry
+                .path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .and_then(|name| name.strip_suffix(".txt"))
+                .and_then(|stem| stem.parse::<RevisionId>().ok())
+            else {
+                continue;
+            };
+            if entry.kind.is_file() && !named.contains(&digest) {
+                self.files
+                    .remove_file(&entry.path)
+                    .map_err(|error| StoreError::io(&entry.path, error))?;
+                published.removed += 1;
+            }
+        }
+        Ok(published)
+    }
+}
+
+/// The directory a manifest's pages are kept in: its name without the
+/// extension, and `-pages` after it.
+fn pages_directory(manifest: &Path) -> String {
+    let stem = manifest
+        .file_stem()
+        .map(|stem| stem.to_string_lossy().into_owned())
+        .unwrap_or_default();
+    format!("{stem}-pages")
+}
+
+/// The pages the manifest at `manifest` names, each read back and hashed, or
+/// nothing where any of it cannot be.
+///
+/// Nothing is not an error: a manifest that is missing, whole rather than
+/// paged, or naming a page that is gone or not what it says is one the next
+/// run replaces with a fresh base, which is what a publisher starting over
+/// would write anyway.
+fn kept_pages<F: Filesystem + ?Sized>(
+    files: &F,
+    manifest: &Path,
+    beside: &Path,
+) -> Option<Vec<Kept>> {
+    let text = String::from_utf8(files.read(manifest).ok()?).ok()?;
+    let Manifest::Paged(tip) = Manifest::parse(&text).ok()? else {
+        return None;
+    };
+    let mut kept = Vec::new();
+    for at in tip.pages {
+        let bytes = files.read(&within(beside, &at.path)).ok()?;
+        if crate::format::digest(&bytes) != at.digest {
+            return None;
+        }
+        let page = Page::parse(std::str::from_utf8(&bytes).ok()?).ok()?;
+        kept.push((at, page, bytes.len()));
+    }
+    (!kept.is_empty()).then_some(kept)
+}
+
+/// Write one page under its digest, in the pages directory beside the
+/// manifest, and say where the manifest will name it.
+fn write_page<F: Filesystem + ?Sized>(
+    files: &F,
+    beside: &Path,
+    directory: &str,
+    page: &Page,
+) -> Result<(PageRef, usize), StoreError> {
+    let text = page.to_string();
+    let digest = crate::format::digest(text.as_bytes());
+    let path = format!("{directory}/{digest}.txt");
+    let file = within(beside, &path);
+    let parent: PathBuf = beside.join(directory);
+    files
+        .create_directory(&parent)
+        .map_err(|error| StoreError::io(&parent, error))?;
+    match files.create_new(&file, text.as_bytes()) {
+        Ok(()) => {}
+        // The name is the digest, so a file already there is this page —
+        // unless somebody wrote something else under it, which is put right.
+        Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {
+            if files.read(&file).ok().as_deref() != Some(text.as_bytes()) {
+                files
+                    .write(&file, text.as_bytes())
+                    .map_err(|error| StoreError::io(&file, error))?;
+            }
+        }
+        Err(error) => return Err(StoreError::io(&file, error)),
+    }
+    Ok((PageRef { digest, path }, text.len()))
 }
 
 /// One store-relative label, said as a fetcher will ask for it.

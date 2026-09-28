@@ -110,7 +110,7 @@ left open here. [0079](0079-a-reader-looks-where-forget-files.md) closes it.
   longer lists `cache/`.
 - An `export`'s copy holds no cache, so a publish no longer rewrites the two
   catalogues it used to carry. The price is the one
-  [An export restates its indexes whole](../tasks/an-export-restates-its-indexes-whole.md)
+  [An export restates its indexes whole](../tasks/closed/an-export-restates-its-indexes-whole.md)
   named: the copy is opened with nowhere to keep anything, so an export onto
   a copy it already made opens its revisions and reads its operations in
   full on every run. That cost falls on the machine publishing, not on

@@ -903,6 +903,15 @@ depend on each other in.
   beside a payload now beats it, as one beside a document already did. A miss
   proves nothing, so neither look walks.
 
+- [0080 — A listing in pages](0080-a-listing-in-pages.md)
+  The whole listing was linear in the store, and a fetcher that was current
+  read all of it to take one change: 120 KB at 400 revisions for a 17-byte
+  file. `offer --into` keeps a manifest naming the heads and up to sixteen
+  pages beside the copy, each page what one publish added and withdrew, the
+  first a base listing everything. The pages compose to the whole listing. A
+  fetcher remembers in its cache which pages it applied and reads the rest:
+  698 bytes at either length.
+
 Not a decision, but the evaluation one of them rests on:
 [`docs/loro.md`](../loro.md) — the initial Loro evaluation, and the conditions
 that would reverse it.

@@ -88,7 +88,10 @@ pub use check::{Finding, Report, Severity};
 pub use export::{ExportError, ExportPlan, Exported, Writes};
 pub use fetch::{Declined, FetchError, FetchPlan, Fetched, Source, Unreachable};
 pub use forget::{Extent, ForgetError, Forgetting, Forgotten};
-pub use offer::{OFFER_HEADER, Offer, OfferError, OfferKind, Offered};
+pub use offer::{
+    Manifest, OFFER_HEADER, Offer, OfferError, OfferKind, Offered, PAGE_HEADER, PAGED_HEADER, Page,
+    PageRef, Published, Tip,
+};
 pub use prune::Pruned;
 pub use receive::{MutableConflict, ReceiveError, ReceivePlan, Received};
 

@@ -163,12 +163,17 @@ writing a store
                            the same folder and no history under it, which is
                            for looking at a revision rather than working on
                            one, and wants an empty directory
-  offer <dir>              list the transferable files of a published copy, to
+  offer <dir> [--into <file>]
+                           list the transferable files of a published copy, to
                            standard output, for a reader that cannot list the
                            directory it is fetching from: a kind, a digest,
                            what the entry forgets, and the path. writes
                            nothing — redirect it beside the copy, as
-                           `offer.txt`, after the `export` that made it
+                           `offer.txt`, after the `export` that made it.
+                           --into keeps a paged manifest at that file instead,
+                           beside the copy: each run writes one page of what
+                           changed, so a fetcher that was current reads the
+                           manifest and that page rather than the whole listing
 ";
 
 const REST: &str = "  forget <target> <path> [--lines <first>..<last>] [--dry-run] [--fields]

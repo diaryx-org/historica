@@ -1,15 +1,24 @@
 ---
 title: An export restates its indexes whole
 description: One snapshot of a one-file change adds two content files to a published copy and rewrote three files that grow with the history — the offer and, until decision 0078, the two catalogues under `cache/` — so a consumer that ships a copy one remote object per file pays for the history on every publish
-status: open
+status: done
 created: 2026-09-23
 updated: 2026-09-28
-part_of: "[Tasks](tasks.md)"
+part_of: '[Closed tasks](/docs/tasks/closed/closed.md)'
 ---
 
 # An export restates its indexes whole
 
-**Update.** [0078](../decisions/0078-where-a-cache-is-kept.md) took the first
+**Status.** Done, by `feat(store): a manifest in pages`. [0078](/docs/decisions/0078-where-a-cache-is-kept.md)
+took `cache/` out of the copy, and [0080](/docs/decisions/0080-a-listing-in-pages.md)
+takes the listing: `offer --into` keeps a manifest naming pages, each what one
+publish changed. `cli/tests/publish.rs` is the test below. After, for the added
+file, at both 40 and 400 revisions: five files — the revision, the content
+file, the folder's copy, the manifest and one page — none under a `cache/`,
+and 698 bytes of listing for a fetcher that was current. `check`, `fetch` and
+`receive` are unchanged on the copy, and the corpus passes.
+
+**Update.** [0078](/docs/decisions/0078-where-a-cache-is-kept.md) took the first
 of the shapes below: a store holds no cache, so the copy an export writes has
 no `cache/` and a publish rewrites the offer alone. The cost that shape names
 is now paid, since an export onto an existing copy reads it in full on each
@@ -58,8 +67,8 @@ revision and the content file, may add a state entry under `cache/`, and
 rewrites `cache/working.txt` (1.1 KB and 5.5 KB here, one line per tracked
 path, so it grows with the folder and not the history). `cache/revisions.txt`
 and `cache/operations.txt` are not written by `record` —
-[0036](../decisions/0036-where-a-digest-is.md) and
-[0058](../decisions/0058-what-a-command-does-not-have-to-open.md) have them
+[0036](/docs/decisions/0036-where-a-digest-is.md) and
+[0058](/docs/decisions/0058-what-a-command-does-not-have-to-open.md) have them
 kept up to date by the next command that reads them — so the whole-file
 rewrite of each lands one command later, once per snapshot all the same. The
 state entries accumulate: 184 of them after 400 revisions.
@@ -69,7 +78,7 @@ a store that was current before the snapshot: three requests — `offer.txt`,
 whole, then the revision and the content file. `Store::fetch` reads the offer,
 takes the set difference, hands `Source::prefetch` the revision and document
 paths (payloads are left out of the hint, per
-[0067](../decisions/0067-content-that-arrives-whole-is-named-not-carried.md)),
+[0067](/docs/decisions/0067-content-that-arrives-whole-is-named-not-carried.md)),
 and asks for each. The count is already the minimum for the files; the bytes
 are not, because the listing is read in full, and it is about 140 bytes per
 file the store holds — every revision, every operation document and payload,
@@ -95,12 +104,12 @@ trip and a record per object on the way up, and a fetcher pays one per object
 on the way down. For such a consumer the count is the cost, and the size of
 the rewritten files is paid again on every publish. A store synced often, in
 small increments — the case a published copy that is updated in place
-([0052](../decisions/0052-the-copy-a-stranger-fetches-from.md)) was built for
+([0052](/docs/decisions/0052-the-copy-a-stranger-fetches-from.md)) was built for
 — is the case where the rewrites dominate: two files of content, and an
 index of the whole history, three times over, to say so.
 
 Two of the three are not supposed to travel at all.
-[0042](../decisions/0042-a-copy-to-take-away.md) leaves `cache/` behind
+[0042](/docs/decisions/0042-a-copy-to-take-away.md) leaves `cache/` behind
 because it is nobody's, and 0052 states that "`names/` and `cache/` are not
 listed because an export has neither". The offer does not list them, so a
 fetcher never asks for them. But the export *does* have a `cache/`: opening
@@ -113,7 +122,7 @@ effect. A publisher who mirrors the exported directory to a static host, which
 revisions to publish a 17-byte file.
 
 The offer is the one whole-file rewrite that travels by design, and
-[0056](../decisions/0056-listing-what-it-cannot-read.md) chose that shape on
+[0056](/docs/decisions/0056-listing-what-it-cannot-read.md) chose that shape on
 purpose: a listing is a rendering, written nowhere in the store, refetchable,
 and one request. It is linear in the store, and every fetch reads all of it
 to learn about the last few lines.
@@ -147,7 +156,7 @@ naming the heads and the newest page, and pages named by their digest, each
 listing what one run added and naming the page before it. A fetcher that was
 current reads the tip and one page; a cold one reads the chain, or a base page
 that a run periodically compacts into. The cost is a second grammar — a new
-header number, which [0047](../decisions/0047-one-spelling-for-the-format.md)
+header number, which [0047](/docs/decisions/0047-one-spelling-for-the-format.md)
 permits for an offer and not for a document — and a publisher that has to
 remember what it listed last, which the previous offer beside the copy can
 answer. It also has to carry what is not an addition: a forgetting document
@@ -164,8 +173,8 @@ it as it does now. For a one-file change this takes the content from two
 objects to one, and it saves more when a snapshot touches many files. The cost
 is that a file a person could open becomes a file inside a batch: either the
 published copy holds both — twice the bytes, and still readable — or it stops
-being the readable store [0016](../decisions/0016-the-store-a-person-reads.md)
-and [0021](../decisions/0021-the-store-explains-itself.md) promise. A
+being the readable store [0016](/docs/decisions/0016-the-store-a-person-reads.md)
+and [0021](/docs/decisions/0021-the-store-explains-itself.md) promise. A
 forgetting has to reissue every batch holding the destroyed bytes, and a
 `Source` has no range request to take one file out of a batch instead.
 

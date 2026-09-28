@@ -73,6 +73,17 @@
 //! exchange for not reading the whole remote store, and it is paid in a `check`
 //! failure rather than in corruption.
 //!
+//! # A paged manifest
+//!
+//! Decision 0080. Where the manifest names pages rather than files, the
+//! fetch reads the ones this store has not applied — all of them where it
+//! remembers none, which composes to the whole listing — and plans against
+//! what those state. What it has applied is remembered only once a fetch has
+//! taken everything and `check` has passed, in the directory the host keeps
+//! this store's caches in, so a store that keeps none reads every page and
+//! gets the same answer. A page that has gone is a publisher who wrote a fresh
+//! base since the manifest was read, and is answered as a moved path is.
+//!
 //! # The two kinds nothing here reads
 //!
 //! A `rule` line lands in `skipped/` under the union `receive` already applies
@@ -120,9 +131,9 @@ use crate::fs::Filesystem;
 use crate::working::{Rule, SKIPPED_DIR, Skipped};
 
 use super::{
-    Body, Bookmark, NAME_SUFFIX, NAMES_DIR, OPERATION_SUFFIX, Offer, OfferError, OfferKind,
-    Offered, REVISION_SUFFIX, Report, STORE_DIR, Store, StoreError, Travel, check_name, travel,
-    walk,
+    Body, Bookmark, Manifest, NAME_SUFFIX, NAMES_DIR, OPERATION_SUFFIX, Offer, OfferError,
+    OfferKind, Offered, Page, REVISION_SUFFIX, Report, STORE_DIR, Store, StoreError, Travel,
+    check_name, travel, walk,
 };
 
 /// How many times a fetch will read the manifest again before giving up.
@@ -425,6 +436,8 @@ pub struct Fetched {
     /// How many times the manifest had to be read again because a path had
     /// moved underneath the fetch.
     pub refetches: usize,
+    /// How many pages of a paged manifest were read (decision 0080).
+    pub pages: usize,
 }
 
 impl<F: Filesystem> Store<F> {
@@ -453,10 +466,13 @@ impl<F: Filesystem> Store<F> {
         }
 
         let mut fetched = Fetched::default();
-        let mut offer = read_manifest(source, manifest, &mut fetched)?;
         let mut refetches = REFETCHES;
+        let mut listing = self.listing(source, manifest, &mut fetched, &mut refetches)?;
         loop {
-            let plan = self.fetch_plan(&offer, join_unrelated)?;
+            // A fetch that skipped pages it had applied was related to this
+            // copy when it applied them, and what it read since cannot say so:
+            // the revisions both hold are in the pages it skipped.
+            let plan = self.fetch_plan(&listing.offer, join_unrelated || listing.skipped)?;
             // Stated from the plan rather than accumulated across passes: it is
             // a description of what the manifest holds, and reading the
             // manifest twice does not mean twice as many files were declined.
@@ -490,7 +506,7 @@ impl<F: Filesystem> Store<F> {
                     }
                     refetches -= 1;
                     fetched.refetches += 1;
-                    offer = read_manifest(source, manifest, &mut fetched)?;
+                    listing = self.listing(source, manifest, &mut fetched, &mut refetches)?;
                 }
             }
         }
@@ -505,7 +521,142 @@ impl<F: Filesystem> Store<F> {
                 report: Box::new(report),
             });
         }
+        // Only now, with everything the pages named taken and the store
+        // checked: a fetch that stopped short remembers nothing, and the next
+        // one reads the pages again.
+        if let Some((base, after)) = &listing.chain {
+            self.remember_pages(base, after);
+        }
         Ok(fetched)
+    }
+
+    /// Read the manifest, and for a paged one the pages this store needs,
+    /// reading the manifest again where a page it names has gone.
+    fn listing<S: Source + ?Sized>(
+        &self,
+        source: &S,
+        manifest: &str,
+        fetched: &mut Fetched,
+        refetches: &mut usize,
+    ) -> Result<Listing, FetchError> {
+        loop {
+            match self.read_listing(source, manifest, fetched)? {
+                Ok(listing) => return Ok(listing),
+                // A publisher that wrote a fresh base removes the pages it
+                // replaced, and this fetch read the manifest before it did.
+                Err(moved) => {
+                    if *refetches == 0 {
+                        return Err(FetchError::Stale { path: moved });
+                    }
+                    *refetches -= 1;
+                    fetched.refetches += 1;
+                }
+            }
+        }
+    }
+
+    /// One reading of the manifest, and of the pages it names that this store
+    /// has not applied: `Err` with a page's path where it was not there.
+    ///
+    /// Decision 0080. A whole listing is all there is to read. A paged one
+    /// names its base and the pages after it; where this store remembers
+    /// applying that base and a run of the pages that begins the manifest's,
+    /// only the pages after them are read, and the listing is what those
+    /// state. Anything else — nothing remembered, no cache to remember in, or
+    /// a manifest whose pages no longer begin with what was applied — reads
+    /// every page, which is the whole listing.
+    fn read_listing<S: Source + ?Sized>(
+        &self,
+        source: &S,
+        manifest: &str,
+        fetched: &mut Fetched,
+    ) -> Result<Result<Listing, String>, FetchError> {
+        let tip = match read_manifest(source, manifest, fetched)? {
+            Manifest::Whole(offer) => {
+                return Ok(Ok(Listing {
+                    offer,
+                    chain: None,
+                    skipped: false,
+                }));
+            }
+            Manifest::Paged(tip) => tip,
+        };
+        let Some((base, after)) = tip.pages().split_first() else {
+            return Ok(Ok(Listing {
+                offer: Offer::composed(tip.heads().to_vec(), &[]),
+                chain: None,
+                skipped: false,
+            }));
+        };
+        let after: Vec<RevisionId> = after.iter().map(|page| page.digest).collect();
+        let applied = match self.fetched_pages(&base.digest) {
+            Some(applied) if after.starts_with(&applied) => 1 + applied.len(),
+            _ => 0,
+        };
+        let mut pages = Vec::new();
+        for page in &tip.pages()[applied..] {
+            let Some(bytes) = ask(source, &page.path, fetched)? else {
+                return Ok(Err(page.path.clone()));
+            };
+            let found = digest(&bytes);
+            if found != page.digest {
+                return Err(FetchError::Tampered {
+                    path: page.path.clone(),
+                    offered: page.digest,
+                    found,
+                });
+            }
+            let text = String::from_utf8(bytes).map_err(|_| FetchError::Offer {
+                error: OfferError::UnknownFormat {
+                    found: "not text at all".to_owned(),
+                },
+            })?;
+            pages.push(Page::parse(&text).map_err(|error| FetchError::Offer { error })?);
+            fetched.pages += 1;
+        }
+        Ok(Ok(Listing {
+            offer: Offer::composed(tip.heads().to_vec(), &pages),
+            chain: Some((base.digest, after)),
+            skipped: applied > 0,
+        }))
+    }
+
+    /// The pages after `base` this store has applied, where it remembers.
+    ///
+    /// Kept where the host keeps this store's caches (decision 0078), because
+    /// it is one device's and saves only time: without it a fetch reads every
+    /// page, which is the whole listing, and answers the same.
+    fn fetched_pages(&self, base: &RevisionId) -> Option<Vec<RevisionId>> {
+        let file = self
+            .cache
+            .as_ref()?
+            .join(FETCHED_DIR)
+            .join(format!("{base}.txt"));
+        let text = String::from_utf8(self.files.read(&file).ok()?).ok()?;
+        let mut lines = text.lines();
+        if lines.next() != Some(FETCHED_HEADER) {
+            return None;
+        }
+        lines.map(|line| line.parse().ok()).collect()
+    }
+
+    /// Remember that this store has applied `base` and the pages after it.
+    ///
+    /// Every failure is ignored, as decision 0035 ignores every failure to
+    /// keep a cache: the next fetch reads every page.
+    fn remember_pages(&self, base: &RevisionId, after: &[RevisionId]) {
+        let Some(cache) = &self.cache else {
+            return;
+        };
+        let directory = cache.join(FETCHED_DIR);
+        let mut text = format!("{FETCHED_HEADER}\n");
+        for page in after {
+            text.push_str(&format!("{page}\n"));
+        }
+        let _ = self.files.create_directory(&directory);
+        let _ = self
+            .files
+            .write(&directory.join(format!("{base}.txt")), text.as_bytes());
     }
 
     /// Work out what a manifest would add, without asking for a byte of it.
@@ -831,12 +982,30 @@ impl<F: Filesystem> Store<F> {
     }
 }
 
+/// What a fetch read of a manifest.
+struct Listing {
+    /// What the pages read state, or the whole listing.
+    offer: Offer,
+    /// For a paged manifest, its base and the pages after it, which is what
+    /// this store remembers once the fetch has taken all of it.
+    chain: Option<(RevisionId, Vec<RevisionId>)>,
+    /// Whether pages this store had applied were not read again.
+    skipped: bool,
+}
+
+/// Where in a store's cache directory the pages it has applied are kept, one
+/// file per base.
+const FETCHED_DIR: &str = "fetched";
+
+/// The line that file starts with.
+const FETCHED_HEADER: &str = "historica-fetched-1";
+
 /// Read the manifest, and refuse a spelling this reader does not know.
 fn read_manifest<S: Source + ?Sized>(
     source: &S,
     manifest: &str,
     fetched: &mut Fetched,
-) -> Result<Offer, FetchError> {
+) -> Result<Manifest, FetchError> {
     let Some(bytes) = ask(source, manifest, fetched)? else {
         return Err(FetchError::NoManifest {
             path: manifest.to_owned(),
@@ -847,7 +1016,7 @@ fn read_manifest<S: Source + ?Sized>(
             found: "not text at all".to_owned(),
         },
     })?;
-    Offer::parse(&text).map_err(|error| FetchError::Offer { error })
+    Manifest::parse(&text).map_err(|error| FetchError::Offer { error })
 }
 
 /// One request, counted.

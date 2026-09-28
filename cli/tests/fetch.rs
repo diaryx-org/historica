@@ -825,7 +825,7 @@ fn a_manifest_spelled_in_a_grammar_this_reader_does_not_know_is_discarded_whole(
     // the archive — which never stopped working, and which the refusal says.
     let (_origin, root) = published("spelling");
     let manifest = fs::read_to_string(root.join(MANIFEST)).expect("the manifest");
-    let ahead = manifest.replacen("historica-offer-1", "historica-offer-2", 1);
+    let ahead = manifest.replacen("historica-offer-1", "historica-offer-9", 1);
     fs::write(root.join(MANIFEST), ahead).expect("a manifest from the future");
 
     let here = repository("spelling-here");
@@ -833,7 +833,7 @@ fn a_manifest_spelled_in_a_grammar_this_reader_does_not_know_is_discarded_whole(
     let error = store(&here)
         .fetch(&source, MANIFEST, false)
         .expect_err("a manifest this reader cannot read was used anyway");
-    assert!(error.to_string().contains("historica-offer-2"), "{error}");
+    assert!(error.to_string().contains("historica-offer-9"), "{error}");
     assert!(error.to_string().contains("archive"), "{error}");
     assert_eq!(
         source.asked(),
@@ -845,7 +845,7 @@ fn a_manifest_spelled_in_a_grammar_this_reader_does_not_know_is_discarded_whole(
     // parting decision 0056 draws.
     let manifest = fs::read_to_string(root.join(MANIFEST))
         .expect("the manifest")
-        .replacen("historica-offer-2", "historica-offer-1", 1)
+        .replacen("historica-offer-9", "historica-offer-1", 1)
         + "witness 0000000000000000000000000000000000000000000000000000000000000000 - store/history/witness/x\n";
     fs::write(root.join(MANIFEST), manifest).expect("a manifest with a newer kind in it");
     let fetched = store(&here)
@@ -905,4 +905,244 @@ fn payload_holding(repository: &Path, text: &str) -> Option<RevisionId> {
         }
     }
     found.into_iter().next()
+}
+
+// ---------------------------------------------------------------------------
+// Decision 0080: a paged manifest
+// ---------------------------------------------------------------------------
+
+/// Publish `origin` at `root` with a paged manifest: `historica export`, then
+/// `historica offer store --into offer.txt`, which keeps the manifest and its
+/// pages beside the copy.
+fn publish_paged(origin: &Path, root: &Path) -> String {
+    let copy = root.join("store");
+    out(origin, &["export", &copy.to_string_lossy()]);
+    out(root, &["offer", "store", "--into", MANIFEST])
+}
+
+/// Where a test's fetcher keeps its caches: somewhere of its own, so that what
+/// it remembers is what this test did.
+fn caching(repository: &Path) -> Store {
+    Store::open_caching(repository.join("history"), repository.join(".caches")).expect("a store")
+}
+
+/// What the manifest's pages state, composed, as the whole listing would say
+/// it.
+fn composed(root: &Path) -> String {
+    let text = fs::read_to_string(root.join(MANIFEST)).expect("the manifest");
+    let historica::store::Manifest::Paged(tip) =
+        historica::store::Manifest::parse(&text).expect("a manifest")
+    else {
+        panic!("a whole listing where a paged manifest was kept: {text}");
+    };
+    let pages: Vec<historica::store::Page> = tip
+        .pages()
+        .iter()
+        .map(|page| {
+            let bytes = fs::read(root.join(&page.path)).expect("a page the manifest names");
+            assert_eq!(digest(&bytes), page.digest, "a page is not its digest");
+            historica::store::Page::parse(&String::from_utf8(bytes).expect("text")).expect("a page")
+        })
+        .collect();
+    historica::store::Offer::composed(tip.heads().to_vec(), &pages).to_string()
+}
+
+/// The pages a manifest names, by path.
+fn pages_named(root: &Path) -> Vec<String> {
+    fs::read_to_string(root.join(MANIFEST))
+        .expect("the manifest")
+        .lines()
+        .filter_map(|line| line.strip_prefix("page "))
+        .map(|rest| rest.split_once(' ').expect("a page line").1.to_owned())
+        .collect()
+}
+
+/// A paged manifest's pages compose, at every publish, to exactly the listing
+/// `offer` prints whole — through additions, a forget, a bookmark moving, and
+/// a publish that changed nothing.
+#[test]
+fn a_paged_manifest_composes_to_the_whole_listing_at_every_publish() {
+    let (origin, root) = published("paged-composes");
+    let whole = || out(&root, &["offer", "store"]);
+
+    let said = publish_paged(&origin, &root);
+    assert!(said.contains("wrote a base"), "{said}");
+    assert_eq!(composed(&root), whole());
+
+    write(&origin, "notes.md", "one\ntwo\nthree\n");
+    out(&origin, &["record", "-m", "A third thought"]);
+    out(&origin, &["name", "main", "head"]);
+    let said = publish_paged(&origin, &root);
+    assert!(said.contains("wrote page"), "{said}");
+    assert_eq!(composed(&root), whole());
+    assert_eq!(pages_named(&root).len(), 2);
+
+    let manifest = fs::read(root.join(MANIFEST)).expect("the manifest");
+    let said = publish_paged(&origin, &root);
+    assert_eq!(said, "nothing changed\n");
+    assert_eq!(
+        fs::read(root.join(MANIFEST)).expect("the manifest"),
+        manifest,
+        "a copy nothing changed rewrote its manifest"
+    );
+
+    let first = out(&origin, &["log", "--fields"])
+        .lines()
+        .last()
+        .and_then(|line| line.split(' ').next().map(str::to_owned))
+        .expect("the first revision");
+    out(&origin, &["forget", &first, "notes.md", "--lines", "1"]);
+    publish_paged(&origin, &root);
+    assert_eq!(composed(&root), whole());
+    let last = pages_named(&root).last().cloned().expect("a page");
+    let page = fs::read_to_string(root.join(last)).expect("the page");
+    assert!(page.lines().any(|line| line.starts_with("gone ")), "{page}");
+}
+
+/// A fetcher that was current reads the manifest and the one page it lacks,
+/// and nothing else of the listing, and takes exactly the difference.
+#[test]
+fn a_fetcher_that_was_current_reads_the_manifest_and_the_page_it_lacks() {
+    let (origin, root) = published("paged-current");
+    publish_paged(&origin, &root);
+    let here = repository("paged-current-here");
+    let fetched = caching(&here)
+        .fetch(&Directory::at(&root), MANIFEST, false)
+        .expect("the first fetch");
+    assert_eq!(fetched.pages, 1, "the first fetch reads the base");
+
+    write(&origin, "notes.md", "one\ntwo\nthree\n");
+    out(&origin, &["record", "-m", "A third thought"]);
+    publish_paged(&origin, &root);
+    let page = pages_named(&root).last().cloned().expect("the new page");
+
+    let source = Directory::at(&root);
+    let fetched = caching(&here)
+        .fetch(&source, MANIFEST, false)
+        .expect("the second fetch");
+    assert_eq!(fetched.pages, 1);
+    assert_eq!(fetched.revisions.len(), 1);
+    assert_eq!(fetched.documents, 1);
+    let asked = source.asked();
+    assert_eq!(asked.len(), 4, "{asked:?}");
+    assert_eq!(asked[..2], [MANIFEST.to_owned(), page]);
+    assert_eq!(head_of(&here), head_of(&origin));
+
+    // Up to date: the manifest and nothing else.
+    let source = Directory::at(&root);
+    let fetched = caching(&here)
+        .fetch(&source, MANIFEST, false)
+        .expect("a fetch with nothing to take");
+    assert_eq!(fetched.pages, 0);
+    assert_eq!(source.asked(), vec![MANIFEST.to_owned()]);
+
+    // A store that keeps no cache remembers nothing, and reads every page:
+    // the whole listing, and the same answer.
+    let source = Directory::at(&root);
+    let fetched = store(&here)
+        .fetch(&source, MANIFEST, false)
+        .expect("a fetch remembering nothing");
+    assert_eq!(fetched.pages, 2);
+    assert_eq!(fetched.revisions.len(), 0);
+}
+
+/// Decision 0014 through a page: a forget at the origin reaches a current
+/// fetcher as a stand-in added and the original withdrawn, and the fetcher
+/// destroys what it held.
+#[test]
+fn a_forget_reaches_a_current_fetcher_through_one_page() {
+    let origin = repository("paged-forget");
+    write(&origin, "notes.md", "public\nthe secret\n");
+    out(&origin, &["record", "-m", "A secret"]);
+    let target = head_of(&origin);
+    let root = scratch("paged-forget-published");
+    publish_paged(&origin, &root);
+    let here = repository("paged-forget-here");
+    caching(&here)
+        .fetch(&Directory::at(&root), MANIFEST, false)
+        .expect("the first fetch");
+    assert!(payload_holding(&here, "the secret").is_some());
+
+    out(&origin, &["forget", &target, "notes.md", "--lines", "2"]);
+    publish_paged(&origin, &root);
+    let fetched = caching(&here)
+        .fetch(&Directory::at(&root), MANIFEST, false)
+        .expect("the fetch that carries the redaction");
+    assert_eq!(fetched.pages, 1);
+    assert_eq!(fetched.destroyed, 1, "the original was not destroyed");
+    assert!(payload_holding(&here, "the secret").is_none());
+    assert!(Store::check(here.join("history")).is_ok());
+}
+
+/// Past the most pages a manifest names, a publish writes a fresh base and
+/// removes the pages it replaced; a fetcher that remembers the old chain reads
+/// the new base, once, and loses nothing.
+#[test]
+fn a_fresh_base_replaces_the_pages_and_a_fetcher_reads_it_once() {
+    let (origin, root) = published("paged-base");
+    publish_paged(&origin, &root);
+    let here = repository("paged-base-here");
+    caching(&here)
+        .fetch(&Directory::at(&root), MANIFEST, false)
+        .expect("the first fetch");
+
+    let mut based = false;
+    for edit in 0..40 {
+        write(
+            &origin,
+            &format!("more/{edit}.md"),
+            &format!("edit {edit}\n"),
+        );
+        out(&origin, &["record", "-m", &format!("edit {edit}")]);
+        let said = publish_paged(&origin, &root);
+        assert!(pages_named(&root).len() <= 17, "{said}");
+        if said.contains("wrote a base") {
+            based = true;
+            assert!(said.contains("removed"), "{said}");
+            assert_eq!(pages_named(&root).len(), 1);
+            break;
+        }
+    }
+    assert!(based, "no publish wrote a fresh base");
+    assert_eq!(composed(&root), out(&root, &["offer", "store"]));
+    let named = pages_named(&root);
+    let kept: Vec<String> = walked(&root.join("offer-pages"))
+        .into_iter()
+        .map(|name| format!("offer-pages/{name}"))
+        .collect();
+    assert_eq!(kept, named, "a page no manifest names was left");
+
+    let fetched = caching(&here)
+        .fetch(&Directory::at(&root), MANIFEST, false)
+        .expect("the fetch across the new base");
+    assert_eq!(fetched.pages, 1);
+    assert_eq!(head_of(&here), head_of(&origin));
+}
+
+/// A fetcher holding a manifest whose page the publisher has since removed is
+/// told nothing is there, reads the manifest again, and finishes.
+#[test]
+fn a_page_removed_under_a_fetch_is_answered_by_reading_the_manifest_again() {
+    let (origin, root) = published("paged-stale");
+    publish_paged(&origin, &root);
+    let stale = fs::read_to_string(root.join(MANIFEST)).expect("the manifest");
+    // Removed as a fresh base removes it: the manifest now names another.
+    fs::remove_file(root.join(MANIFEST)).expect("the manifest");
+    write(&origin, "notes.md", "one\ntwo\nthree\n");
+    out(&origin, &["record", "-m", "A third thought"]);
+    let said = publish_paged(&origin, &root);
+    assert!(said.contains("removed 1 page"), "{said}");
+    let _ = fs::write(
+        root.join("offer-pages/unrelated.txt"),
+        "somebody else's file\n",
+    );
+
+    let here = repository("paged-stale-here");
+    let source = Directory::at(&root).holding(&stale);
+    let fetched = caching(&here)
+        .fetch(&source, MANIFEST, false)
+        .expect("a fetch that read the manifest again");
+    assert_eq!(fetched.refetches, 1);
+    assert_eq!(head_of(&here), head_of(&origin));
+    assert!(root.join("offer-pages/unrelated.txt").exists());
 }
