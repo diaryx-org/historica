@@ -438,6 +438,17 @@ fn folder(
             continue;
         }
         let entry = file.and_then(|file| tree.entry(&file));
+        // What `status` calls held elsewhere is not a deletion here either: a
+        // file of bytes the folder lacks and this store does not hold is one
+        // `record` would not drop, so it is not a difference to show.
+        if !there
+            && let Some(payload) = entry
+                .filter(|entry| entry.kind == Kind::Whole)
+                .and_then(|entry| entry.payload)
+            && store.held_elsewhere(&payload).map_err(Failure::error)?
+        {
+            continue;
+        }
         let recorded_link = entry.filter(|entry| entry.kind == Kind::Link);
         let before = match (file, left) {
             (Some(file), Some(id)) if recorded_link.is_none() => Some(

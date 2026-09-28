@@ -72,6 +72,11 @@ in the library's words.
 
 Reads the folder beside the store and says how the two differ.
 
+A file of bytes the folder lacks and the store does not hold either is listed
+as `absent` rather than `dropped`: it is held elsewhere, and `record` states
+nothing about it. The proposal
+[Bytes held elsewhere](proposals/bytes-held-elsewhere.md) argues it.
+
 ### `diff`
 
 What changed — the folder against the position, or what a revision did.
@@ -241,7 +246,10 @@ file that is in neither the folder nor the history and records a state that
 never existed.
 
 A named path the folder no longer holds records the deletion, because absence
-is still a fact; a path nothing answers to is refused, and so is a `--move`
+is still a fact. That includes a file of bytes the store does not hold, which a
+bare `record` leaves alone because the store could not have put it in the
+folder: naming it is how to say it is gone. A path nothing answers to is
+refused, and so is a `--move`
 with one end outside the restriction, since a restriction that spelled half a
 rename would record the other half as a file appearing out of nowhere.
 
@@ -302,6 +310,13 @@ caller building a working tree of its own — `Working::read` takes any root and
 `record` takes the working copy as an argument, so a tool can lay a revision
 out, let a person work in it, and record against that revision without the
 folder beside the store ever moving.
+
+A file of bytes the store does not hold is left out of the folder rather than
+refusing the update, and printed as `absent`; an earlier version of it the
+folder holds is removed, so that the next `record` does not read it as the file
+going back. What `update` removes or writes over is only ever bytes this store
+holds, since bytes a revision names and the store does not hold are the only
+copy on this machine.
 
 ### `amend`
 
@@ -466,6 +481,9 @@ materialisation and the same travelling rules, so the two agree byte for byte;
 what it does not write is anything to record into, which is why it is for
 looking at a revision rather than working on one, and why the directory it is
 given has to be empty.
+
+Either kind refuses a target whose folder holds files of bytes this store does
+not, naming them, and writes nothing: a copy is built to be taken away.
 
 ### `offer` and `fetch`
 

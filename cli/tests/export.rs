@@ -410,6 +410,32 @@ fn an_export_refuses_a_destination_that_already_holds_something() {
     assert!(empty.join("notes.md").is_file());
 }
 
+/// A copy is built to be taken away, so an export refuses a target whose
+/// folder holds files of bytes this store does not, and writes nothing.
+#[test]
+fn an_export_refuses_a_folder_whose_bytes_are_elsewhere() {
+    let origin = repository("elsewhere");
+    write(&origin, "notes.md", "one\n");
+    fs::write(origin.join("photo.bin"), [0xffu8, 0x00, 0x7f]).expect("a payload");
+    out(&origin, &["record", "-m", "First"]);
+    let payload = walk(&origin.join("history/operations"))
+        .into_iter()
+        .map(|path| origin.join("history/operations").join(path))
+        .find(|path| fs::read(path).is_ok_and(|bytes| bytes == [0xffu8, 0x00, 0x7f]))
+        .expect("the payload file");
+    fs::remove_file(payload).expect("removing the payload");
+
+    for flags in [&[][..], &["--files-only"][..]] {
+        let copy = scratch("elsewhere-copy").join("journal");
+        let mut arguments = vec!["export", copy.to_str().expect("a path")];
+        arguments.extend_from_slice(flags);
+        let complaint = refused(&origin, &arguments);
+        assert!(complaint.contains("photo.bin"), "{complaint}");
+        assert!(complaint.contains("`fetch`"), "{complaint}");
+        assert!(!copy.exists(), "nothing is written");
+    }
+}
+
 #[test]
 fn an_export_refuses_a_store_check_calls_broken() {
     let origin = repository("broken");

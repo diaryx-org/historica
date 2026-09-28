@@ -2404,6 +2404,40 @@ impl<F: Filesystem> Store<F> {
         Ok(true)
     }
 
+    /// Whether this store holds a payload, by the pass over the directory
+    /// that answers for every payload at once.
+    ///
+    /// [`Store::payload_file`] answers for one digest and verifies what it
+    /// finds, and a miss there is a search that hashes every payload the store
+    /// holds. That is the right price for one file and the wrong one for a
+    /// question asked of every file of bytes in a tree. This pays the walk
+    /// [`Store::payloads`] pays, once per command, and then answers each
+    /// digest from what the walk found. It hashes nothing it has not been
+    /// told is new, so a `true` here is where the bytes are, not proof of
+    /// them; a reader still verifies before handing a byte over.
+    pub fn holds_payload(&self, id: &RevisionId) -> Result<bool, StoreError> {
+        self.upgrade()?;
+        Ok(self
+            .catalogue()?
+            .at(id)
+            .is_some_and(|filed| !filed.document))
+    }
+
+    /// Whether bytes a revision names are held elsewhere: this store does not
+    /// hold them, and nothing here forgets them.
+    ///
+    /// The proposal *Bytes held elsewhere*. Such bytes were never delivered
+    /// here or were let go of, and a folder without them is not a person
+    /// deleting them — so `record` does not drop the file, `update` leaves
+    /// the path without one, and `status` says so. Bytes somebody forgot are
+    /// not elsewhere (decision 0066): nothing holds them.
+    pub fn held_elsewhere(&self, id: &RevisionId) -> Result<bool, StoreError> {
+        if self.holds_payload(id)? {
+            return Ok(false);
+        }
+        Ok(self.forgotten_payload(id)?.is_none() && self.forgetting(id)?.is_empty())
+    }
+
     /// Where every payload sits, by digest.
     ///
     /// Catalogues the directory the first time it is asked and remembers the

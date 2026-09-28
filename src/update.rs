@@ -15,6 +15,14 @@
 //! anything. A file holding unrecorded bytes at a path the target holds
 //! refuses the whole update; at a path the target does not hold, it is left
 //! exactly where it is.
+//!
+//! A file of bytes the store does not hold is the one path the target holds
+//! and the folder may lack. The proposal *Bytes held elsewhere* argues it: the
+//! store cannot write bytes it does not have, and `record` does not read that
+//! absence as a deletion, so the folder is left without the file rather than
+//! the update refused. "Recorded" means *held*, for the same reason: bytes some
+//! revision names and this store does not hold are the only copy on this
+//! machine, and nothing here removes them.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
@@ -24,7 +32,7 @@ use std::path::{Path, PathBuf};
 use crate::core::{FileId, RevisionId};
 use crate::format::{LinkTarget, Mode};
 use crate::fs::{Filesystem, Guarded, Kind as OnDisk};
-use crate::store::{MaterialiseError, STORE_DIR, Store, StoreError};
+use crate::store::{Content, MaterialiseError, STORE_DIR, Store, StoreError};
 use crate::tree::{Kind, Tree};
 use crate::working::{Working, WorkingError};
 
@@ -193,8 +201,9 @@ pub enum Stood {
     File(RevisionId),
 }
 
-/// One file the update removes: a path the target does not hold, whose bytes
-/// some revision records.
+/// One file the update removes: a path the target does not hold, or a file of
+/// bytes whose new version the store does not hold, where this store holds
+/// the bytes being removed.
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Remove {
@@ -225,9 +234,17 @@ pub struct Update {
     /// The links to make, in path order.
     pub links: Vec<Linking>,
     /// Paths left alone, with the reason: a tracked file the target does not
-    /// hold, whose bytes no revision records. Not a refusal — the file simply
-    /// stays, and the next survey reports it as `added`.
+    /// hold, whose bytes no revision records or this store does not hold. Not
+    /// a refusal — the file simply stays, and the next survey reports it.
     pub leaves: Vec<(String, String)>,
+    /// Files of bytes the target holds and this store does not, in path
+    /// order: left without a file rather than written.
+    ///
+    /// The store cannot write bytes it does not have. The next `record` does
+    /// not read these paths' absence as a deletion, and `status` lists them,
+    /// so the folder is not half holding the head. Fetching the bytes and
+    /// updating again writes them.
+    pub elsewhere: Vec<String>,
 }
 
 impl Update {
@@ -401,6 +418,11 @@ impl From<MaterialiseError> for UpdateError {
 /// words when it declines to overwrite.
 const UNRECORDED: &str = "it holds work nothing has recorded";
 
+/// The reason bytes a revision records are still not written over: this store
+/// does not hold them, so the folder's copy is the only one on this machine.
+const ONLY_COPY: &str = "its bytes are recorded but this store does not hold them, so this is \
+     the only copy here; fetch them first";
+
 /// What a folder with no links is told, and why it is told rather than
 /// quietly given something else.
 ///
@@ -477,17 +499,22 @@ fn host_separators(spelling: &str) -> String {
     spelling.replace('/', std::path::MAIN_SEPARATOR_STR)
 }
 
-/// The bytes of a regular file at a path, where some revision records them.
+/// The bytes of a regular file at a path, where this store holds what some
+/// revision records there, or why they may not be written over.
 fn recorded_at<F: Filesystem, G: Filesystem>(
     working: &Working<G>,
     recorded: &RecordedBytes<'_, F>,
     path: &str,
-) -> Result<Option<RevisionId>, UpdateError> {
+) -> Result<Result<RevisionId, &'static str>, UpdateError> {
     if !working.holds(path) || working.is_link(path) {
-        return Ok(None);
+        return Ok(Err(UNRECORDED));
     }
     let held = working.reread_digest(path)?;
-    Ok(recorded.holds(path, held).then_some(held))
+    Ok(match recorded.standing(path, held) {
+        Standing::Held => Ok(held),
+        Standing::Elsewhere => Err(ONLY_COPY),
+        Standing::Unrecorded => Err(UNRECORDED),
+    })
 }
 
 /// Whether some revision recorded a link at this path pointing exactly here.
@@ -820,12 +847,12 @@ pub(crate) fn plan_at<F: Filesystem, G: Filesystem>(
                 // A regular file where a link goes: replaced only where its
                 // bytes are recorded, which is decision 0030's rule unchanged.
                 (None, Some(_)) => match recorded_at(working, &recorded, path)? {
-                    Some(bytes) => update.links.push(Linking {
+                    Ok(bytes) => update.links.push(Linking {
                         path: (*path).to_owned(),
                         target: wanted,
                         replaces: Stood::File(bytes),
                     }),
-                    None => refuse(path, UNRECORDED.to_owned()),
+                    Err(because) => refuse(path, because.to_owned()),
                 },
             }
             continue;
@@ -861,6 +888,7 @@ pub(crate) fn plan_at<F: Filesystem, G: Filesystem>(
         // of bytes is *named* here, and the naming is checked — a payload the
         // store cannot produce is the refusal below, worked out by hashing the
         // file rather than by reading it into the plan.
+        let mut elsewhere = false;
         let wanted = match entry.kind {
             Kind::Whole => match &entry.payload {
                 None => {
@@ -872,11 +900,16 @@ pub(crate) fn plan_at<F: Filesystem, G: Filesystem>(
                     continue;
                 }
                 Some(digest) => {
-                    if store.payload_file(digest)?.is_none() {
+                    // Asked of the whole directory once, so that a store
+                    // lacking a thousand payloads does not hash every payload
+                    // it holds a thousand times to say so.
+                    if store.held_elsewhere(digest)? {
+                        elsewhere = true;
+                    } else if store.payload_file(digest)?.is_none() {
                         // Decision 0066: bytes somebody destroyed, told apart
-                        // from bytes still in transit, because what a person
-                        // does next differs — there is nothing to wait for
-                        // here. Neither branch reads a payload: 0067 asks the
+                        // from bytes held elsewhere, because what a person
+                        // does next differs — there is nothing to fetch here.
+                        // Neither branch reads a payload: 0067 asks the
                         // directory where the bytes are, not what they say.
                         if store.forgotten_payload(digest)?.is_some()
                             || !store.forgetting(digest)?.is_empty()
@@ -891,7 +924,7 @@ pub(crate) fn plan_at<F: Filesystem, G: Filesystem>(
                             refuse(
                                 path,
                                 format!(
-                                    "this store does not hold the content {digest}; receive the rest first"
+                                    "the store's copy of {digest} is not what it names; `check` says more"
                                 ),
                             );
                         }
@@ -917,6 +950,8 @@ pub(crate) fn plan_at<F: Filesystem, G: Filesystem>(
             let held = working.reread_digest(path)?;
             let held_mode = working.executable(path)?.map(Mode::of);
             if held == wanted.digest() {
+                // The folder holds the bytes the target names, whether or not
+                // the store does, and that is the head.
                 match held_mode {
                     Some(mode) if mode != entry.mode => update.modes.push(Chmod {
                         path: (*path).to_owned(),
@@ -924,18 +959,33 @@ pub(crate) fn plan_at<F: Filesystem, G: Filesystem>(
                     }),
                     _ => update.kept.push((*path).to_owned()),
                 }
-            } else if recorded.holds(path, held) {
-                update.writes.push(Write {
-                    path: (*path).to_owned(),
-                    // A file of lines is guarded by the bytes it replaces, and
-                    // those bytes are read once, here, for the one path that
-                    // is about to be written over.
-                    content: wanted.replacing(working, path, Some(held))?,
-                    mode: entry.mode,
-                });
             } else {
-                refuse(path, UNRECORDED.to_owned());
+                match recorded.standing(path, held) {
+                    // The version the folder holds is removed rather than left,
+                    // since the next `record` would read it as the file going
+                    // back to it, and the path is left without a file.
+                    Standing::Held if elsewhere => {
+                        update.removes.push(Remove {
+                            path: (*path).to_owned(),
+                            held: Some(held),
+                            link: None,
+                        });
+                        update.elsewhere.push((*path).to_owned());
+                    }
+                    Standing::Held => update.writes.push(Write {
+                        path: (*path).to_owned(),
+                        // A file of lines is guarded by the bytes it replaces,
+                        // and those bytes are read once, here, for the one
+                        // path that is about to be written over.
+                        content: wanted.replacing(working, path, Some(held))?,
+                        mode: entry.mode,
+                    }),
+                    Standing::Elsewhere => refuse(path, ONLY_COPY.to_owned()),
+                    Standing::Unrecorded => refuse(path, UNRECORDED.to_owned()),
+                }
             }
+        } else if elsewhere {
+            update.elsewhere.push((*path).to_owned());
         } else {
             let on_disk = repository.join(path);
             match look(working.filesystem(), &on_disk)? {
@@ -998,14 +1048,19 @@ pub(crate) fn plan_at<F: Filesystem, G: Filesystem>(
             continue;
         }
         let held = working.reread_digest(path)?;
-        if recorded.holds(path, held) {
-            update.removes.push(Remove {
+        match recorded.standing(path, held) {
+            Standing::Held => update.removes.push(Remove {
                 path: path.clone(),
                 held: Some(held),
                 link: None,
-            });
-        } else if tracked.contains(path) {
-            update.leaves.push((path.clone(), UNRECORDED.to_owned()));
+            }),
+            // Recorded, so said out loud whether or not a head tracks it: a
+            // person who expected it gone is owed the reason it is not.
+            Standing::Elsewhere => update.leaves.push((path.clone(), ONLY_COPY.to_owned())),
+            Standing::Unrecorded if tracked.contains(path) => {
+                update.leaves.push((path.clone(), UNRECORDED.to_owned()));
+            }
+            Standing::Unrecorded => {}
         }
     }
 
@@ -1288,6 +1343,18 @@ struct RecordedBytes<'a, F> {
     overwrite: Overwrite,
 }
 
+/// What the store says about bytes the folder holds at a path.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Standing {
+    /// Some revision records them there, and this store can write them back.
+    Held,
+    /// Some revision records them there, and this store does not hold them:
+    /// the folder's copy is the only one on this machine.
+    Elsewhere,
+    /// No revision records them there.
+    Unrecorded,
+}
+
 impl<'a, F: Filesystem> RecordedBytes<'a, F> {
     fn over(store: &'a Store<F>, overwrite: Overwrite) -> Self {
         let mut ever_at: BTreeMap<&str, BTreeSet<FileId>> = BTreeMap::new();
@@ -1322,35 +1389,52 @@ impl<'a, F: Filesystem> RecordedBytes<'a, F> {
     }
 
     /// Whether some revision records content hashing to this for a file that
-    /// has held this path.
+    /// has held this path, and whether this store holds it.
     ///
     /// Decision 0067: the comparison was two byte sequences and is now two
     /// digests, which is the same question — decision 0002's, that identity
-    /// comes from content — asked without materialising either side.
-    fn holds(&self, path: &str, held: RevisionId) -> bool {
+    /// comes from content — asked without materialising either side. A file
+    /// of lines this store can replay is held by that fact. A file of bytes is
+    /// named by its digest whether or not the payload arrived, so for one of
+    /// those, holding it is asked separately.
+    fn standing(&self, path: &str, held: RevisionId) -> Standing {
         if self.wholesale() {
-            return true;
+            return Standing::Held;
         }
         let Some(files) = self.ever_at.get(path) else {
-            return false;
+            return Standing::Unrecorded;
         };
-        files.iter().any(|file| {
-            self.store
-                .iter()
-                .filter_map(Result::ok)
-                .any(|(id, document)| {
-                    let touches = document.added.contains_key(file)
-                        || document.edited.contains_key(file)
-                        || document.text.contains_key(file)
-                        || document.bytes.contains_key(file)
-                        || document.parents.len() > 1;
-                    touches
-                        && self
-                            .store
-                            .content_at_heads(&[*id], file)
-                            .is_ok_and(|content| content.digest() == held)
-                })
-        })
+        let mut elsewhere = false;
+        for file in files {
+            for (id, document) in self.store.iter().filter_map(Result::ok) {
+                let touches = document.added.contains_key(file)
+                    || document.edited.contains_key(file)
+                    || document.text.contains_key(file)
+                    || document.bytes.contains_key(file)
+                    || document.parents.len() > 1;
+                if !touches {
+                    continue;
+                }
+                match self.store.content_at_heads(&[*id], file) {
+                    // A directory that cannot be read answers that nothing is
+                    // held, which is the direction this structure errs in: a
+                    // file whose bytes are not held is not written over.
+                    Ok(Content::Whole(payload)) if payload == held => {
+                        if self.store.holds_payload(&payload).unwrap_or(false) {
+                            return Standing::Held;
+                        }
+                        elsewhere = true;
+                    }
+                    Ok(content) if content.digest() == held => return Standing::Held,
+                    _ => {}
+                }
+            }
+        }
+        if elsewhere {
+            Standing::Elsewhere
+        } else {
+            Standing::Unrecorded
+        }
     }
 }
 

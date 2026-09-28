@@ -86,6 +86,7 @@ pub fn update(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
             for (path, because) in &update.leaves {
                 writeln!(out, "left {path} alone: {because}")?;
             }
+            absent(out, &update.elsewhere)?;
             if update.is_settled() {
                 writeln!(
                     out,
@@ -102,6 +103,7 @@ pub fn update(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
             for (path, because) in &update.leaves {
                 writeln!(out, "left {path} alone: {because}")?;
             }
+            absent(out, &update.elsewhere)?;
             writeln!(
                 out,
                 "the folder already holds {}",
@@ -133,6 +135,7 @@ pub fn update(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
         for (path, because) in update.leaves.iter().chain(&applied.left) {
             writeln!(out, "left {path} alone: {because}")?;
         }
+        absent(out, &update.elsewhere)?;
         if applied.folded.is_empty() && applied.left.is_empty() {
             writeln!(out, "the folder holds {}", target::spelled(&store, &target))?;
         }
@@ -156,4 +159,17 @@ pub fn update(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
         ));
     }
     Ok(code)
+}
+
+/// The files of bytes the head holds and the folder is left without, because
+/// this store does not hold them either.
+fn absent(out: &mut impl std::io::Write, elsewhere: &[String]) -> std::io::Result<()> {
+    for path in elsewhere {
+        writeln!(
+            out,
+            "{:<7} {path}: this store does not hold its bytes; `fetch` brings them",
+            "absent"
+        )?;
+    }
+    Ok(())
 }

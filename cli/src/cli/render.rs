@@ -461,6 +461,15 @@ pub fn status(
             "accept"
         )?;
     }
+    // Not a difference, and never counted as one: `record` states nothing
+    // about these. Said so that a folder missing a file is never a surprise.
+    for path in survey.elsewhere.values() {
+        writeln!(
+            out,
+            "{:<7} {path}: this store does not hold its bytes; `fetch` brings them",
+            "absent"
+        )?;
+    }
 
     // Only where a person said they were joining work. A contest deeper in the
     // graph was settled when its merge was recorded, and repeating it under

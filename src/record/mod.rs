@@ -158,6 +158,16 @@ pub struct Survey {
     pub links: BTreeMap<String, Targeted>,
     /// Files the tree holds and the folder does not, with where they sat.
     pub dropped: BTreeMap<FileId, String>,
+    /// Files of bytes the folder does not hold and this store does not hold
+    /// either, with where they sit: not compared, so not dropped.
+    ///
+    /// The proposal *Bytes held elsewhere*. `update` cannot write bytes the
+    /// store does not have, so a folder lacking them is not a person deleting
+    /// them, and a survey that was not asked about the path concludes nothing
+    /// about it. Naming the path is asking: `record <path>` drops it, as 0039
+    /// drops any path the tree holds and the folder does not. Nothing is
+    /// remembered to make this so; fetching the bytes ends it.
+    pub elsewhere: BTreeMap<FileId, String>,
     /// What each path's content contributes, added paths included.
     pub edited: BTreeMap<String, Change>,
     /// Where each surveyed path's file is, for the paths the tree holds.
@@ -983,14 +993,26 @@ pub fn survey<F: Filesystem>(
 
     // A file the tree holds and the folder does not is gone, which is a fact
     // rather than a guess — decision 0011's reason for having no `--drop`.
+    // Unless it is a file of bytes this store does not hold, which nothing
+    // here could have put in the folder: that is held elsewhere, and only a
+    // person naming the path drops it.
     for (file, path) in &placed {
-        if !only.covers(path) {
+        if !only.covers(path) || working.holds(path) {
             continue;
         }
-        if !working.holds(path) {
-            survey.dropped.insert(*file, path.clone());
-            survey.moved.remove(file);
+        let named = only.paths().any(|named| named == path);
+        if !named
+            && let Some(payload) = tree
+                .entry(file)
+                .filter(|entry| entry.kind == Kind::Whole)
+                .and_then(|entry| entry.payload)
+            && store.held_elsewhere(&payload)?
+        {
+            survey.elsewhere.insert(*file, path.clone());
+            continue;
         }
+        survey.dropped.insert(*file, path.clone());
+        survey.moved.remove(file);
     }
 
     // Decision 0040's resolution, once the whole folder is known. The tree

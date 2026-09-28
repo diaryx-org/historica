@@ -5515,10 +5515,11 @@ fn update_dry_run_writes_nothing() {
     );
 }
 
-/// A store missing a payload refuses to update: a folder cannot be partially
-/// at a head, and receiving the rest is the fix.
+/// A store missing a payload leaves its path without a file rather than
+/// refusing the update: the store cannot write bytes it does not have, and
+/// `record` does not read the absence as a deletion.
 #[test]
-fn update_refuses_when_the_store_cannot_produce_a_file() {
+fn update_leaves_a_file_whose_bytes_are_elsewhere_absent() {
     let directory = repository("update-missing-payload");
     fs::write(directory.join("photo.bin"), [0xffu8, 0x00, 0x7f]).expect("a payload");
     write(&directory, "f.md", "one\n");
@@ -5531,9 +5532,105 @@ fn update_refuses_when_the_store_cannot_produce_a_file() {
     fs::remove_file(payload).expect("removing the payload");
     fs::remove_file(directory.join("photo.bin")).expect("the folder's copy");
 
+    let said = stdout(&directory, &["update"]);
+    assert!(said.contains("absent  photo.bin"), "{said}");
+    assert!(!directory.join("photo.bin").exists());
+
+    let status = stdout(&directory, &["status"]);
+    assert!(status.contains("absent  photo.bin"), "{status}");
+    assert!(!status.contains("dropped"), "{status}");
+    assert!(status.contains("nothing here differs"), "{status}");
+    let diff = stdout(&directory, &["diff"]);
+    assert!(!diff.contains("photo.bin"), "{diff}");
+
+    // A bare record states nothing about it, so there is nothing to record.
+    let said = refused(&directory, &["record", "-m", "nothing"]);
+    assert!(said.contains("nothing here differs"), "{said}");
+}
+
+/// Naming a path whose bytes are elsewhere is asking about it, and a folder
+/// without it is then a deletion, as decision 0039 records any.
+#[test]
+fn record_drops_a_file_held_elsewhere_when_it_is_named() {
+    let directory = repository("record-names-elsewhere");
+    fs::write(directory.join("photo.bin"), [0xffu8, 0x00, 0x7f]).expect("a payload");
+    write(&directory, "f.md", "one\n");
+    out(recorded(&directory, &["record", "-m", "first"]));
+    let payload = find_bytes(&directory.join("history/operations"), &[0xffu8, 0x00, 0x7f])
+        .expect("the payload file");
+    fs::remove_file(payload).expect("removing the payload");
+    fs::remove_file(directory.join("photo.bin")).expect("the folder's copy");
+
+    let said = out(recorded(&directory, &["record", "-m", "gone", "photo.bin"]));
+    assert!(said.contains("dropped photo.bin"), "{said}");
+    let status = stdout(&directory, &["status"]);
+    assert!(!status.contains("photo.bin"), "{status}");
+}
+
+/// Bytes the folder holds and the store does not are the only copy here, so
+/// an update refuses to write over them even though a revision records them.
+#[test]
+fn update_does_not_write_over_recorded_bytes_the_store_does_not_hold() {
+    let directory = repository("update-only-copy");
+    fs::write(directory.join("photo.bin"), [0xffu8, 0x00, 0x01]).expect("a payload");
+    out(recorded(&directory, &["record", "-m", "first"]));
+    fs::write(directory.join("photo.bin"), [0xffu8, 0x00, 0x02]).expect("a payload");
+    out(recorded(&directory, &["record", "-m", "second"]));
+
+    // The first version is recorded, and leaves the store; the folder holds
+    // it again, and nothing else on this machine does.
+    let first = find_bytes(&directory.join("history/operations"), &[0xffu8, 0x00, 0x01])
+        .expect("the first payload");
+    fs::remove_file(first).expect("removing the payload");
+    fs::write(directory.join("photo.bin"), [0xffu8, 0x00, 0x01]).expect("the only copy");
+
     let said = stderr(&directory, &["update"]);
     assert!(said.contains("photo.bin"), "{said}");
-    assert!(said.contains("does not hold the content"), "{said}");
+    assert!(said.contains("only copy"), "{said}");
+    assert_eq!(
+        fs::read(directory.join("photo.bin")).expect("still there"),
+        [0xffu8, 0x00, 0x01]
+    );
+}
+
+/// Where the head's bytes are elsewhere and the folder holds an earlier
+/// version the store does hold, the earlier version is removed, so the next
+/// `record` does not read it as the file going back.
+#[test]
+fn update_removes_an_earlier_version_where_the_head_is_elsewhere() {
+    let directory = repository("update-earlier-version");
+    fs::write(directory.join("photo.bin"), [0xffu8, 0x00, 0x01]).expect("a payload");
+    out(recorded(&directory, &["record", "-m", "first"]));
+    fs::write(directory.join("photo.bin"), [0xffu8, 0x00, 0x02]).expect("a payload");
+    out(recorded(&directory, &["record", "-m", "second"]));
+
+    let second = find_bytes(&directory.join("history/operations"), &[0xffu8, 0x00, 0x02])
+        .expect("the second payload");
+    fs::remove_file(second).expect("removing the payload");
+    fs::write(directory.join("photo.bin"), [0xffu8, 0x00, 0x01]).expect("the first again");
+
+    let said = stdout(&directory, &["update"]);
+    assert!(said.contains("removed photo.bin"), "{said}");
+    assert!(said.contains("absent  photo.bin"), "{said}");
+    assert!(!directory.join("photo.bin").exists());
+    let status = stdout(&directory, &["status"]);
+    assert!(status.contains("nothing here differs"), "{status}");
+}
+
+/// A folder already holding the bytes the head names is at the head, whether
+/// or not the store holds them.
+#[test]
+fn update_keeps_a_file_whose_bytes_only_the_folder_holds() {
+    let directory = repository("update-folder-holds");
+    fs::write(directory.join("photo.bin"), [0xffu8, 0x00, 0x7f]).expect("a payload");
+    out(recorded(&directory, &["record", "-m", "first"]));
+    let payload = find_bytes(&directory.join("history/operations"), &[0xffu8, 0x00, 0x7f])
+        .expect("the payload file");
+    fs::remove_file(payload).expect("removing the payload");
+
+    let said = stdout(&directory, &["update"]);
+    assert!(said.contains("already holds"), "{said}");
+    assert!(directory.join("photo.bin").exists());
 }
 
 /// The one file beneath `path` holding exactly these bytes.

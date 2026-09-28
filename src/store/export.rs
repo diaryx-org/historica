@@ -138,6 +138,7 @@ use crate::format::{Mode, Piece, RevisionDocument};
 use crate::fs::Disk;
 use crate::fs::Filesystem;
 use crate::naming;
+use crate::tree::Kind;
 use crate::update::{self, UpdateError};
 use crate::working::{SKIPPED_DIR, Skipped, Working};
 
@@ -385,6 +386,7 @@ impl<F: Filesystem> Store<F> {
         if !Store::check_on(self.filesystem(), self.root()).is_ok() {
             return Err(ExportError::BrokenStore);
         }
+        self.refuse_elsewhere(target)?;
 
         // Parent edges, and only parent edges. A `supersedes` line naming a
         // revision outside the closure is left dangling on purpose: see the
@@ -1079,6 +1081,30 @@ pub struct ExportedFiles {
 }
 
 impl<F: Filesystem> Store<F> {
+    /// Refuse a target whose folder holds files of bytes this store does not.
+    ///
+    /// The proposal *Bytes held elsewhere*. `update` leaves such a path
+    /// without a file, which is right for the folder beside a store and wrong
+    /// for a copy: a copy is built to be taken away, and one missing files
+    /// would send whoever takes it somewhere further for them. So an export
+    /// asks first, before it writes anything, and names every path.
+    fn refuse_elsewhere(&self, target: &RevisionId) -> Result<(), ExportError> {
+        let mut paths = Vec::new();
+        for (_, entry) in self.tree(target)?.entries() {
+            if entry.kind == Kind::Whole
+                && let Some(payload) = &entry.payload
+                && self.held_elsewhere(payload)?
+            {
+                paths.push(entry.path.clone());
+            }
+        }
+        if paths.is_empty() {
+            return Ok(());
+        }
+        paths.sort();
+        Err(ExportError::Elsewhere { paths })
+    }
+
     /// What a files-only export would write, without writing anything.
     ///
     /// The plan is [`crate::update`]'s, so a caller can read it with the same
@@ -1096,6 +1122,7 @@ impl<F: Filesystem> Store<F> {
         if !Store::check_on(self.filesystem(), self.root()).is_ok() {
             return Err(ExportError::BrokenStore);
         }
+        self.refuse_elsewhere(target)?;
         let working = self.folder_at(&files, directory)?;
         Ok(update::plan_into(self, &working, directory, target)?)
     }
@@ -1110,6 +1137,7 @@ impl<F: Filesystem> Store<F> {
         if !Store::check_on(self.filesystem(), self.root()).is_ok() {
             return Err(ExportError::BrokenStore);
         }
+        self.refuse_elsewhere(target)?;
         let working = self.folder_at(&files, directory)?;
         let update = update::plan_into(self, &working, directory, target)?;
         let applied = update::apply(self, &working, directory, &update)?;
@@ -1206,6 +1234,12 @@ pub enum ExportError {
         /// One revision the copy holds and this store does not.
         revision: RevisionId,
     },
+    /// The target holds files of bytes this store does not, so the copy's
+    /// folder could not be written whole.
+    Elsewhere {
+        /// The paths, in path order.
+        paths: Vec<String>,
+    },
     /// The target's tree or content could not be materialised.
     Materialise(Box<MaterialiseError>),
     /// The copy's folder could not be written.
@@ -1270,6 +1304,18 @@ impl fmt::Display for ExportError {
                 path.display(),
                 revision.abbreviate(crate::naming::DIGEST_CHARS)
             ),
+            ExportError::Elsewhere { paths } => {
+                write!(
+                    f,
+                    "this store does not hold the bytes of files the copy's folder \
+                     would hold, and an export writes that folder whole; `fetch` \
+                     brings them:"
+                )?;
+                for path in paths {
+                    write!(f, "\n  {path}")?;
+                }
+                Ok(())
+            }
             ExportError::Materialise(error) => error.fmt(f),
             ExportError::Update(error) => error.fmt(f),
             ExportError::Store(error) => error.fmt(f),
