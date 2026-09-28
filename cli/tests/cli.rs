@@ -5681,8 +5681,14 @@ fn amend_reads_what_the_folder_lacks_against_the_revision_it_amends() {
 
     out(recorded(&directory, &["amend", "-m", "second, reworded"]));
     let files = stdout(&directory, &["files", "head"]);
-    assert!(!files.contains("photo.bin"), "the deletion came undone: {files}");
-    assert!(files.contains("kept.bin"), "an untouched file went: {files}");
+    assert!(
+        !files.contains("photo.bin"),
+        "the deletion came undone: {files}"
+    );
+    assert!(
+        files.contains("kept.bin"),
+        "an untouched file went: {files}"
+    );
 }
 
 /// A merge lays down what it can, and leaves a file whose bytes are held
@@ -5745,7 +5751,14 @@ fn a_contested_attachment_the_folder_lacks_is_dropped_only_when_accepted() {
     out(recorded(
         &directory,
         &[
-            "record", "--merge", &mine, "--merge", &theirs, "--accept", "photo.bin", "-m",
+            "record",
+            "--merge",
+            &mine,
+            "--merge",
+            &theirs,
+            "--accept",
+            "photo.bin",
+            "-m",
             "Join",
         ],
     ));

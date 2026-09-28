@@ -854,7 +854,10 @@ fn a_payload_filed_under_its_digest_is_forgotten_under_a_name_that_is_true() {
     let checked = run(&here, &["check"]);
     assert!(!checked.status.success(), "a false name passed `check`");
     let said = String::from_utf8_lossy(&checked.stdout);
-    assert!(said.contains("`arrange` gives the file a true one"), "{said}");
+    assert!(
+        said.contains("`arrange` gives the file a true one"),
+        "{said}"
+    );
     out(&here, &["arrange"]);
     let checked = run(&here, &["check"]);
     assert!(

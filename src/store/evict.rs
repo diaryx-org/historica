@@ -80,8 +80,7 @@ impl<F: Filesystem> Store<F> {
             if text.contains(payload) {
                 return Err(EvictError::Text { payload: *payload });
             }
-            if self.forgotten_payload(payload)?.is_some() || !self.forgetting(payload)?.is_empty()
-            {
+            if self.forgotten_payload(payload)?.is_some() || !self.forgetting(payload)?.is_empty() {
                 continue;
             }
             asked.insert(*payload);

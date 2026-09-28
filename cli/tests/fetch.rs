@@ -1385,7 +1385,11 @@ fn naming_files_for_fetch_or_evict_is_checked_before_asking_the_copy() {
             false,
         ),
         (vec!["evict", url, "notes.md"], "not a file of bytes", false),
-        (vec!["evict", url, "letters"], "holds no file of bytes", false),
+        (
+            vec!["evict", url, "letters"],
+            "holds no file of bytes",
+            false,
+        ),
         (vec!["evict", url], "wants the files to let go of", true),
         (
             vec!["fetch", url, "--no-bytes", "notes/photo.png"],
@@ -1490,8 +1494,9 @@ fn an_eviction_interrupted_before_the_folder_is_finished_by_running_it_again() {
         .eviction_plan(&Directory::at(&root), MANIFEST, &[picture])
         .expect("the same plan again");
     let working = historica::working::Working::read(&here, held.skipped()).expect("the folder");
-    let folder = historica::update::plan_eviction(&held, &working, &plan.payloads().copied().collect())
-        .expect("the folder's half");
+    let folder =
+        historica::update::plan_eviction(&held, &working, &plan.payloads().copied().collect())
+            .expect("the folder's half");
     historica::update::apply(&held, &working, &here, &folder).expect("the folder let go");
     assert!(!here.join("notes/photo.png").exists());
     let status = out(&here, &["status"]);

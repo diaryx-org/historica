@@ -1061,9 +1061,7 @@ fn survey_laid<F: Filesystem>(
     // not hold at all.
     if let Some(laid) = &laid {
         for (file, entry) in laid.entries() {
-            if placed.contains_key(file)
-                || !only.covers(&entry.path)
-                || working.holds(&entry.path)
+            if placed.contains_key(file) || !only.covers(&entry.path) || working.holds(&entry.path)
             {
                 continue;
             }

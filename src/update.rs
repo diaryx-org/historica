@@ -1055,7 +1055,10 @@ pub(crate) fn plan_at<F: Filesystem, G: Filesystem>(
             }
         } else if elsewhere {
             update.elsewhere.push((*path).to_owned());
-            absent.entry(wanted.digest()).or_default().push((*path).to_owned());
+            absent
+                .entry(wanted.digest())
+                .or_default()
+                .push((*path).to_owned());
         } else {
             let on_disk = repository.join(path);
             match look(working.filesystem(), &on_disk)? {
