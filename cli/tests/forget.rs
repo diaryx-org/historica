@@ -477,3 +477,136 @@ fn each_version_of_a_file_of_bytes_is_forgotten_on_its_own() {
     assert!(!contains(&store_bytes(&directory), "second picture"));
     assert!(run(&directory, &["check"]).status.success());
 }
+
+/// Every file under `from`, copied to the same place under `to`.
+fn copy_tree(from: &Path, to: &Path) {
+    fs::create_dir_all(to).expect("a directory to copy into");
+    for entry in fs::read_dir(from)
+        .expect("a directory")
+        .filter_map(Result::ok)
+    {
+        let path = entry.path();
+        let target = to.join(entry.file_name());
+        if path.is_dir() {
+            copy_tree(&path, &target);
+        } else {
+            fs::copy(&path, &target).expect("copying a file");
+        }
+    }
+}
+
+/// Every file under `from` that `to` does not hold, copied across as a sync
+/// that copies files would bring it.
+fn copy_new(from: &Path, to: &Path) {
+    for entry in fs::read_dir(from)
+        .expect("a directory")
+        .filter_map(Result::ok)
+    {
+        let path = entry.path();
+        let target = to.join(entry.file_name());
+        if path.is_dir() {
+            fs::create_dir_all(&target).expect("a directory to copy into");
+            copy_new(&path, &target);
+        } else if !target.exists() {
+            fs::copy(&path, &target).expect("copying a file");
+        }
+    }
+}
+
+/// Everything in `cache/` but its note, which a cache may always lose.
+fn empty_cache(directory: &Path) {
+    for entry in fs::read_dir(directory.join("history/cache"))
+        .expect("the cache")
+        .filter_map(Result::ok)
+    {
+        if entry.file_name() != "README.txt" {
+            fs::remove_file(entry.path()).expect("an entry");
+        }
+    }
+}
+
+/// Decisions 0014 and 0050: a stand-in a sync brings in beside the
+/// resolution it forgets is applied on every reading, as an operation
+/// document's is. Cataloguing read every resolution as forgetting nothing,
+/// so only a scan found the stand-in, and `diff head` read the merge once
+/// before its scan and once after it.
+#[test]
+fn a_stand_in_beside_a_held_resolution_is_read_on_every_reading() {
+    let base = scratch("resolution-beside");
+    let here = base.join("here");
+    fs::create_dir_all(&here).expect("a repository");
+    assert!(run(&here, &["init"]).status.success());
+    write(&here, "f.md", "a\nb\n");
+    write(&here, "notes.md", "one\n");
+    let first = digest_in(&out(&here, &["record", "-m", "first"]));
+    write(&here, "f.md", "a\nb\nL\n");
+    let left = digest_in(&out(&here, &["record", "-m", "left"]));
+    write(&here, "f.md", "R\na\nb\n");
+    let right = digest_in(&out(&here, &["record", "--onto", &first, "-m", "right"]));
+    // The merge's resolution inserts `L` itself, which is what gives it a
+    // stand-in of its own when `L` is forgotten.
+    write(&here, "f.md", "L\nR\na\nb\n");
+    let merged = digest_in(&out(
+        &here,
+        &[
+            "record", "--merge", &left, "--merge", &right, "-m", "merged",
+        ],
+    ));
+    write(&here, "notes.md", "two\n");
+    let after = digest_in(&out(&here, &["record", "-m", "after"]));
+
+    // Forgotten in a copy, and the copy's new files brought back beside the
+    // originals they forget.
+    let elsewhere = base.join("elsewhere");
+    copy_tree(&here, &elsewhere);
+    out(&elsewhere, &["forget", &left, "f.md", "--lines", "3"]);
+    copy_new(
+        &elsewhere.join("history/operations"),
+        &here.join("history/operations"),
+    );
+    empty_cache(&here);
+
+    let redacted = "\\ forgotten\nR\na\nb\n";
+    let diffed = out(&here, &["diff", "head"]);
+    assert!(!diffed.contains("f.md"), "{diffed}");
+    assert!(diffed.contains("notes.md"), "{diffed}");
+    assert_eq!(out(&here, &["cat", &merged, "f.md"]), redacted);
+    assert_eq!(out(&here, &["cat", &after, "f.md"]), redacted);
+    assert_eq!(out(&here, &["diff", &after, "f.md"]), "nothing differs\n");
+
+    // An offer is the same pass, and its fourth field is how a fetcher
+    // learns what to destroy: both stand-ins say what they forget.
+    let offered = out(&here, &["offer", "."]);
+    let forgetting = offered
+        .lines()
+        .filter(|line| line.starts_with("operation "))
+        .filter(|line| line.split(' ').nth(2) != Some("-"))
+        .count();
+    assert_eq!(forgetting, 2, "{offered}");
+
+    // A catalogue in `cache/` that says the resolution's stand-in forgets
+    // nothing, as one a pass wrote before this was fixed does, is not
+    // believed about it.
+    let catalogue = here.join("history/cache/operations.txt");
+    let held = fs::read_to_string(&catalogue).expect("the catalogue the reads kept");
+    let mut old = String::from("historica-catalogue-1\n");
+    for line in held.lines().skip(1) {
+        let mut fields = line.splitn(3, ' ');
+        let (id, forgets, path) = (
+            fields.next().expect("a digest"),
+            fields.next().expect("what it forgets"),
+            fields.next().expect("a path"),
+        );
+        let bytes = fs::read(here.join("history").join(path)).expect("a catalogued file");
+        let forgets = if historica::format::is_resolution(&bytes) {
+            "-"
+        } else {
+            forgets
+        };
+        old.push_str(&format!("{id} {forgets} {path}\n"));
+    }
+    fs::write(&catalogue, old).expect("an older catalogue");
+    assert_eq!(out(&here, &["cat", &merged, "f.md"]), redacted);
+    let diffed = out(&here, &["diff", "head"]);
+    assert!(!diffed.contains("f.md"), "{diffed}");
+}

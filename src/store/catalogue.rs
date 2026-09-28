@@ -37,7 +37,7 @@ use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use crate::core::RevisionId;
-use crate::format::{self, OperationDocument, digest};
+use crate::format::{self, OperationDocument, ResolutionDocument, digest};
 use crate::fs::Filesystem;
 
 use super::{
@@ -59,7 +59,12 @@ const CATALOGUE_FILE: &str = "operations.txt";
 /// this differently is discarded whole rather than half-understood, which is
 /// the only failure mode a fixed name introduces that a digest-named entry
 /// does not have.
-const CATALOGUE_HEADER: &str = "historica-catalogue-1";
+///
+/// `-2` because what `-` means moved. A `-1` catalogue built by a pass says
+/// `-` for every resolution, a forgetting one included, where this version
+/// says what it forgets; believing that `-` would hide the stand-in from every
+/// reader that takes `cache/` as it stands.
+const CATALOGUE_HEADER: &str = "historica-catalogue-2";
 
 /// One file under `operations/`, as the catalogue holds it.
 ///
@@ -315,6 +320,8 @@ pub(super) struct Pass {
     /// some of it, and parsing one file twice in one command is the cost this
     /// whole module exists to remove.
     pub(super) parsed: BTreeMap<RevisionId, OperationDocument>,
+    /// The resolutions it parsed for the same reason, kept for the same one.
+    pub(super) resolutions: BTreeMap<RevisionId, ResolutionDocument>,
     /// One entry per **file**, in walk order.
     ///
     /// [`Catalogue::at`] is keyed by digest, so two files holding one set of
@@ -357,6 +364,7 @@ pub(super) fn read<F: Filesystem + ?Sized>(
 
     let mut catalogue = Catalogue::default();
     let mut parsed: BTreeMap<RevisionId, OperationDocument> = BTreeMap::new();
+    let mut resolutions: BTreeMap<RevisionId, ResolutionDocument> = BTreeMap::new();
     let mut filings: Vec<(RevisionId, Located)> = Vec::new();
     for path in here {
         let relative = match path.strip_prefix(root) {
@@ -395,7 +403,19 @@ pub(super) fn read<F: Filesystem + ?Sized>(
                         .ok()
                         .map(|document| document.forgets)
                 } else if format::is_resolution(&bytes) {
-                    None
+                    // Decision 0050 gives a resolution stand-ins of its own,
+                    // and a sync can bring one in beside the resolution it
+                    // forgets. Catalogued as forgetting nothing, it was found
+                    // only by a scan, so whether a reader applied it depended
+                    // on what the same command had read before.
+                    match ResolutionDocument::parse(&bytes) {
+                        Ok(document) => {
+                            let forgets = document.forgets;
+                            resolutions.insert(id, document);
+                            forgets
+                        }
+                        Err(_) => None,
+                    }
                 } else {
                     match OperationDocument::parse(&bytes) {
                         Ok(document) => {
@@ -437,6 +457,7 @@ pub(super) fn read<F: Filesystem + ?Sized>(
     Ok(Pass {
         catalogue,
         parsed,
+        resolutions,
         filings,
     })
 }
@@ -606,6 +627,15 @@ mod tests {
     fn a_catalogue_from_another_version_is_discarded() {
         assert!(parse("historica-catalogue-0\n").is_empty());
         assert!(parse("").is_empty());
+        // `-1` said `-` for a forgetting resolution a pass had read, so its
+        // lines are well formed and wrong.
+        let id = digest(b"one");
+        assert!(
+            parse(&format!(
+                "historica-catalogue-1\n{id} - operations/a.ops.txt\n"
+            ))
+            .is_empty()
+        );
     }
 
     /// One malformed line discards the whole catalogue rather than the line.

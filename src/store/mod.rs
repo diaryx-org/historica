@@ -1384,7 +1384,10 @@ impl<F: Filesystem> Store<F> {
         // Whatever cataloguing had to parse is already the answer to a
         // question this store is about to be asked, so it is kept rather than
         // dropped and read again.
-        self.read.borrow_mut().operations.extend(pass.parsed);
+        let mut read = self.read.borrow_mut();
+        read.operations.extend(pass.parsed);
+        read.resolutions.extend(pass.resolutions);
+        drop(read);
         // Empty, because nothing above could have filled it: `read` takes
         // `&self.files` and cannot re-enter.
         Ok(self.catalogue.get_or_init(|| pass.catalogue))
@@ -1402,7 +1405,10 @@ impl<F: Filesystem> Store<F> {
             return Ok(());
         }
         let pass = catalogue::read(&self.files, &self.root, self.cached)?;
-        self.read.borrow_mut().operations.extend(pass.parsed);
+        let mut read = self.read.borrow_mut();
+        read.operations.extend(pass.parsed);
+        read.resolutions.extend(pass.resolutions);
+        drop(read);
         let _ = self.walked.set(pass.catalogue);
         Ok(())
     }
