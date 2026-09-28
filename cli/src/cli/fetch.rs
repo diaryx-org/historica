@@ -326,6 +326,18 @@ fn addressed(url: &str) -> Result<(String, String), Failure> {
              machine is `receive`'s to read"
         ))
     })?;
+    // The transport is HTTP and nothing else (decision 0057). The platform's
+    // client takes other schemes too, and answers `file:` with no status at
+    // all, which a fetch waiting for one would wait on for good.
+    if !["http://", "https://"]
+        .iter()
+        .any(|spoken| url[..scheme].eq_ignore_ascii_case(spoken))
+    {
+        return Err(Failure::usage(format!(
+            "`{url}` is not an HTTP URL; `fetch` speaks HTTP, and a directory \
+             on this machine is `receive`'s to read"
+        )));
+    }
     // A query or a fragment has nowhere to go: every other path a fetch asks
     // for is built by putting the manifest's own directory in front of what the
     // manifest says, and neither of those survives that.
@@ -469,6 +481,8 @@ mod tests {
             "https://example.org",
             "https://example.org/pub/",
             "https://example.org/offer.txt?v=2",
+            "file:///srv/pub/offer.txt",
+            "ftp://example.org/offer.txt",
         ] {
             assert!(addressed(refused).is_err(), "`{refused}` was accepted");
         }
