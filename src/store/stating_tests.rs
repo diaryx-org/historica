@@ -19,25 +19,53 @@ use super::{Caching, Store};
 
 /// A directory of its own for one store, made through the library's own
 /// filesystem: decision 0025 keeps `std::fs` out of this crate, its tests
-/// included.
-fn scratch(name: &str) -> PathBuf {
-    let moment = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map_or(0, |since| since.as_nanos());
-    let path = std::env::temp_dir().join(format!(
-        "historica-stating-{name}-{}-{moment}",
-        std::process::id()
-    ));
-    Disk.create_directory(&path).expect("a scratch directory");
-    path
+/// included. It is removed when the test lets it go.
+struct Scratch(PathBuf);
+
+impl Scratch {
+    fn new(name: &str) -> Scratch {
+        let moment = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |since| since.as_nanos());
+        let path = std::env::temp_dir().join(format!(
+            "historica-stating-{name}-{}-{moment}",
+            std::process::id()
+        ));
+        Disk.create_directory(&path).expect("a scratch directory");
+        Scratch(path)
+    }
+}
+
+impl std::ops::Deref for Scratch {
+    type Target = Path;
+    fn deref(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for Scratch {
+    fn drop(&mut self) {
+        fn remove(path: &Path) {
+            for entry in Disk.entries(path).unwrap_or_default() {
+                if entry.kind.is_directory() {
+                    remove(&entry.path);
+                } else {
+                    let _ = Disk.remove_file(&entry.path);
+                }
+            }
+            let _ = Disk.remove_directory(path);
+        }
+        remove(&self.0);
+    }
 }
 
 /// A corpus directory's files, copied into a store under the names they have.
 ///
 /// `prefix` is where a MANIFEST's names sit inside the store: nothing for a
 /// corpus whose MANIFEST names `revisions/…` and `operations/…`.
-fn from_corpus(name: &str, parts: &[(&str, &str)]) -> Store {
-    let root = scratch(name).join("history");
+fn from_corpus(name: &str, parts: &[(&str, &str)]) -> (Scratch, Store) {
+    let scratch = Scratch::new(name);
+    let root = scratch.join("history");
     Store::init(&root).expect("a new store");
     let corpus = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/corpus");
     for (directory, prefix) in parts {
@@ -63,7 +91,7 @@ fn from_corpus(name: &str, parts: &[(&str, &str)]) -> Store {
             Disk.write(&to, &bytes).expect("copying a corpus file");
         }
     }
-    Store::open(&root).expect("the corpus as a store")
+    (scratch, Store::open(&root).expect("the corpus as a store"))
 }
 
 /// Every file any revision mentions.
@@ -134,7 +162,8 @@ fn the_corpus_answers_alike_with_the_index_and_without() {
         ("modes", &[("modes", "")][..]),
         ("whole", &[("whole", "")][..]),
     ] {
-        answers_alike(name, &from_corpus(name, parts));
+        let (_scratch, store) = from_corpus(name, parts);
+        answers_alike(name, &store);
     }
 }
 
@@ -173,7 +202,7 @@ fn recorded(
 /// nothing touches after the root, which is where the index goes furthest.
 #[test]
 fn a_history_with_branches_and_merges_answers_alike() {
-    let folder = scratch("branches");
+    let folder = Scratch::new("branches");
     let mut store = Store::init(folder.join("history")).expect("a new store");
     let write = |name: &str, text: &str| {
         Disk.write(&folder.join(name), text.as_bytes())
