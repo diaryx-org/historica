@@ -94,9 +94,9 @@ A cache kept on one device still describes that device's reads, so a
 forgetting document that a sync brings still has to clear the states that
 device kept before it arrived. `fix(store): a forget that arrives clears the
 states read before it` does that, and it is unchanged here. The window
-[A forget a sync brings is read only after a pass](../tasks/a-forget-a-sync-brings-is-read-only-after-a-pass.md)
-describes is about the catalogue's claims, not where it is kept, so it is
-still open.
+[A forget a sync brings is read only after a pass](../tasks/closed/a-forget-a-sync-brings-is-read-only-after-a-pass.md)
+describes is about the catalogue's claims, not where it is kept, so it was
+left open here. [0079](0079-a-reader-looks-where-forget-files.md) closes it.
 
 ## Consequences
 

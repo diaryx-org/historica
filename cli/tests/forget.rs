@@ -718,3 +718,61 @@ fn a_forget_a_sync_brings_takes_no_state_kept_from_before_it() {
     assert_eq!(out(&here, &["cat", &last, "f.md"]), "\\ forgotten\nv20\n");
     assert_eq!(fs::read_to_string(&catalogue).expect("the catalogue"), held);
 }
+
+/// Decision 0079: a forgetting document a sync brings in beside the original
+/// it forgets is read by the first reader after it arrives — a reader that
+/// takes its held catalogue as it stands, with no `offer`, no miss, and the
+/// cache exactly as the last command left it. `forget` files an operation
+/// document's stand-in at the top of `operations/` under its digest, and a
+/// payload's beside the payload, and a sync puts each where `forget` did.
+#[test]
+fn a_forget_a_sync_brings_is_read_by_the_first_reader_after_it() {
+    let base = scratch("sync-reader");
+    let here = folder(base.join("here"));
+    assert!(run(&here, &["init"]).status.success());
+    write(&here, "f.md", "secret\nv0\n");
+    write_bytes(&here, "photo.png", b"\x89PNG\x00the secret picture\x00");
+    let first = digest_in(&out(&here, &["record", "-m", "first"]));
+    write(&here, "f.md", "secret\nv1\n");
+    out(&here, &["record", "-m", "second"]);
+    assert_eq!(out(&here, &["cat", "head", "f.md"]), "secret\nv1\n");
+    assert!(run(&here, &["cat", &first, "photo.png"]).status.success());
+    assert!(
+        cache_of(&here).join("operations.txt").exists(),
+        "no catalogue was kept, so this tests nothing"
+    );
+
+    let elsewhere = folder(base.join("elsewhere"));
+    copy_tree(&here, &elsewhere);
+    out(&elsewhere, &["forget", &first, "f.md", "--lines", "1"]);
+    out(&elsewhere, &["forget", &first, "photo.png"]);
+    copy_new(
+        &elsewhere.join("history/operations"),
+        &here.join("history/operations"),
+    );
+    // The originals are still here, beside what forgets them.
+    assert!(contains(&store_bytes(&here), "the secret picture"));
+
+    assert_eq!(out(&here, &["cat", "head", "f.md"]), "\\ forgotten\nv1\n");
+    let refused = run(&here, &["cat", &first, "photo.png"]);
+    assert!(!refused.status.success());
+    let why = String::from_utf8(refused.stderr).expect("printed text");
+    assert!(why.contains("was forgotten"), "{why}");
+
+    // Caught up by the look rather than the pass: the kept catalogue now
+    // names the stand-in, so the next reader need not read it again.
+    let catalogue =
+        fs::read_to_string(cache_of(&here).join("operations.txt")).expect("the catalogue");
+    let stood = catalogue
+        .lines()
+        .skip(1)
+        .filter(|line| line.split(' ').nth(1) != Some("-"))
+        .count();
+    assert_eq!(stood, 1, "{catalogue}");
+    assert_eq!(out(&here, &["cat", "head", "f.md"]), "\\ forgotten\nv1\n");
+
+    // `check` still reports the originals, which the store has not complied
+    // with: a reader shows the redaction, and `forget` run again destroys them.
+    let report = out(&here, &["check"]);
+    assert_eq!(report.matches("here again").count(), 2, "{report}");
+}

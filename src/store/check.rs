@@ -270,8 +270,9 @@ pub enum Finding {
     /// Decision 0013's deferred resurrection, arriving by sync: a pruned or
     /// forgotten file that returns is not an error, and the union rule means
     /// the redaction still wins — for a reader that has read the forgetting
-    /// document, which one taking the cache's catalogue as it stands may not
-    /// have.
+    /// document. Decision 0079 has every reader read it where `forget` filed
+    /// it; one filed anywhere else a reader taking the cache's catalogue as
+    /// it stands may not have read.
     Resurrected {
         /// The document whose bytes are back.
         document: RevisionId,
@@ -554,9 +555,9 @@ impl fmt::Display for Finding {
             Finding::Resurrected { document } => write!(
                 f,
                 "{} was forgotten and its bytes are here again, probably by \
-                 sync; a reader that has not yet read the forgetting \
-                 document still shows them, and `forget` run again destroys \
-                 them again",
+                 sync; a reader applies the forgetting document where \
+                 `forget` files one, and `forget` run again destroys them \
+                 again",
                 document.abbreviate(12)
             ),
             Finding::ResolvedWithoutDisagreement { revision, file } => write!(

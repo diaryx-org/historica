@@ -1002,6 +1002,9 @@ struct Read {
     /// document — the one a miss already pays for — answers that question
     /// itself from then on, and this is where it puts the answer.
     forgetting: BTreeMap<RevisionId, Vec<RevisionId>>,
+    /// The payload stand-ins found by looking beside a payload as it was
+    /// read, by the payload they forget (decision 0079).
+    beside: BTreeMap<RevisionId, RevisionId>,
 }
 
 impl Read {
@@ -1011,6 +1014,7 @@ impl Read {
         self.resolutions.clear();
         self.forgotten.clear();
         self.absent.clear();
+        self.beside.clear();
     }
 }
 
@@ -1427,8 +1431,9 @@ impl<F: Filesystem> Store<F> {
         // costs the fallback every reader already has. The walk is what
         // *absence* needs, and absence is what `scan` is for.
         if let Some(cache) = &self.cache
-            && let Some(catalogue) = catalogue::cached(&self.files, cache)
+            && let Some(mut catalogue) = catalogue::cached(&self.files, cache)
         {
+            self.read_the_top(&mut catalogue, cache)?;
             return Ok(self.catalogue.get_or_init(|| catalogue));
         }
         let pass = catalogue::read(&self.files, &self.root, self.cache.as_deref())?;
@@ -1442,6 +1447,98 @@ impl<F: Filesystem> Store<F> {
         // Empty, because nothing above could have filled it: `read` takes
         // `&self.files` and cannot re-enter.
         Ok(self.catalogue.get_or_init(|| pass.catalogue))
+    }
+
+    /// Read what sits at the top of `operations/` under a digest the held
+    /// catalogue does not place there.
+    ///
+    /// Decision 0079. A held catalogue is believed about what forgets what,
+    /// and 0049 lets a reader believe the bytes it holds were redacted by
+    /// nothing. A sync that copies files and deletes nothing is the one way
+    /// both are wrong at once: it brings a forgetting document in beside the
+    /// original it forgets, and no reader walks `operations/` to find it.
+    /// `forget` files an operation document's stand-in and a resolution's at
+    /// the top, under its digest — so does every writer that files a document
+    /// by its digest — and a sync puts it where `forget` did. So that one
+    /// directory is listed, names and no contents, and a digest-named document
+    /// in it that the catalogue does not place at that path is read, hashed,
+    /// parsed and catalogued, as the pass would.
+    ///
+    /// A name that is not a digest is not looked at, and nothing is inferred
+    /// from one: the digest a name spells is only what the catalogue is asked
+    /// about, and a file is believed for what its bytes hash to. A stand-in
+    /// filed anywhere else — by a hand, or by `arrange` — is found by the pass
+    /// and by `check`, as before.
+    fn read_the_top(&self, catalogue: &mut Catalogue, cache: &Path) -> Result<(), StoreError> {
+        let operations = self.root.join(OPERATIONS_DIR);
+        let entries = match self.files.entries(&operations) {
+            Ok(entries) => entries,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(()),
+            Err(error) => return Err(StoreError::io(&operations, error)),
+        };
+        let mut learned = false;
+        let mut arrived = false;
+        for entry in entries {
+            if entry.kind != fs::Kind::File || platform_file(&entry.path) {
+                continue;
+            }
+            let Some(named) = entry
+                .path
+                .file_name()
+                .and_then(|name| name.to_str())
+                .and_then(|name| name.strip_suffix(OPERATION_SUFFIX))
+                .and_then(|stem| stem.parse::<RevisionId>().ok())
+            else {
+                continue;
+            };
+            let relative = entry
+                .path
+                .strip_prefix(&self.root)
+                .unwrap_or(&entry.path)
+                .to_path_buf();
+            if catalogue
+                .at(&named)
+                .is_some_and(|filed| filed.path == relative)
+            {
+                continue;
+            }
+            let bytes = self
+                .files
+                .read(&entry.path)
+                .map_err(|error| StoreError::io(&entry.path, error))?;
+            let id = digest(&bytes);
+            // Unparsable is `check`'s finding, and a reader that never asks
+            // for this digest has no reason to fail over it.
+            let Ok(body) = parsed(&bytes, &entry.path) else {
+                continue;
+            };
+            let forgets = body.forgets();
+            catalogue.insert(id, self.located(&entry.path, forgets));
+            learned = true;
+            arrived |= forgets.is_some();
+            let mut read = self.read.borrow_mut();
+            match body {
+                Body::Operation(document) => {
+                    read.operations.insert(id, document);
+                }
+                Body::Resolution(document) => {
+                    read.resolutions.insert(id, document);
+                }
+                Body::Forgotten(document) => {
+                    read.forgotten.insert(id, document);
+                }
+            }
+        }
+        // The pass's order: the states derived before the redaction go first,
+        // and the catalogue that would stop the next reader seeing it arrive
+        // is written after.
+        if arrived {
+            clear_states(&self.files, cache);
+        }
+        if learned {
+            catalogue::write(&self.files, cache, catalogue);
+        }
+        Ok(())
     }
 
     /// Catalogue the directory, where the cheap catalogue could not answer.
@@ -1684,7 +1781,9 @@ impl<F: Filesystem> Store<F> {
     /// asked for — is this store saying it has complied with none. Asking the
     /// directory to confirm that would be a pass over it on every content
     /// read, and a store holding an original beside a document that forgets
-    /// it is the state `check` reports as `Resurrected`.
+    /// it is the state `check` reports as `Resurrected`. The one way into
+    /// that state without a hand in it is a sync, and decision 0079's look at
+    /// the top of `operations/` is what lets this answer see what one brought.
     fn stand_ins_beside(&self, named: &RevisionId) -> Result<Vec<OperationDocument>, StoreError> {
         let mut documents = Vec::new();
         for id in self.standing(named)? {
@@ -1720,6 +1819,11 @@ impl<F: Filesystem> Store<F> {
         } else {
             self.catalogue()?.forgetting(target).to_vec()
         };
+        if let Some(found) = self.read.borrow().beside.get(target)
+            && !standing.contains(found)
+        {
+            standing.push(*found);
+        }
         standing.sort_unstable();
         Ok(standing)
     }
@@ -2074,7 +2178,75 @@ impl<F: Filesystem> Store<F> {
     /// the file is hashed here, and only then are its bytes given to anybody.
     /// [`Store::payload`], which wants the bytes whole anyway, hashes the
     /// bytes it read instead.
+    ///
+    /// `None`, too, for bytes something here forgets: decision 0079 makes a
+    /// payload's stand-in beat the payload wherever both are held, as an
+    /// operation document's does, so the bytes a sync brought back are not
+    /// handed to anybody.
     pub fn payload_file(&self, id: &RevisionId) -> Result<Option<PathBuf>, StoreError> {
+        let Some(path) = self.held_payload_file(id)? else {
+            return Ok(None);
+        };
+        if self.forgotten_beside(id, &path)? {
+            return Ok(None);
+        }
+        Ok(Some(path))
+    }
+
+    /// Whether something this store holds forgets the payload whose bytes
+    /// are at `path`.
+    ///
+    /// Decision 0079. What the catalogue or a pass already knows is asked
+    /// first, and then the one place `forget` files a payload's stand-in: the
+    /// payload's own name with the document suffix after it. A file there is
+    /// read, hashed and parsed before it is believed, and a miss there proves
+    /// nothing — it is where the store's writer would have put one, not the
+    /// only place one can be — so a miss is not an absence, and nothing walks
+    /// the directory for one. Holding the bytes is still 0049's answer to
+    /// every question this does not ask.
+    fn forgotten_beside(&self, id: &RevisionId, path: &Path) -> Result<bool, StoreError> {
+        for standing in self.standing(id)? {
+            self.read_body(&standing)?;
+            if self
+                .read
+                .borrow()
+                .forgotten
+                .get(&standing)
+                .is_some_and(|document| document.forgets == *id)
+            {
+                return Ok(true);
+            }
+        }
+        let mut beside = path.as_os_str().to_owned();
+        beside.push(OPERATION_SUFFIX);
+        let beside = PathBuf::from(beside);
+        match self.files.look(&beside) {
+            Ok(Some(fs::Kind::File)) => {}
+            Ok(_) => return Ok(false),
+            Err(error) => return Err(StoreError::io(&beside, error)),
+        }
+        let bytes = self
+            .files
+            .read(&beside)
+            .map_err(|error| StoreError::io(&beside, error))?;
+        if !format::is_forgotten_payload(&bytes) {
+            return Ok(false);
+        }
+        let Ok(document) = ForgottenPayload::parse(&bytes) else {
+            return Ok(false);
+        };
+        if document.forgets != *id {
+            return Ok(false);
+        }
+        let found = digest(&bytes);
+        let mut read = self.read.borrow_mut();
+        read.forgotten.insert(found, document);
+        read.beside.insert(*id, found);
+        Ok(true)
+    }
+
+    /// Which file holds one payload's bytes, verified, whatever forgets them.
+    fn held_payload_file(&self, id: &RevisionId) -> Result<Option<PathBuf>, StoreError> {
         if let Some(filed) = self.catalogue()?.at(id)
             && !filed.document
         {
@@ -2107,7 +2279,13 @@ impl<F: Filesystem> Store<F> {
         {
             let path = self.root.join(&filed.path);
             match self.files.read(&path) {
-                Ok(bytes) if digest(&bytes) == *id => return Ok(Some(bytes)),
+                Ok(bytes) if digest(&bytes) == *id => {
+                    // Decision 0079, as [`Store::payload_file`] asks it.
+                    if self.forgotten_beside(id, &path)? {
+                        return Ok(None);
+                    }
+                    return Ok(Some(bytes));
+                }
                 Ok(_) => {}
                 Err(error) if error.kind() == io::ErrorKind::NotFound => {}
                 Err(error) => return Err(StoreError::io(&path, error)),
@@ -2116,6 +2294,9 @@ impl<F: Filesystem> Store<F> {
         let Some(path) = self.scan_for_payload(id)? else {
             return Ok(None);
         };
+        if self.forgotten_beside(id, &path)? {
+            return Ok(None);
+        }
         let bytes = self
             .files
             .read(&path)

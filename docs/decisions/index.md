@@ -894,6 +894,15 @@ depend on each other in.
   now hashes the file a catalogue's `yes` points at, since a cache can
   outlive the store it was kept for.
 
+- [0079 — A reader looks where `forget` files](0079-a-reader-looks-where-forget-files.md)
+  0049 let a reader believe that holding an original's bytes meant nothing
+  had redacted them, and a sync that copies files is the one way that fails.
+  A reader now lists the top of `operations/` before it believes a held
+  catalogue, and reads a digest-named document there that the catalogue does
+  not place, and it looks beside a payload for its stand-in. A stand-in held
+  beside a payload now beats it, as one beside a document already did. A miss
+  proves nothing, so neither look walks.
+
 Not a decision, but the evaluation one of them rests on:
 [`docs/loro.md`](../loro.md) — the initial Loro evaluation, and the conditions
 that would reverse it.

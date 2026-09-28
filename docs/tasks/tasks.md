@@ -6,7 +6,6 @@ updated: 2026-09-28
 contents:
   - "[The state at a revision without the walk](the-state-at-a-revision-without-the-walk.md)"
   - "[An export restates its indexes whole](an-export-restates-its-indexes-whole.md)"
-  - "[A forget a sync brings is read only after a pass](a-forget-a-sync-brings-is-read-only-after-a-pass.md)"
   - '[Closed tasks](/docs/tasks/closed/closed.md)'
 part_of: '[historica](/README.md)'
 ---

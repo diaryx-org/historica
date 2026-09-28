@@ -8,6 +8,7 @@ contents:
 - '[Saying what a command wrote](/docs/tasks/closed/saying-what-a-command-wrote.md)'
 - '[Saying a merge would empty a file](/docs/tasks/closed/saying-a-merge-would-empty-a-file.md)'
 - '[A stand-in beside a held resolution is read only after a scan](/docs/tasks/closed/a-stand-in-beside-a-held-resolution-is-read-only-after-a-scan.md)'
+- '[A forget a sync brings is read only after a pass](/docs/tasks/closed/a-forget-a-sync-brings-is-read-only-after-a-pass.md)'
 ---
 
 # Closed tasks

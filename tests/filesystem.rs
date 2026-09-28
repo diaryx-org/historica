@@ -1141,11 +1141,15 @@ fn a_content_read_does_not_list_the_directory_the_catalogue_places_it_in() {
         first,
         "the same file, read the cheap way"
     );
+    // One listing, of `operations/` itself and nothing below it: decision
+    // 0079's look at the top, where `forget` files a stand-in. Names, and no
+    // walk.
     assert_eq!(
         files.listings_under("history/operations"),
-        listings,
+        listings + 1,
         "a read asked the directory what it holds"
     );
+    let listings = listings + 1;
 
     // And a digest nothing places still costs the pass, because *not here* is
     // the answer a catalogue may not give.
@@ -1186,11 +1190,13 @@ fn a_record_lists_nothing_its_catalogue_already_names() {
     let mut store = Store::open_caching_on(files.clone(), &history, CACHE).expect("the store");
     let listings = files.listings_under("history/operations");
     let second = record_at(&files, &mut store, vec![first], "a second thought");
+    // The top of `operations/` once, for decision 0079, and nothing below it.
     assert_eq!(
         files.listings_under("history/operations"),
-        listings,
+        listings + 1,
         "recording walked operations/ to learn what it already held"
     );
+    let listings = listings + 1;
     drop(store);
 
     let store = Store::open_caching_on(files.clone(), &history, CACHE).expect("the store");
@@ -1204,7 +1210,7 @@ fn a_record_lists_nothing_its_catalogue_already_names() {
     let cheap = store.content(&second, &file).expect("the content");
     assert_eq!(
         files.listings_under("history/operations"),
-        listings,
+        listings + 1,
         "a reader walked for what the record had just filed"
     );
     let read =

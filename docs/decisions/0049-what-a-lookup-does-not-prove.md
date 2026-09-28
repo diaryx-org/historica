@@ -1,5 +1,15 @@
 # 0049 — What a lookup does not prove
 
+> **Amended 2026-09-28.** *Holding the bytes is the answer to whether they
+> were redacted* is true only of the ways this store destroys an original. A
+> sync that copies files and deletes nothing brings a forgetting document in
+> beside the original it forgets, and a reader that took the held catalogue as
+> it stands showed the original until something walked the directory.
+> [0079](0079-a-reader-looks-where-forget-files.md) has a reader look where
+> `forget` files a stand-in — the top of `operations/`, and beside a payload —
+> before believing it. The rule below stands for every question those looks do
+> not ask.
+
 0036 gave the store a catalogue and one condition for believing it:
 
 > the set of paths it names is the set the directory now holds

@@ -1,20 +1,27 @@
 ---
 title: A forget a sync brings is read only after a pass
 description: A forgetting document that a file-copying sync puts beside the original it forgets is not seen by a reader that takes its cached catalogue as it stands, so the forgotten text is shown until something makes the store read `operations/` — and nothing a reader does on its own need ever do that
-status: open
+status: done
 created: 2026-09-28
 updated: 2026-09-28
-part_of: "[Tasks](tasks.md)"
+part_of: '[Closed tasks](/docs/tasks/closed/closed.md)'
 ---
 
 # A forget a sync brings is read only after a pass
 
-Decisions [0003](../decisions/0003-store.md) and
-[0014](../decisions/0014-forgetting.md) let a store be synced by anything that
+**Status.** Done, by `fix(store): a reader looks where forget files a
+stand-in`. [0079](/docs/decisions/0079-a-reader-looks-where-forget-files.md)
+accepts both looks, and amends 0049 to name the sync case. A payload's
+stand-in held beside the payload now beats it, which no pass did before.
+`a_forget_a_sync_brings_is_read_by_the_first_reader_after_it` in
+`cli/tests/forget.rs` runs the repro below, for lines and for a payload.
+
+Decisions [0003](/docs/decisions/0003-store.md) and
+[0014](/docs/decisions/0014-forgetting.md) let a store be synced by anything that
 copies files — rsync, Syncthing, iCloud, `cp -n` — and 0014 says the
 redaction survives it: *a redaction that could be undone by transport is not
 one*. A sync that copies and deletes nothing brings the forgetting document in
-beside the original. [0049](../decisions/0049-what-a-lookup-does-not-prove.md)
+beside the original. [0049](/docs/decisions/0049-what-a-lookup-does-not-prove.md)
 lets a reader take the cached `operations.txt` as it stands, reasoning that holding
 the original's bytes means nothing has redacted them, because `forget`
 destroys them and `receive` complies before it writes. A sync is the one way
@@ -27,7 +34,7 @@ states read before it` makes the window end at the next pass over
 records it in the catalogue. What starts that pass is a digest the catalogue
 cannot place, `offer`, or a writer with no catalogue. A reader in a store
 nobody writes to, or one whose new documents are all found where their
-revision files them ([0041](../decisions/0041-where-a-revision-is-filed.md)),
+revision files them ([0041](/docs/decisions/0041-where-a-revision-is-filed.md)),
 may never take it.
 
 ## Reproduce
@@ -51,7 +58,7 @@ cd here && historica cat head f.md && historica check
 
 `cat` prints `secret`, and `check` prints the resurrection note. Run
 `historica offer .` (or delete the cache directory, decision
-[0078](../decisions/0078-where-a-cache-is-kept.md)) and `cat`
+[0078](/docs/decisions/0078-where-a-cache-is-kept.md)) and `cat`
 prints `\ forgotten`.
 
 ## Where the stand-ins are

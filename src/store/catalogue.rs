@@ -247,7 +247,10 @@ impl Catalogue {
 /// what destroys the original: `forget` deletes those bytes, `receive`
 /// complies before it writes, and a store holding both at once is the state
 /// `check` reports as `Resurrected` — with `check` itself refusing every
-/// cached answer there is.
+/// cached answer there is. A sync is the one way to reach that state without
+/// a hand in it, and decision 0079 narrows the window to what a sync cannot
+/// produce: the store looks where `forget` files a stand-in before it
+/// believes this.
 pub(super) fn cached<F: Filesystem + ?Sized>(files: &F, cache: &Path) -> Option<Catalogue> {
     let bytes = files.read(&cache.join(CATALOGUE_FILE)).ok()?;
     let text = String::from_utf8(bytes).ok()?;
