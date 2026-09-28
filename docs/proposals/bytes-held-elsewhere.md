@@ -1,13 +1,40 @@
 ---
 title: Bytes held elsewhere
 description: A copy that holds the history of a file of bytes without its bytes — fetched without them, fetched one at a time later, and let go of again — decided from what the store holds rather than from a list of what it lacks
-status: draft
+status: implemented
 created: 2026-09-28
 updated: 2026-09-28
 part_of: '[Proposals](/docs/proposals/proposals.md)'
 ---
 
 # Bytes held elsewhere
+
+## Status
+
+Implemented, unreleased, in f3374cc (`record`, `status`, `diff`, `update` and
+`export`) and 97aa4ac (`fetch --no-bytes`, `fetch <url> <path>...` and
+`evict`). No decision was written for it; this document is the record. The
+body below is left as it was argued, and the build differs from it here:
+
+- **`Store::fetch` did not change.** Its callers keep compiling, and the new
+  way of asking is `Store::fetch_with` taking a `Fetching`, with
+  `leaving_bytes` for `--no-bytes`. Taking a payload by digest is
+  `Store::fetch_payloads`, and the folder's half of evicting is
+  `update::plan_eviction`.
+- **`evict` does not refuse a folder file holding other bytes.** It leaves it:
+  that file is an edit `record` has not seen, and letting go of the store's
+  copy changes nothing about it.
+- **`export` refuses a missing file only at the target.** Payloads missing
+  from older revisions travel as they always did, as an absence the copy's
+  `check` notes.
+- **0044's witness record is still not built**, so `evict` has nothing to
+  clear yet.
+- **Open questions 1 and 2 are as proposed:** `evict` believes the listing,
+  and `record` does not take matching bytes from the folder.
+- **`fetch <url> <path>...` does not `check` the store** before or after,
+  unlike a whole fetch. A payload arriving under its own digest cannot make a
+  store that was right wrong, and checking hashes every payload the store
+  holds.
 
 A store of photographs, recordings or scans is mostly payloads. A laptop that
 wants the history of that store has to download all of them, and a phone
