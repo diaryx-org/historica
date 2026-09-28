@@ -1358,34 +1358,153 @@ fn evicting_lets_go_of_bytes_the_copy_offers_and_refuses_the_rest() {
     let report = Store::check(here.join("history"));
     assert!(report.is_ok(), "{report:?}");
 
-    // Nothing to let go of twice.
-    match store(&here).eviction_plan(&Directory::at(&root), MANIFEST, &[picture]) {
-        Err(EvictError::NotHeld { .. }) => {}
-        other => panic!("planned to let go of nothing: {other:?}"),
-    }
+    // Letting go twice is the first time finishing: nothing more goes from
+    // the store, and the plan still names where the copy has it.
+    let mut held = store(&here);
+    let plan = held
+        .eviction_plan(&Directory::at(&root), MANIFEST, &[picture])
+        .expect("a plan for bytes already let go of");
+    assert_eq!(plan.payloads().collect::<Vec<_>>(), vec![&picture]);
+    assert!(held.evict(&plan).expect("evicted").is_empty());
 }
 
 /// What `fetch` and `evict` refuse about the paths they are given is refused
-/// before anything is asked of the copy.
+/// before anything is asked of the copy — a mistyped command with the usage,
+/// and a path the store says no to in one line.
 #[test]
 fn naming_files_for_fetch_or_evict_is_checked_before_asking_the_copy() {
     let (origin, _) = published("naming");
+    fs::create_dir_all(origin.join("letters")).expect("a directory");
+    write(&origin, "letters/a.md", "dear\n");
+    out(&origin, &["record", "-m", "A letter"]);
     let url = "https://example.invalid/offer.txt";
-    for (arguments, said) in [
+    for (arguments, said, usage) in [
         (
             vec!["fetch", url, "nowhere.bin"],
             "names no file the heads hold",
+            false,
         ),
-        (vec!["evict", url, "notes.md"], "not a file of bytes"),
-        (vec!["evict", url], "wants the files to let go of"),
+        (vec!["evict", url, "notes.md"], "not a file of bytes", false),
+        (vec!["evict", url, "letters"], "holds no file of bytes", false),
+        (vec!["evict", url], "wants the files to let go of", true),
         (
             vec!["fetch", url, "--no-bytes", "notes/photo.png"],
             "no use for `--no-bytes`",
+            true,
         ),
     ] {
         let output = run(&origin, &arguments);
         assert!(!output.status.success(), "{arguments:?} was accepted");
         let stderr = String::from_utf8_lossy(&output.stderr);
         assert!(stderr.contains(said), "{arguments:?}: {stderr}");
+        assert_eq!(stderr.contains("usage:"), usage, "{arguments:?}: {stderr}");
     }
+}
+
+/// Bytes this store forgot are not brought back by naming them, though the
+/// copy still offers them.
+#[test]
+fn a_payload_forgotten_here_is_not_fetched_back_by_digest() {
+    let (_, root) = published("forgotten-by-digest");
+    let here = repository("forgotten-by-digest-here");
+    store(&here)
+        .fetch(&Directory::at(&root), MANIFEST, false)
+        .expect("a fetch");
+    out(&here, &["forget", "head", "notes/photo.png"]);
+    let picture = digest(&PICTURE);
+
+    let fetched = store(&here)
+        .fetch_payloads(&Directory::at(&root), MANIFEST, &[picture])
+        .expect("a fetch by digest");
+    assert_eq!(fetched.payloads, 0);
+    assert!(
+        store(&here)
+            .payload(&picture)
+            .expect("reading a payload")
+            .is_none()
+    );
+    let report = Store::check(here.join("history"));
+    assert!(report.is_ok(), "{report:?}");
+}
+
+/// A payload remembered as left behind that the copy cannot serve for now is
+/// still remembered, and taken once it can.
+#[test]
+fn a_left_payload_the_copy_cannot_serve_is_still_remembered() {
+    let (origin, root) = published("left-unserved");
+    fs::remove_file(root.join(MANIFEST)).expect("the whole listing");
+    publish_paged(&origin, &root);
+    let here = repository("left-unserved-here");
+    caching(&here)
+        .fetch_with(
+            &Directory::at(&root),
+            MANIFEST,
+            Fetching::default().leaving_bytes(true),
+        )
+        .expect("a fetch leaving bytes");
+
+    let picture = file_holding(&root.join("store/history/operations"), &PICTURE)
+        .expect("the published picture");
+    let aside = root.join("aside");
+    fs::rename(&picture, &aside).expect("the picture, unservable for now");
+    let fetched = caching(&here)
+        .fetch(&Directory::at(&root), MANIFEST, false)
+        .expect("a fetch the picture cannot come in");
+    assert_eq!(fetched.payloads, 0);
+    assert_eq!(fetched.left, 1, "the picture was forgotten about");
+
+    fs::rename(&aside, &picture).expect("the picture back");
+    let fetched = caching(&here)
+        .fetch(&Directory::at(&root), MANIFEST, false)
+        .expect("a fetch the picture comes in");
+    assert_eq!(fetched.payloads, 1);
+    assert_eq!(fetched.left, 0);
+}
+
+/// An eviction interrupted between the store and the folder leaves a folder
+/// holding what the head names, which is nothing to record, and running it
+/// again finishes it.
+#[test]
+fn an_eviction_interrupted_before_the_folder_is_finished_by_running_it_again() {
+    let (_, root) = published("evict-interrupted");
+    let here = repository("evict-interrupted-here");
+    store(&here)
+        .fetch(&Directory::at(&root), MANIFEST, false)
+        .expect("a fetch");
+    out(&here, &["update"]);
+    let picture = digest(&PICTURE);
+
+    let mut held = store(&here);
+    let plan = held
+        .eviction_plan(&Directory::at(&root), MANIFEST, &[picture])
+        .expect("a plan");
+    assert_eq!(held.evict(&plan).expect("evicted"), vec![picture]);
+    drop(held);
+
+    let status = out(&here, &["status"]);
+    assert!(status.contains("nothing here differs"), "{status}");
+    assert!(!status.contains("dropped"), "{status}");
+
+    let held = store(&here);
+    let plan = held
+        .eviction_plan(&Directory::at(&root), MANIFEST, &[picture])
+        .expect("the same plan again");
+    let working = historica::working::Working::read(&here, held.skipped()).expect("the folder");
+    let folder = historica::update::plan_eviction(&held, &working, &plan.payloads().copied().collect())
+        .expect("the folder's half");
+    historica::update::apply(&held, &working, &here, &folder).expect("the folder let go");
+    assert!(!here.join("notes/photo.png").exists());
+    let status = out(&here, &["status"]);
+    assert!(status.contains("absent  notes/photo.png"), "{status}");
+}
+
+/// The file under `root` holding exactly `bytes`, if one does.
+fn file_holding(root: &Path, bytes: &[u8]) -> Option<PathBuf> {
+    if root.is_dir() {
+        return fs::read_dir(root)
+            .ok()?
+            .filter_map(Result::ok)
+            .find_map(|entry| file_holding(&entry.path(), bytes));
+    }
+    (fs::read(root).ok()? == bytes).then(|| root.to_path_buf())
 }

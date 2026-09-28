@@ -74,7 +74,20 @@ pub fn fetch(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
             ));
         }
         let named = files_of_bytes(&store, &paths)?;
-        let wanted: Vec<RevisionId> = named.values().copied().collect();
+        // Decision 0014: bytes somebody forgot are not fetched back, and the
+        // person who named them is told so rather than shown a zero.
+        let mut forgotten = Vec::new();
+        let mut wanted = Vec::new();
+        for (path, payload) in &named {
+            if store.holds_payload(payload).map_err(Failure::error)? {
+                continue;
+            }
+            if store.held_elsewhere(payload).map_err(Failure::error)? {
+                wanted.push(*payload);
+            } else {
+                forgotten.push(path);
+            }
+        }
         let fetched = store
             .fetch_payloads(&source, &manifest, &wanted)
             .map_err(Failure::error)?;
@@ -82,6 +95,12 @@ pub fn fetch(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
             return printing(|out| render::wrote(out, &Statement::new()));
         }
         return printing(|out| {
+            for path in &forgotten {
+                writeln!(
+                    out,
+                    "left {path} alone: its bytes were forgotten here, and are not fetched back"
+                )?;
+            }
             writeln!(out, "fetched {} payloads", fetched.payloads)?;
             if fetched.payloads != 0 {
                 writeln!(
@@ -138,8 +157,9 @@ pub fn fetch(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
         if fetched.left != 0 {
             writeln!(
                 out,
-                "left {} files of bytes with the copy; `fetch <url> <path>` \
-                 takes one, and `fetch <url>` takes them all",
+                "left {} payloads with the copy, each the bytes of a file at some \
+                 revision; `fetch <url> <path>` takes a file's, and `fetch <url>` \
+                 takes them all",
                 fetched.left
             )?;
         }
@@ -177,9 +197,10 @@ pub fn fetch(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
 /// `evict <url> <path>...` — let go of the bytes of files a published copy
 /// also holds.
 ///
-/// The proposal *Bytes held elsewhere*. The folder's copy of each file goes
-/// first and the store's second, so an interruption leaves the store holding
-/// what the folder does not, which `update` writes back.
+/// The proposal *Bytes held elsewhere*. The store's copy of each file goes
+/// first and the folder's second, so an interruption leaves the folder
+/// holding bytes the head names, which `record` reads as unchanged and
+/// running `evict` again finishes.
 pub fn evict(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     let mut dry_run = false;
     let mut url: Option<String> = None;
@@ -216,7 +237,7 @@ pub fn evict(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
         .ok_or_else(|| Failure::error("this store has no repository around it"))?
         .to_path_buf();
     let named = files_of_bytes(&store, &paths)?;
-    let payloads: BTreeSet<RevisionId> = named.values().copied().collect();
+    let payloads: BTreeSet<RevisionId> = named.iter().map(|(_, payload)| *payload).collect();
     let wanted: Vec<RevisionId> = payloads.iter().copied().collect();
 
     let source = Web::at(&root)?;
@@ -235,17 +256,23 @@ pub fn evict(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
         });
     }
 
+    let evicted: BTreeSet<RevisionId> = store
+        .evict(&plan)
+        .map_err(Failure::error)?
+        .into_iter()
+        .collect();
     let applied = update::apply(&store, &working, &repository, &folder).map_err(Failure::error)?;
-    store.evict(&plan).map_err(Failure::error)?;
     printing(|out| {
+        for (path, payload) in &named {
+            if evicted.contains(payload) {
+                writeln!(out, "{:<7} {path}", "evicted")?;
+            }
+        }
         for path in &applied.removed {
             writeln!(out, "{:<7} {path}", "removed")?;
         }
         for (path, because) in &applied.left {
             writeln!(out, "left {path} alone: {because}")?;
-        }
-        for path in &folder.elsewhere {
-            writeln!(out, "{:<7} {path}", "evicted")?;
         }
         Ok(())
     })
@@ -264,39 +291,44 @@ fn path(argument: &str, command: &str) -> Result<String, Failure> {
 }
 
 /// The files of bytes the current heads hold at or beneath each path, with
-/// the payload each names.
+/// the payload each names — one pair for each head that differs there.
 ///
-/// A path naming a file of lines is refused, since only a file of bytes is
-/// ever held elsewhere; a directory takes the files of bytes beneath it and
-/// passes over the rest.
+/// A path naming a file of lines, or a directory holding no file of bytes,
+/// is refused, since only a file of bytes is ever held elsewhere; a directory
+/// takes the files of bytes beneath it and passes over the rest.
 fn files_of_bytes(
     store: &Store,
     paths: &[String],
-) -> Result<BTreeMap<String, RevisionId>, Failure> {
-    let mut trees = Vec::new();
+) -> Result<BTreeSet<(String, RevisionId)>, Failure> {
+    // Every head's files by path, once, so that a thousand paths a shell
+    // expanded are a thousand lookups rather than a thousand passes.
+    let mut held: BTreeMap<String, Vec<(Kind, Option<RevisionId>)>> = BTreeMap::new();
     for head in target::current_heads(store) {
-        trees.push(store.tree(&head).map_err(Failure::error)?);
+        for (_, entry) in store.tree(&head).map_err(Failure::error)?.entries() {
+            held.entry(entry.path.clone())
+                .or_default()
+                .push((entry.kind, entry.payload));
+        }
     }
-    let mut found = BTreeMap::new();
+    let mut found = BTreeSet::new();
     for named in paths {
+        let beneath = format!("{named}/");
+        let exact = held.get_key_value(named.as_str()).into_iter();
+        let under = held
+            .range(beneath.clone()..)
+            .take_while(|(path, _)| path.starts_with(&beneath));
         let mut any = false;
-        for tree in &trees {
-            for (_, entry) in tree.entries() {
-                let beneath = entry.path == *named
-                    || entry
-                        .path
-                        .strip_prefix(named.as_str())
-                        .is_some_and(|rest| rest.starts_with('/'));
-                if !beneath {
-                    continue;
-                }
-                any = true;
-                match (entry.kind, entry.payload) {
+        let mut bytes = false;
+        for (path, entries) in exact.chain(under) {
+            any = true;
+            for (kind, payload) in entries {
+                match (kind, payload) {
                     (Kind::Whole, Some(payload)) => {
-                        found.insert(entry.path.clone(), payload);
+                        bytes = true;
+                        found.insert((path.clone(), *payload));
                     }
-                    _ if entry.path == *named => {
-                        return Err(Failure::usage(format!(
+                    _ if path == named => {
+                        return Err(Failure::error(format!(
                             "`{named}` is not a file of bytes with one content, and \
                              only such a file is ever held elsewhere"
                         )));
@@ -306,8 +338,14 @@ fn files_of_bytes(
             }
         }
         if !any {
-            return Err(Failure::usage(format!(
+            return Err(Failure::error(format!(
                 "`{named}` names no file the heads hold"
+            )));
+        }
+        if !bytes {
+            return Err(Failure::error(format!(
+                "`{named}` holds no file of bytes, and only such a file is ever \
+                 held elsewhere"
             )));
         }
     }

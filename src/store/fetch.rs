@@ -98,7 +98,9 @@
 //! would never be told about it again. A fetch without the flag takes what was
 //! left, and [`Store::fetch_payloads`] takes any of it by digest. Both look an
 //! address the source no longer answers at up in the whole listing, and drop a
-//! digest the whole listing does not name any more. Deleting the memory costs
+//! digest the whole listing does not name any more; one it names and the
+//! source will not serve there either is still left, and still remembered.
+//! Neither takes bytes something here forgets. Deleting the memory costs
 //! reading every page, as it always did.
 //!
 //! # The two kinds nothing here reads
@@ -592,11 +594,9 @@ impl<F: Filesystem> Store<F> {
                 None if asked.leave_bytes => break leaving,
                 // Taken after everything the pages named, and apart from it: a
                 // remembered address that has gone is not the listing moving,
-                // and reading the manifest again would not find it.
-                None => {
-                    self.take_remembered(source, manifest, &remembered, &mut fetched)?;
-                    break Vec::new();
-                }
+                // and reading the manifest again would not find it. What still
+                // could not be taken is still left, and still remembered.
+                None => break self.take_remembered(source, manifest, &remembered, &mut fetched)?,
                 // Decision 0048: a path that is not there is the publisher
                 // having moved on, so read the listing again and want what is
                 // still wanted. A digest gone from the new listing was
@@ -649,18 +649,20 @@ impl<F: Filesystem> Store<F> {
     /// What a fetch before this one left behind and this store still lacks,
     /// where the listing did not state it again.
     fn still_left(&self, listing: &Listing, plan: &FetchPlan) -> Result<Vec<Offered>, FetchError> {
+        if listing.left.is_empty() {
+            return Ok(Vec::new());
+        }
+        let forgotten: BTreeSet<RevisionId> = listing
+            .offer
+            .entries()
+            .iter()
+            .filter_map(|offered| offered.forgets)
+            .collect();
+        let wanted: BTreeSet<RevisionId> = plan.payloads.iter().map(|entry| entry.digest).collect();
         let mut left = Vec::new();
         for entry in &listing.left {
-            let forgotten = listing
-                .offer
-                .entries()
-                .iter()
-                .any(|offered| offered.forgets == Some(entry.digest));
-            if forgotten
-                || plan
-                    .payloads
-                    .iter()
-                    .any(|wanted| wanted.digest == entry.digest)
+            if forgotten.contains(&entry.digest)
+                || wanted.contains(&entry.digest)
                 || !self.held_elsewhere(&entry.digest)?
             {
                 continue;
@@ -732,19 +734,22 @@ impl<F: Filesystem> Store<F> {
     }
 
     /// Take what a fetch before this one left behind, by the addresses it
-    /// remembered.
+    /// remembered, and return what is still left.
     ///
     /// An address the source no longer answers at is looked up in the whole
     /// listing, since `arrange` or a fresh export may have moved the file;
     /// a digest the whole listing does not name any more was forgotten or
-    /// pruned there, and is not wanted.
+    /// pruned there, and is not wanted. One the listing names and the source
+    /// does not answer for there either is still offered, so it is still
+    /// left, at the listing's address: forgetting it would leave it out of
+    /// every fetch that reads only the pages after this one.
     fn take_remembered<S: Source + ?Sized>(
         &mut self,
         source: &S,
         manifest: &str,
         remembered: &[Offered],
         fetched: &mut Fetched,
-    ) -> Result<(), FetchError> {
+    ) -> Result<Vec<Offered>, FetchError> {
         let mut lost = Vec::new();
         for entry in remembered {
             if self.fetch_payload(source, entry, fetched)? {
@@ -754,19 +759,25 @@ impl<F: Filesystem> Store<F> {
             }
         }
         if lost.is_empty() {
-            return Ok(());
+            return Ok(Vec::new());
         }
-        let whole = self.whole_listing(source, manifest, fetched)?;
+        let (whole, _) = self.whole_listing(source, manifest, fetched)?;
+        let offered: BTreeMap<RevisionId, &Offered> = whole
+            .of(OfferKind::Payload)
+            .map(|entry| (entry.digest, entry))
+            .collect();
+        let mut left = Vec::new();
         for digest in lost {
-            if let Some(entry) = whole
-                .of(OfferKind::Payload)
-                .find(|entry| entry.digest == digest)
-                && self.fetch_payload(source, entry, fetched)?
-            {
+            let Some(entry) = offered.get(&digest) else {
+                continue;
+            };
+            if self.fetch_payload(source, entry, fetched)? {
                 fetched.payloads += 1;
+            } else {
+                left.push((*entry).clone());
             }
         }
-        Ok(())
+        Ok(left)
     }
 
     /// Take particular payloads, by digest, and nothing else.
@@ -774,8 +785,10 @@ impl<F: Filesystem> Store<F> {
     /// The proposal *Bytes held elsewhere*: the one file somebody opened, out
     /// of the ones a fetch left behind. Each is looked for where a fetch that
     /// left it remembered it, and in the whole listing where nothing did. A
-    /// digest this store already holds is not asked for, and one the copy
-    /// does not offer is [`FetchError::NotOffered`].
+    /// digest this store already holds is not asked for, and neither is one
+    /// something here forgets: decision 0014 destroyed those bytes, and
+    /// bringing them back would be what `check` calls resurrection. One the
+    /// copy does not offer is [`FetchError::NotOffered`].
     ///
     /// Unlike [`Store::fetch`] this does not `check` the store before or
     /// after. A payload arriving under its own digest, which is the only
@@ -789,10 +802,10 @@ impl<F: Filesystem> Store<F> {
         wanted: &[RevisionId],
     ) -> Result<Fetched, FetchError> {
         let mut fetched = Fetched::default();
-        let mut missing: Vec<RevisionId> = Vec::new();
+        let mut missing: BTreeSet<RevisionId> = BTreeSet::new();
         for digest in wanted {
-            if !missing.contains(digest) && !self.holds_payload(digest)? {
-                missing.push(*digest);
+            if !missing.contains(digest) && self.held_elsewhere(digest)? {
+                missing.insert(*digest);
             }
         }
         if missing.is_empty() {
@@ -815,7 +828,7 @@ impl<F: Filesystem> Store<F> {
         let mut refetches = REFETCHES;
         loop {
             if missing.iter().any(|digest| !addresses.contains_key(digest)) {
-                let whole = self.whole_listing(source, manifest, &mut fetched)?;
+                let (whole, _) = self.whole_listing(source, manifest, &mut fetched)?;
                 for entry in whole.of(OfferKind::Payload) {
                     if missing.contains(&entry.digest) {
                         addresses.insert(entry.digest, entry.clone());
@@ -835,7 +848,7 @@ impl<F: Filesystem> Store<F> {
                     fetched.payloads += 1;
                 } else {
                     moved = Some(entry.path);
-                    missing.push(digest);
+                    missing.insert(digest);
                 }
             }
             let Some(moved) = moved else { break };
@@ -847,25 +860,29 @@ impl<F: Filesystem> Store<F> {
         }
 
         if let Some(base) = base {
+            let taken: BTreeSet<&RevisionId> = wanted.iter().collect();
             self.rewrite_left(&base, |left| {
-                left.retain(|entry| !wanted.contains(&entry.digest));
+                left.retain(|entry| !taken.contains(&entry.digest));
             });
         }
         Ok(fetched)
     }
 
     /// Every page of the manifest, whatever this store remembers applying:
-    /// the whole listing.
+    /// the whole listing, and the base of a paged one.
     pub(super) fn whole_listing<S: Source + ?Sized>(
         &self,
         source: &S,
         manifest: &str,
         fetched: &mut Fetched,
-    ) -> Result<Offer, FetchError> {
+    ) -> Result<(Offer, Option<RevisionId>), FetchError> {
         let mut refetches = REFETCHES;
         loop {
             match self.read_listing(source, manifest, fetched, false)? {
-                Ok(listing) => return Ok(listing.offer),
+                Ok(listing) => {
+                    let base = listing.chain.map(|(base, _)| base);
+                    return Ok((listing.offer, base));
+                }
                 Err(moved) => {
                     if refetches == 0 {
                         return Err(FetchError::Stale { path: moved });
@@ -1447,7 +1464,7 @@ const FETCHED_HEADER: &str = "historica-fetched-2";
 const FETCHED_HEADER_1: &str = "historica-fetched-1";
 
 /// Read the manifest, and refuse a spelling this reader does not know.
-pub(super) fn read_manifest<S: Source + ?Sized>(
+fn read_manifest<S: Source + ?Sized>(
     source: &S,
     manifest: &str,
     fetched: &mut Fetched,

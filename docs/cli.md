@@ -524,7 +524,10 @@ the document that says so; `evict` writes nothing that travels, and a fetch
 brings the bytes back. It refuses a file of lines, whose text every later
 version is built on, and a payload the copy's listing does not offer. The
 listing is the publisher's word that it holds the bytes, and nothing short of
-fetching them could prove it. Decision
+fetching them could prove it. The store's copy goes before the folder's, so an
+eviction that stops between them leaves the folder holding what the head
+names, and running it again finishes it. Neither `fetch <url> <path>` nor
+`evict` touches bytes this store forgot. Decision
 [0048](decisions/0048-asking-for-what-is-missing.md) puts the transport in the
 binary rather than the library: the library does the whole of the algorithm
 through a `Source` that answers one question, and what the binary adds is that

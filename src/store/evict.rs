@@ -20,26 +20,29 @@
 //! - **A payload a revision here names as a file's lines.** A file of lines is
 //!   replayed onto the payload that created it, so without that payload the
 //!   file could not be read, diffed or edited at any revision.
-//! - **A payload this store does not hold**, because there is nothing to let
-//!   go of.
+//!
+//! A payload this store no longer holds is not refused: an eviction that was
+//! interrupted let go of the store's copy and not the folder's, and running
+//! it again finishes it. One something here forgets is passed over, since
+//! there is nothing to let go of and no copy should be remembered for it.
 //!
 //! # The folder
 //!
 //! The folder's copy of each file holding exactly those bytes goes too, since
 //! freeing the space is the point. That is [`crate::update::plan_eviction`],
-//! applied before [`Store::evict`] so that an interruption between the two
-//! leaves the store still holding what the folder no longer does.
+//! applied after [`Store::evict`]: an interruption between the two leaves the
+//! folder holding bytes the head names, which `record` reads as unchanged,
+//! where the other order would leave a folder missing a file the store holds
+//! — which `record` reads as a deletion.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 use crate::core::RevisionId;
 use crate::fs::Filesystem;
 
-use super::fetch::read_manifest;
 use super::prune::remove_empty_directories;
-use super::{
-    FetchError, Fetched, Manifest, OPERATIONS_DIR, OfferKind, Offered, Source, Store, StoreError,
-};
+use super::{FetchError, Fetched, OPERATIONS_DIR, OfferKind, Offered, Source, Store, StoreError};
 
 /// What letting go of some payloads would do, worked out before anything is
 /// removed.
@@ -72,35 +75,36 @@ impl<F: Filesystem> Store<F> {
         wanted: &[RevisionId],
     ) -> Result<Eviction, EvictError> {
         let (text, _) = self.named_payloads()?;
-        let mut asked: Vec<RevisionId> = Vec::new();
+        let mut asked: BTreeSet<RevisionId> = BTreeSet::new();
         for payload in wanted {
-            if asked.contains(payload) {
-                continue;
-            }
             if text.contains(payload) {
                 return Err(EvictError::Text { payload: *payload });
             }
-            if !self.holds_payload(payload)? {
-                return Err(EvictError::NotHeld { payload: *payload });
+            if self.forgotten_payload(payload)?.is_some() || !self.forgetting(payload)?.is_empty()
+            {
+                continue;
             }
-            asked.push(*payload);
+            asked.insert(*payload);
+        }
+        if asked.is_empty() {
+            return Ok(Eviction {
+                offered: Vec::new(),
+                base: None,
+            });
         }
 
         let mut fetched = Fetched::default();
-        let base = match read_manifest(source, manifest, &mut fetched)? {
-            Manifest::Paged(tip) => tip.pages().first().map(|page| page.digest),
-            Manifest::Whole(_) => None,
-        };
-        let whole = self.whole_listing(source, manifest, &mut fetched)?;
+        let (whole, base) = self.whole_listing(source, manifest, &mut fetched)?;
+        let offers: BTreeMap<RevisionId, &Offered> = whole
+            .of(OfferKind::Payload)
+            .map(|entry| (entry.digest, entry))
+            .collect();
         let mut offered = Vec::new();
         for payload in asked {
-            let Some(entry) = whole
-                .of(OfferKind::Payload)
-                .find(|entry| entry.digest == payload)
-            else {
+            let Some(entry) = offers.get(&payload) else {
                 return Err(EvictError::NotOffered { payload });
             };
-            offered.push(entry.clone());
+            offered.push((*entry).clone());
         }
         Ok(Eviction { offered, base })
     }
@@ -111,6 +115,21 @@ impl<F: Filesystem> Store<F> {
     /// read is, so a catalogue wrong about where a digest sits cannot make
     /// this remove some other file. One already gone is passed over.
     pub fn evict(&mut self, plan: &Eviction) -> Result<Vec<RevisionId>, EvictError> {
+        // Remembered before anything goes, so that a fetch reading only the
+        // pages after this store's last one still knows where to take them
+        // from again, however far this gets. A payload remembered and still
+        // held is one a fetch passes over.
+        if let Some(base) = &plan.base {
+            self.rewrite_left(base, |left| {
+                let held: BTreeSet<RevisionId> = left.iter().map(|entry| entry.digest).collect();
+                left.extend(
+                    plan.offered
+                        .iter()
+                        .filter(|entry| !held.contains(&entry.digest))
+                        .cloned(),
+                );
+            });
+        }
         let mut evicted = Vec::new();
         for entry in &plan.offered {
             let Some(path) = self.payload_file(&entry.digest)? else {
@@ -127,17 +146,6 @@ impl<F: Filesystem> Store<F> {
         // The catalogue maps digests to paths that have just gone.
         self.forget_catalogue();
         remove_empty_directories(self.filesystem(), &self.root.join(OPERATIONS_DIR))?;
-        // So that a fetch that reads only the pages after this store's last
-        // one still knows where to take them from again.
-        if let Some(base) = &plan.base {
-            self.rewrite_left(base, |left| {
-                for entry in &plan.offered {
-                    if !left.iter().any(|held| held.digest == entry.digest) {
-                        left.push(entry.clone());
-                    }
-                }
-            });
-        }
         Ok(evicted)
     }
 }
@@ -148,11 +156,6 @@ impl<F: Filesystem> Store<F> {
 pub enum EvictError {
     /// A revision here names this payload as a file's lines.
     Text {
-        /// The payload.
-        payload: RevisionId,
-    },
-    /// This store does not hold the payload.
-    NotHeld {
         /// The payload.
         payload: RevisionId,
     },
@@ -187,10 +190,6 @@ impl fmt::Display for EvictError {
                 "{payload} is the text a file of lines is replayed onto, and \
                  without it that file could not be read at any revision; only \
                  files of bytes are let go of"
-            ),
-            EvictError::NotHeld { payload } => write!(
-                f,
-                "this store does not hold {payload}, so there is nothing to let go of"
             ),
             EvictError::NotOffered { payload } => write!(
                 f,
