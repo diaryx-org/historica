@@ -776,3 +776,41 @@ fn a_forget_a_sync_brings_is_read_by_the_first_reader_after_it() {
     let report = out(&here, &["check"]);
     assert_eq!(report.matches("here again").count(), 2, "{report}");
 }
+
+/// Decision 0079's look at the top of `operations/`, over a stand-in `forget`
+/// filed there under the digest of the payload it forgets — which is where it
+/// files one for bytes a `receive` brought, since those sit under their own
+/// digest. Catalogued once, it is left alone: a reader that took it for
+/// something newly arrived would clear the cache and rewrite the catalogue on
+/// every command after.
+#[test]
+fn a_stand_in_filed_under_what_it_forgets_is_read_at_the_top_once() {
+    let base = scratch("top-stand-in");
+    let origin = folder(base.join("origin"));
+    assert!(run(&origin, &["init"]).status.success());
+    write(&origin, "f.md", "one\ntwo\n");
+    write_bytes(&origin, "photo.png", b"\x89PNG\x00the secret picture\x00");
+    out(&origin, &["record", "-m", "first"]);
+
+    let here = folder(base.join("here"));
+    assert!(run(&here, &["init"]).status.success());
+    out(&here, &["receive", &origin.to_string_lossy()]);
+    out(&here, &["forget", "head", "photo.png"]);
+    let top = fs::read_dir(here.join("history/operations"))
+        .expect("operations/")
+        .filter_map(Result::ok)
+        .filter(|entry| entry.path().is_file())
+        .count();
+    assert!(top > 0, "nothing sits at the top, so this tests nothing");
+
+    out(&here, &["cat", "head", "f.md"]);
+    let planted =
+        cache_of(&here).join(historica::format::digest(b"a state kept earlier").to_string());
+    fs::write(&planted, "kept").expect("a cache entry");
+    out(&here, &["cat", "head", "f.md"]);
+    out(&here, &["cat", "head", "f.md"]);
+    assert!(
+        planted.exists(),
+        "a reader cleared the cache for nothing new"
+    );
+}

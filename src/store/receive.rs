@@ -428,10 +428,10 @@ impl<F: Filesystem> Store<F> {
     /// Readers still apply the redaction over it (decision 0079), `check`
     /// reports it as resurrected, and `forget` or `receive` destroys it.
     ///
-    /// What the cache derived from the destroyed bytes goes with them, and
-    /// the catalogue is kept without the files, so the next reader neither
-    /// reads a state from before the redaction nor walks for a file that is
-    /// gone.
+    /// What the cache derived from the destroyed bytes goes first, and the
+    /// catalogue is kept without the files after, so the next reader neither
+    /// reads a state from before the redaction — even where this was
+    /// interrupted — nor walks for a file that is gone.
     pub fn comply_with_stand_ins(&mut self, stand_ins: &[RevisionId]) -> Result<usize, StoreError> {
         let mut targets: BTreeSet<RevisionId> = BTreeSet::new();
         for id in stand_ins {
@@ -440,6 +440,13 @@ impl<F: Filesystem> Store<F> {
                 .and_then(|body| body.forgets())
                 .ok_or(StoreError::NotAStandIn { document: *id })?;
             targets.insert(target);
+        }
+        // The states derived before the redaction go before the bytes do, so
+        // a command that dies between the two leaves no state holding lines
+        // that are no longer anywhere else. Whatever is destroyed, since a
+        // copy the catalogue does not place may be what they were built from.
+        if !targets.is_empty() {
+            self.clear_cache();
         }
         let boundary = self.root.join(OPERATIONS_DIR);
         let mut destroyed = 0;
@@ -474,7 +481,6 @@ impl<F: Filesystem> Store<F> {
             }
         }
         if destroyed > 0 {
-            self.clear_cache();
             self.keep_catalogue();
         }
         Ok(destroyed)

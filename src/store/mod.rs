@@ -1508,16 +1508,20 @@ impl<F: Filesystem> Store<F> {
                 .strip_prefix(&self.root)
                 .unwrap_or(&entry.path)
                 .to_path_buf();
-            if catalogue
-                .at(&named)
-                .is_some_and(|filed| filed.path == relative)
-            {
+            // Filed under its own digest, or — the stand-in `forget` leaves
+            // for bytes it destroyed — under the digest of what it forgets.
+            let catalogued =
+                |id: &RevisionId| catalogue.at(id).is_some_and(|filed| filed.path == relative);
+            if catalogued(&named) || catalogue.forgetting(&named).iter().any(catalogued) {
                 continue;
             }
-            let bytes = self
-                .files
-                .read(&entry.path)
-                .map_err(|error| StoreError::io(&entry.path, error))?;
+            let bytes = match self.files.read(&entry.path) {
+                Ok(bytes) => bytes,
+                // Listed and then gone: another command moved or destroyed it
+                // meanwhile, and a file that is not there brings nothing.
+                Err(error) if error.kind() == io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(StoreError::io(&entry.path, error)),
+            };
             let id = digest(&bytes);
             // Unparsable is `check`'s finding, and a reader that never asks
             // for this digest has no reason to fail over it.
@@ -2237,10 +2241,11 @@ impl<F: Filesystem> Store<F> {
             Ok(_) => return Ok(false),
             Err(error) => return Err(StoreError::io(&beside, error)),
         }
-        let bytes = self
-            .files
-            .read(&beside)
-            .map_err(|error| StoreError::io(&beside, error))?;
+        let bytes = match self.files.read(&beside) {
+            Ok(bytes) => bytes,
+            Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(false),
+            Err(error) => return Err(StoreError::io(&beside, error)),
+        };
         if !format::is_forgotten_payload(&bytes) {
             return Ok(false);
         }
@@ -2551,19 +2556,17 @@ impl<F: Filesystem> Store<F> {
     /// the answer is a comparison, and nothing is materialised to make it.
     ///
     /// `None` wherever materialising could say something else: concurrent
-    /// statements, a document that states no result, and any store holding
-    /// a forgetting document, since a redaction makes the file what no
+    /// statements, a document that states no result, a payload the catalogue
+    /// does not place or a stand-in sits beside, and any store holding a
+    /// forgetting document, since a redaction makes the file what no
     /// document's digest describes.
     pub(crate) fn stated_digest(
         &self,
         head: &RevisionId,
         file: &FileId,
     ) -> Result<Option<RevisionId>, MaterialiseError> {
-        if self
-            .catalogue()
-            .map_err(MaterialiseError::unreadable)?
-            .forgets_anything()
-        {
+        let catalogue = self.catalogue().map_err(MaterialiseError::unreadable)?;
+        if catalogue.forgets_anything() {
             return Ok(None);
         }
         let Some(stating) = self.stating() else {
@@ -2583,7 +2586,23 @@ impl<F: Filesystem> Store<F> {
                 .stated_result(named)
                 .map_err(MaterialiseError::unreadable);
         }
-        Ok(document.text.get(file).copied())
+        let Some(payload) = document.text.get(file).copied() else {
+            return Ok(None);
+        };
+        // Decision 0079: a sync can bring a payload's stand-in beside bytes
+        // this store still holds, where the catalogue does not look, and
+        // materialising reads the stand-in. So the digest stands only for
+        // bytes the catalogue places with nothing filed beside them.
+        let Some(filed) = catalogue.at(&payload).filter(|filed| !filed.document) else {
+            return Ok(None);
+        };
+        if self
+            .forgotten_beside(&payload, &self.root.join(&filed.path))
+            .map_err(MaterialiseError::unreadable)?
+        {
+            return Ok(None);
+        }
+        Ok(Some(payload))
     }
 
     /// The file set at `head`.

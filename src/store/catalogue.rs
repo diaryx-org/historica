@@ -223,7 +223,14 @@ impl Catalogue {
     /// Let go of one file, and of the index entry standing for it.
     pub(super) fn remove(&mut self, id: &RevisionId) -> Option<Located> {
         let filed = match self.at.remove(id) {
-            Some(filed) => filed,
+            // A held line may name it too, and must not come back from under
+            // the entry that shadowed it.
+            Some(filed) => {
+                if self.held.is_some() {
+                    self.removed.insert(*id);
+                }
+                filed
+            }
             // A held line, which stays in the text and is skipped from now on.
             None => {
                 let filed = self.at(id)?;
