@@ -1146,3 +1146,37 @@ fn a_page_removed_under_a_fetch_is_answered_by_reading_the_manifest_again() {
     assert_eq!(head_of(&here), head_of(&origin));
     assert!(root.join("offer-pages/unrelated.txt").exists());
 }
+
+/// What a fetcher remembers is believed only while its store holds what it
+/// remembers taking. A store deleted and made again at the same path finds its
+/// predecessor's cache, and reads every page rather than trusting it: it takes
+/// the whole history, and a later page lands on a store holding its parents.
+#[test]
+fn a_store_made_again_where_one_was_does_not_believe_its_memory() {
+    let (origin, root) = published("paged-again");
+    publish_paged(&origin, &root);
+    let here = repository("paged-again-here");
+    caching(&here)
+        .fetch(&Directory::at(&root), MANIFEST, false)
+        .expect("the first fetch");
+    let held = store(&here).revisions().count();
+    assert!(held > 0);
+
+    fs::remove_dir_all(here.join("history")).expect("the store gone");
+    assert!(run(&here, &["init"]).status.success());
+    let fetched = caching(&here)
+        .fetch(&Directory::at(&root), MANIFEST, false)
+        .expect("a fetch into the store made again");
+    assert_eq!(fetched.pages, 1, "the base was not read again");
+    assert_eq!(store(&here).revisions().count(), held);
+
+    write(&origin, "notes.md", "one\ntwo\nthree\n");
+    out(&origin, &["record", "-m", "A third thought"]);
+    publish_paged(&origin, &root);
+    let fetched = caching(&here)
+        .fetch(&Directory::at(&root), MANIFEST, false)
+        .expect("a fetch of the next page");
+    assert_eq!(fetched.pages, 1);
+    assert_eq!(store(&here).revisions().count(), held + 1);
+    assert_eq!(head_of(&here), head_of(&origin));
+}

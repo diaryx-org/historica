@@ -84,17 +84,23 @@ read whole on every pull.
   a fetcher holding the old manifest finds every page it names. Pages the
   manifest no longer names are removed last. A fetcher still working from one
   is told nothing is there and reads the manifest again, which is 0048's
-  answer to a publisher who moved on.
+  answer to a publisher who moved on. One publisher writes a manifest at a
+  time: two at once can each remove a page the other's manifest names, and
+  fetchers then report the listing stale until the next publish.
 
 - **A fetcher remembers which pages it applied, in its cache.** After a fetch
   has taken everything and `check` has passed, the store records the base and
   the pages after it in the directory the host keeps its caches in (0078).
-  The next fetch reads only the pages after those, where the manifest's
-  pages still begin with them. Anything else reads every page: nothing
-  remembered, no cache to remember in, or a fresh base. That composes to the
-  whole listing and answers the same. A fetch that skipped pages does not ask
-  the listing about relatedness, since the revisions both stores hold are in
-  the pages it skipped, and it established relatedness when it applied them.
+  It records the manifest's heads it holds beside them. The next fetch reads
+  only the pages after those, where the manifest's pages still begin with
+  them and the store still holds every head it recorded. Anything else reads
+  every page: nothing remembered, no cache to remember in, a fresh base, or a
+  store that no longer holds what it remembered taking, such as one deleted
+  and made again at the same path. That composes to the whole listing, and
+  takes the same. A fetch that skipped pages does not ask the listing about
+  relatedness, since the revisions both stores hold are in the pages it
+  skipped, and the heads it still holds are the evidence. What a fetch
+  reports it kept or declined is counted over the pages it read.
 
 - **`historica-offer-2` is a new number, and a reader of `-1` refuses it.**
   That is 0048's reason for numbering the header. A fetch built before this

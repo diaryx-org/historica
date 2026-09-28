@@ -425,8 +425,12 @@ pub struct Fetched {
     /// hold.
     pub names: Vec<String>,
     /// Bookmarks the publisher states and this store kept its own reading of.
+    ///
+    /// Of a paged manifest, counted over the pages this fetch read.
     pub kept: usize,
     /// Reserved directories the manifest named and this store did not fill.
+    ///
+    /// Of a paged manifest, those in the pages this fetch read.
     pub declined: Vec<Declined>,
     /// Originals destroyed in compliance with arriving forgetting documents.
     pub destroyed: usize,
@@ -471,7 +475,9 @@ impl<F: Filesystem> Store<F> {
         loop {
             // A fetch that skipped pages it had applied was related to this
             // copy when it applied them, and what it read since cannot say so:
-            // the revisions both hold are in the pages it skipped.
+            // the revisions both hold are in the pages it skipped. It skipped
+            // them only because this store still holds the heads it took
+            // with them, which is the relatedness 0052 asks for, held.
             let plan = self.fetch_plan(&listing.offer, join_unrelated || listing.skipped)?;
             // Stated from the plan rather than accumulated across passes: it is
             // a description of what the manifest holds, and reading the
@@ -525,7 +531,7 @@ impl<F: Filesystem> Store<F> {
         // checked: a fetch that stopped short remembers nothing, and the next
         // one reads the pages again.
         if let Some((base, after)) = &listing.chain {
-            self.remember_pages(base, after);
+            self.remember_pages(base, after, listing.offer.heads());
         }
         Ok(fetched)
     }
@@ -625,7 +631,14 @@ impl<F: Filesystem> Store<F> {
     ///
     /// Kept where the host keeps this store's caches (decision 0078), because
     /// it is one device's and saves only time: without it a fetch reads every
-    /// page, which is the whole listing, and answers the same.
+    /// page, which is the whole listing, and takes the same.
+    ///
+    /// Believed only while this store holds every head it held when it
+    /// remembered, as 0078 believes a cached catalogue only once it is
+    /// checked: a store deleted and made again at one path finds its
+    /// predecessor's cache, and a memory it did not earn would skip pages it
+    /// never took — and, having skipped them, would never be asked whether it
+    /// is related to the copy at all.
     fn fetched_pages(&self, base: &RevisionId) -> Option<Vec<RevisionId>> {
         let file = self
             .cache
@@ -637,26 +650,48 @@ impl<F: Filesystem> Store<F> {
         if lines.next() != Some(FETCHED_HEADER) {
             return None;
         }
-        lines.map(|line| line.parse().ok()).collect()
+        let mut heads = 0;
+        let mut pages = Vec::new();
+        for line in lines {
+            if let Some(head) = line.strip_prefix("head ") {
+                if !self.holds(&head.parse().ok()?) {
+                    return None;
+                }
+                heads += 1;
+            } else {
+                pages.push(line.strip_prefix("page ")?.parse().ok()?);
+            }
+        }
+        (heads > 0).then_some(pages)
     }
 
-    /// Remember that this store has applied `base` and the pages after it.
+    /// Remember that this store has applied `base` and the pages after it,
+    /// and which of the manifest's heads it holds for having done so.
     ///
-    /// Every failure is ignored, as decision 0035 ignores every failure to
-    /// keep a cache: the next fetch reads every page.
-    fn remember_pages(&self, base: &RevisionId, after: &[RevisionId]) {
+    /// A store holding none of them remembers nothing, since nothing could
+    /// later show the memory is its own. Every failure is ignored, as
+    /// decision 0035 ignores every failure to keep a cache: the next fetch
+    /// reads every page.
+    fn remember_pages(&self, base: &RevisionId, after: &[RevisionId], heads: &[RevisionId]) {
         let Some(cache) = &self.cache else {
             return;
         };
         let directory = cache.join(FETCHED_DIR);
+        let file = directory.join(format!("{base}.txt"));
+        let held: Vec<&RevisionId> = heads.iter().filter(|head| self.holds(head)).collect();
+        if held.is_empty() {
+            let _ = self.files.remove_file(&file);
+            return;
+        }
         let mut text = format!("{FETCHED_HEADER}\n");
+        for head in held {
+            text.push_str(&format!("head {head}\n"));
+        }
         for page in after {
-            text.push_str(&format!("{page}\n"));
+            text.push_str(&format!("page {page}\n"));
         }
         let _ = self.files.create_directory(&directory);
-        let _ = self
-            .files
-            .write(&directory.join(format!("{base}.txt")), text.as_bytes());
+        let _ = self.files.write(&file, text.as_bytes());
     }
 
     /// Work out what a manifest would add, without asking for a byte of it.
