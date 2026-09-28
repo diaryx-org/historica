@@ -249,6 +249,21 @@ impl Catalogue {
         Some(filed)
     }
 
+    /// Say that the files at `from` are now at `to`, by path, as a writer
+    /// that renamed them knows it.
+    ///
+    /// Only ever asked of a catalogue a pass built, which holds every path:
+    /// `arrange` is the caller, and it moves files onto names another file
+    /// may have held a moment before.
+    pub(super) fn relocate(&mut self, moved: &BTreeMap<PathBuf, PathBuf>) {
+        debug_assert!(self.held.is_none(), "a held catalogue relocated");
+        for filed in self.at.values_mut() {
+            if let Some(to) = moved.get(&filed.path) {
+                filed.path = to.clone();
+            }
+        }
+    }
+
     /// Rebuild `forgetting` from `at`, after loading or reconciling.
     fn index(&mut self) {
         self.forgetting.clear();

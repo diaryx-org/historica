@@ -1018,6 +1018,9 @@ struct Read {
     /// The payload stand-ins found by looking beside a payload as it was
     /// read, by the payload they forget (decision 0079).
     beside: BTreeMap<RevisionId, RevisionId>,
+    /// What [`Store::holds_payload`] answered, having hashed the file, so
+    /// that a command asking of one payload twice hashes it once.
+    held: BTreeMap<RevisionId, bool>,
 }
 
 impl Read {
@@ -1028,6 +1031,7 @@ impl Read {
         self.forgotten.clear();
         self.absent.clear();
         self.beside.clear();
+        self.held.clear();
     }
 }
 
@@ -2406,23 +2410,39 @@ impl<F: Filesystem> Store<F> {
         Ok(true)
     }
 
-    /// Whether this store holds a payload, by the pass over the directory
-    /// that answers for every payload at once.
+    /// Whether this store holds a payload it could hand over: bytes that
+    /// hash to the digest, which nothing here forgets.
     ///
-    /// [`Store::payload_file`] answers for one digest and verifies what it
-    /// finds, and a miss there is a search that hashes every payload the store
-    /// holds. That is the right price for one file and the wrong one for a
-    /// question asked of every file of bytes in a tree. This pays the walk
-    /// [`Store::payloads`] pays, once per command, and then answers each
-    /// digest from what the walk found. It hashes nothing it has not been
-    /// told is new, so a `true` here is where the bytes are, not proof of
-    /// them; a reader still verifies before handing a byte over.
+    /// [`Store::payload_file`] answers the same for one digest, and a miss
+    /// there is a search that hashes every payload the store holds. That is
+    /// the right price for one file and the wrong one for a question asked of
+    /// every file of bytes in a tree. This pays the walk [`Store::payloads`]
+    /// pays, once per command, and takes a digest the walk did not place as
+    /// one the store does not hold.
+    ///
+    /// A digest it did place is hashed where it was placed. Decision 0036
+    /// believes a catalogue about which paths there are and never about what
+    /// a path holds, and a `true` here is what `update` destroys a folder's
+    /// copy on: a payload damaged in place, or a path a sync filled with
+    /// other bytes, is not held.
     pub fn holds_payload(&self, id: &RevisionId) -> Result<bool, StoreError> {
+        if let Some(held) = self.read.borrow().held.get(id) {
+            return Ok(*held);
+        }
         self.upgrade()?;
-        Ok(self
-            .catalogue()?
-            .at(id)
-            .is_some_and(|filed| !filed.document))
+        let held = match self.catalogue()?.at(id).filter(|filed| !filed.document) {
+            None => false,
+            Some(filed) => {
+                let path = self.root.join(&filed.path);
+                match crate::fs::digest_of(&self.files, &path) {
+                    Ok(found) => found == *id && !self.forgotten_beside(id, &path)?,
+                    Err(error) if error.kind() == io::ErrorKind::NotFound => false,
+                    Err(error) => return Err(StoreError::io(&path, error)),
+                }
+            }
+        };
+        self.read.borrow_mut().held.insert(*id, held);
+        Ok(held)
     }
 
     /// Whether bytes a revision names are held elsewhere: this store does not
@@ -2463,7 +2483,18 @@ impl<F: Filesystem> Store<F> {
     /// Called where the store destroys or renames files: the paths may just
     /// have gone, and a catalogue that outlived what it points at would
     /// answer for them.
+    ///
+    /// A walked catalogue is written back first. Every such writer has taken
+    /// what it destroyed or moved out of the walked one, and the cache still
+    /// names it: a path the cache went on naming would be believed, by the
+    /// next pass, to hold what it held before, whatever a later writer filed
+    /// there — `arrange` moving a payload onto the name of one `prune` took.
     fn forget_catalogue(&mut self) {
+        if let Some(cache) = &self.cache
+            && let Some(walked) = self.walked.get()
+        {
+            catalogue::write(&self.files, cache, walked);
+        }
         self.catalogue.take();
         self.walked.take();
         self.read.borrow_mut().clear();

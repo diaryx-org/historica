@@ -5633,6 +5633,53 @@ fn update_keeps_a_file_whose_bytes_only_the_folder_holds() {
     assert!(directory.join("photo.bin").exists());
 }
 
+/// A payload damaged where it sits is not one the store holds, so the
+/// folder's intact copy of those bytes is the only one, and is not written
+/// over.
+#[test]
+fn update_does_not_write_over_bytes_whose_stored_copy_is_damaged() {
+    let directory = repository("update-damaged-copy");
+    fs::write(directory.join("photo.bin"), [0xffu8, 0x00, 0x11]).expect("a payload");
+    out(recorded(&directory, &["record", "-m", "first"]));
+    fs::write(directory.join("photo.bin"), [0xffu8, 0x00, 0x12]).expect("a payload");
+    out(recorded(&directory, &["record", "-m", "second"]));
+
+    let first = find_bytes(&directory.join("history/operations"), &[0xffu8, 0x00, 0x11])
+        .expect("the first payload");
+    fs::write(first, [0xffu8, 0x00, 0x99]).expect("damaging it in place");
+    fs::write(directory.join("photo.bin"), [0xffu8, 0x00, 0x11]).expect("the only copy");
+
+    let said = stderr(&directory, &["update"]);
+    assert!(said.contains("only copy"), "{said}");
+    assert_eq!(
+        fs::read(directory.join("photo.bin")).expect("still there"),
+        [0xffu8, 0x00, 0x11]
+    );
+}
+
+/// A payload `arrange` moves onto the name of one `prune` took is the new
+/// payload there, to the next command as to this one.
+#[test]
+fn a_payload_filed_where_a_pruned_one_was_is_held() {
+    let directory = repository("filed-where-pruned");
+    fs::write(directory.join("photo.bin"), [0xffu8, 0x00, 0x21]).expect("a payload");
+    out(recorded(&directory, &["record", "-m", "Photo"]));
+    fs::write(directory.join("photo.bin"), [0xffu8, 0x00, 0x22]).expect("a payload");
+    out(recorded(&directory, &["amend", "-m", "Photo"]));
+    stdout(&directory, &["prune"]);
+    let arranged = stdout(&directory, &["arrange"]);
+    assert!(arranged.contains("Photo/photo.bin"), "{arranged}");
+
+    let status = stdout(&directory, &["status"]);
+    assert!(!status.contains("absent"), "{status}");
+    let copy = scratch("filed-where-pruned-copy").join("copy");
+    let said = stdout(
+        &directory,
+        &["export", &copy.to_string_lossy(), "--dry-run"],
+    );
+    assert!(said.contains("write   photo.bin"), "{said}");
+}
+
 /// The one file beneath `path` holding exactly these bytes.
 fn find_bytes(path: &Path, bytes: &[u8]) -> Option<PathBuf> {
     if path.is_dir() {

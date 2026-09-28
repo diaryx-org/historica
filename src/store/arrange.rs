@@ -290,6 +290,10 @@ impl<F: Filesystem> Store<F> {
             unnamed: planned.unnamed,
             renames: Vec::new(),
         };
+        // The catalogue as the directory stands before anything moves, so
+        // that the moves below can be said to it rather than rediscovered.
+        self.upgrade()?;
+        let mut moved = BTreeMap::new();
 
         for rename in planned.renames {
             let from = self.root.join(&rename.from);
@@ -326,12 +330,20 @@ impl<F: Filesystem> Store<F> {
             if let Some(parent) = from.parent() {
                 self.tidy(parent, rename.filed.directory());
             }
+            if rename.filed == Filed::Operation {
+                moved.insert(rename.from.clone(), rename.to.clone());
+            }
             done.renames.push(rename);
         }
 
         // Names are presentation and identity is content, so no document has
         // changed and `self.documents` is still true. The payload index is
-        // not: it maps digests to paths, and the paths have just moved.
+        // not: it maps digests to paths, and the paths have just moved — so
+        // it is told where to, and kept, rather than left for the next pass
+        // to believe the old names of.
+        if !moved.is_empty() {
+            self.catalogue_mut()?.relocate(&moved);
+        }
         self.forget_catalogue();
         Ok(done)
     }

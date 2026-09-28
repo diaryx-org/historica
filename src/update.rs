@@ -952,33 +952,24 @@ pub(crate) fn plan_at<F: Filesystem, G: Filesystem>(
                 Some(digest) => {
                     // Asked of the whole directory once, so that a store
                     // lacking a thousand payloads does not hash every payload
-                    // it holds a thousand times to say so.
-                    if store.held_elsewhere(digest)? {
-                        elsewhere = true;
-                    } else if store.payload_file(digest)?.is_none() {
-                        // Decision 0066: bytes somebody destroyed, told apart
-                        // from bytes held elsewhere, because what a person
-                        // does next differs — there is nothing to fetch here.
-                        // Neither branch reads a payload: 0067 asks the
-                        // directory where the bytes are, not what they say.
-                        if store.forgotten_payload(digest)?.is_some()
-                            || !store.forgetting(digest)?.is_empty()
-                        {
+                    // it holds a thousand times to say so. Neither question
+                    // reads a payload into memory: 0067 asks the directory
+                    // where the bytes are and hashes them there.
+                    if !store.holds_payload(digest)? {
+                        if !store.held_elsewhere(digest)? {
+                            // Decision 0066: bytes somebody destroyed, told
+                            // apart from bytes held elsewhere, because what a
+                            // person does next differs — there is nothing to
+                            // fetch here.
                             refuse(
                                 path,
                                 format!(
                                     "its content {digest} was forgotten; record the `drop` that makes that true"
                                 ),
                             );
-                        } else {
-                            refuse(
-                                path,
-                                format!(
-                                    "the store's copy of {digest} is not what it names; `check` says more"
-                                ),
-                            );
+                            continue;
                         }
-                        continue;
+                        elsewhere = true;
                     }
                     Wanted::Whole(*digest)
                 }
