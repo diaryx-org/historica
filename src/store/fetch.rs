@@ -52,10 +52,10 @@
 //! `export`'s: payloads, then the documents of `operations/`, then compliance
 //! with forgetting, then revisions, then the rules and the files of another
 //! tool that no revision names. One invariant holds at every moment in between
-//! — *no revision in this store names bytes this store does not hold* — so an
-//! interruption understates what is reachable rather than leaving a revision
-//! pointing at content that never arrived, and `prune` collects what is left
-//! unreachable.
+//! — *no revision in this store names bytes this store does not hold*, save
+//! the files of bytes it was asked to leave behind — so an interruption
+//! understates what is reachable rather than leaving a revision pointing at
+//! content that never arrived, and `prune` collects what is left unreachable.
 //!
 //! **Nothing enters unverified.** Every arriving file is hashed against the
 //! digest the manifest gave before it is written, and it is written through
@@ -83,6 +83,23 @@
 //! this store's caches in, so a store that keeps none reads every page and
 //! gets the same answer. A page that has gone is a publisher who wrote a fresh
 //! base since the manifest was read, and is answered as a moved path is.
+//!
+//! # Files of bytes left behind
+//!
+//! The proposal *Bytes held elsewhere*. [`Fetching::leaving_bytes`] takes the
+//! history and every text payload and leaves every payload that only `bytes`
+//! headers name, which is every file historica never has to read to do its
+//! work. To know which those are, the revision documents are asked for before
+//! any payload and still written last, so the order that makes an interruption
+//! safe is the order things reach the disk in, as it always was.
+//!
+//! What was left is remembered beside the pages it was listed in, by digest
+//! and address, because a later fetch reads only the pages after those and
+//! would never be told about it again. A fetch without the flag takes what was
+//! left, and [`Store::fetch_payloads`] takes any of it by digest. Both look an
+//! address the source no longer answers at up in the whole listing, and drop a
+//! digest the whole listing does not name any more. Deleting the memory costs
+//! reading every page, as it always did.
 //!
 //! # The two kinds nothing here reads
 //!
@@ -300,6 +317,41 @@ pub struct Declined {
     pub files: usize,
 }
 
+/// How one fetch is asked for.
+///
+/// Built from [`Fetching::default`], which is [`Store::fetch`]: everything the
+/// copy offers, from a copy related to this store.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct Fetching {
+    /// Take the copy's history even where it shares nothing with this store
+    /// that a listing can see (decision 0052).
+    pub join_unrelated: bool,
+    /// Leave every payload that only `bytes` headers name.
+    ///
+    /// The proposal *Bytes held elsewhere*: the history arrives whole, every
+    /// text payload arrives, and the files of bytes stay where they are. A
+    /// store that did this names bytes it does not hold, which `check` notes,
+    /// `status` lists as absent, and `record` does not read as deleted.
+    pub leave_bytes: bool,
+}
+
+impl Fetching {
+    /// Take the copy's history even where it shares nothing with this store.
+    #[must_use]
+    pub fn joining_unrelated(mut self, join: bool) -> Self {
+        self.join_unrelated = join;
+        self
+    }
+
+    /// Leave every payload that only `bytes` headers name.
+    #[must_use]
+    pub fn leaving_bytes(mut self, leave: bool) -> Self {
+        self.leave_bytes = leave;
+        self
+    }
+}
+
 /// What one fetch would take, worked out before anything is asked for.
 #[derive(Debug, Clone, Default)]
 pub struct FetchPlan {
@@ -442,6 +494,9 @@ pub struct Fetched {
     pub refetches: usize,
     /// How many pages of a paged manifest were read (decision 0080).
     pub pages: usize,
+    /// Files of bytes the copy offers and this store still does not hold,
+    /// having left them behind — this fetch or one before it.
+    pub left: usize,
 }
 
 impl<F: Filesystem> Store<F> {
@@ -462,6 +517,20 @@ impl<F: Filesystem> Store<F> {
         manifest: &str,
         join_unrelated: bool,
     ) -> Result<Fetched, FetchError> {
+        self.fetch_with(
+            source,
+            manifest,
+            Fetching::default().joining_unrelated(join_unrelated),
+        )
+    }
+
+    /// [`Store::fetch`], asked for in more than one way.
+    pub fn fetch_with<S: Source + ?Sized>(
+        &mut self,
+        source: &S,
+        manifest: &str,
+        asked: Fetching,
+    ) -> Result<Fetched, FetchError> {
         // A copy of a fault is two faults. The far end cannot be checked at all
         // without downloading the whole of it, which decision 0048 says would
         // be the operation's own defeat; this end can, and is.
@@ -472,13 +541,17 @@ impl<F: Filesystem> Store<F> {
         let mut fetched = Fetched::default();
         let mut refetches = REFETCHES;
         let mut listing = self.listing(source, manifest, &mut fetched, &mut refetches)?;
-        loop {
+        let left = loop {
             // A fetch that skipped pages it had applied was related to this
             // copy when it applied them, and what it read since cannot say so:
             // the revisions both hold are in the pages it skipped. It skipped
             // them only because this store still holds the heads it took
             // with them, which is the relatedness 0052 asks for, held.
-            let plan = self.fetch_plan(&listing.offer, join_unrelated || listing.skipped)?;
+            let mut plan =
+                self.fetch_plan(&listing.offer, asked.join_unrelated || listing.skipped)?;
+            // What a fetch before this one left behind, which the pages read
+            // here do not name again.
+            let remembered = self.still_left(&listing, &plan)?;
             // Stated from the plan rather than accumulated across passes: it is
             // a description of what the manifest holds, and reading the
             // manifest twice does not mean twice as many files were declined.
@@ -499,23 +572,42 @@ impl<F: Filesystem> Store<F> {
             if !small.is_empty() {
                 source.prefetch(&small);
             }
-            match self.take(source, &plan, &mut fetched)? {
-                None => break,
+            let mut carried = BTreeMap::new();
+            let mut leaving = Vec::new();
+            if asked.leave_bytes {
+                plan.payloads.extend(remembered.iter().cloned());
+                match self.leave_bytes(source, &mut plan, &mut fetched)? {
+                    Ok((revisions, left)) => {
+                        carried = revisions;
+                        leaving = left;
+                    }
+                    Err(moved) => {
+                        listing =
+                            self.again(source, manifest, moved, &mut fetched, &mut refetches)?;
+                        continue;
+                    }
+                }
+            }
+            match self.take(source, &plan, &carried, &mut fetched)? {
+                None if asked.leave_bytes => break leaving,
+                // Taken after everything the pages named, and apart from it: a
+                // remembered address that has gone is not the listing moving,
+                // and reading the manifest again would not find it.
+                None => {
+                    self.take_remembered(source, manifest, &remembered, &mut fetched)?;
+                    break Vec::new();
+                }
                 // Decision 0048: a path that is not there is the publisher
                 // having moved on, so read the listing again and want what is
                 // still wanted. A digest gone from the new listing was
                 // forgotten or pruned at the source, which is an answer and not
                 // an error — the next plan simply does not name it.
                 Some(moved) => {
-                    if refetches == 0 {
-                        return Err(FetchError::Stale { path: moved });
-                    }
-                    refetches -= 1;
-                    fetched.refetches += 1;
-                    listing = self.listing(source, manifest, &mut fetched, &mut refetches)?;
+                    listing = self.again(source, manifest, moved, &mut fetched, &mut refetches)?;
                 }
             }
-        }
+        };
+        fetched.left = left.len();
 
         // Where a contradiction the remote was harbouring becomes this store's
         // problem: at a moment, and out loud. What arrived stays — it is
@@ -531,9 +623,258 @@ impl<F: Filesystem> Store<F> {
         // checked: a fetch that stopped short remembers nothing, and the next
         // one reads the pages again.
         if let Some((base, after)) = &listing.chain {
-            self.remember_pages(base, after, listing.offer.heads());
+            self.remember_pages(base, after, listing.offer.heads(), &left);
         }
         Ok(fetched)
+    }
+
+    /// Read the manifest again, because `moved` was not there, or say the copy
+    /// is moving faster than it can be read.
+    fn again<S: Source + ?Sized>(
+        &self,
+        source: &S,
+        manifest: &str,
+        moved: String,
+        fetched: &mut Fetched,
+        refetches: &mut usize,
+    ) -> Result<Listing, FetchError> {
+        if *refetches == 0 {
+            return Err(FetchError::Stale { path: moved });
+        }
+        *refetches -= 1;
+        fetched.refetches += 1;
+        self.listing(source, manifest, fetched, refetches)
+    }
+
+    /// What a fetch before this one left behind and this store still lacks,
+    /// where the listing did not state it again.
+    fn still_left(&self, listing: &Listing, plan: &FetchPlan) -> Result<Vec<Offered>, FetchError> {
+        let mut left = Vec::new();
+        for entry in &listing.left {
+            let forgotten = listing
+                .offer
+                .entries()
+                .iter()
+                .any(|offered| offered.forgets == Some(entry.digest));
+            if forgotten
+                || plan
+                    .payloads
+                    .iter()
+                    .any(|wanted| wanted.digest == entry.digest)
+                || !self.held_elsewhere(&entry.digest)?
+            {
+                continue;
+            }
+            left.push(entry.clone());
+        }
+        Ok(left)
+    }
+
+    /// Ask for the revisions a plan names before anything else, and leave
+    /// every payload only `bytes` headers name.
+    ///
+    /// The proposal *Bytes held elsewhere*. Which payloads those are is a
+    /// fact about the revisions, the ones held and the ones arriving, so the
+    /// arriving ones are read first — verified and parsed as `take` would —
+    /// and handed back to be written last, where they always are. A payload
+    /// some revision names as a file's lines is taken whatever else names it:
+    /// without it that file cannot be read at any revision.
+    ///
+    /// `Ok(Err(path))` where a revision was not there, which the caller
+    /// answers by reading the manifest again.
+    #[allow(clippy::type_complexity)]
+    fn leave_bytes<S: Source + ?Sized>(
+        &self,
+        source: &S,
+        plan: &mut FetchPlan,
+        fetched: &mut Fetched,
+    ) -> Result<Result<(BTreeMap<RevisionId, Vec<u8>>, Vec<Offered>), String>, FetchError> {
+        let (mut text, mut bytes) = self.named_payloads()?;
+        let mut carried = BTreeMap::new();
+        for entry in &plan.revisions {
+            let Some(read) = ask(source, &entry.path, fetched)? else {
+                return Ok(Err(entry.path.clone()));
+            };
+            let found = digest(&read);
+            if found != entry.digest {
+                return Err(FetchError::Tampered {
+                    path: entry.path.clone(),
+                    offered: entry.digest,
+                    found,
+                });
+            }
+            let document =
+                RevisionDocument::parse(&read).map_err(|error| unusable(&entry.path, error))?;
+            text.extend(document.text.values().copied());
+            bytes.extend(document.bytes.values().copied());
+            carried.insert(found, read);
+        }
+        let (leaving, taking): (Vec<Offered>, Vec<Offered>) = std::mem::take(&mut plan.payloads)
+            .into_iter()
+            .partition(|entry| bytes.contains(&entry.digest) && !text.contains(&entry.digest));
+        plan.payloads = taking;
+        Ok(Ok((carried, leaving)))
+    }
+
+    /// The payloads the revisions this store holds name as a file's lines,
+    /// and as a file's bytes.
+    pub(super) fn named_payloads(
+        &self,
+    ) -> Result<(BTreeSet<RevisionId>, BTreeSet<RevisionId>), StoreError> {
+        let mut text = BTreeSet::new();
+        let mut bytes = BTreeSet::new();
+        for held in self.iter() {
+            let (_, document) = held?;
+            text.extend(document.text.values().copied());
+            bytes.extend(document.bytes.values().copied());
+        }
+        Ok((text, bytes))
+    }
+
+    /// Take what a fetch before this one left behind, by the addresses it
+    /// remembered.
+    ///
+    /// An address the source no longer answers at is looked up in the whole
+    /// listing, since `arrange` or a fresh export may have moved the file;
+    /// a digest the whole listing does not name any more was forgotten or
+    /// pruned there, and is not wanted.
+    fn take_remembered<S: Source + ?Sized>(
+        &mut self,
+        source: &S,
+        manifest: &str,
+        remembered: &[Offered],
+        fetched: &mut Fetched,
+    ) -> Result<(), FetchError> {
+        let mut lost = Vec::new();
+        for entry in remembered {
+            if self.fetch_payload(source, entry, fetched)? {
+                fetched.payloads += 1;
+            } else {
+                lost.push(entry.digest);
+            }
+        }
+        if lost.is_empty() {
+            return Ok(());
+        }
+        let whole = self.whole_listing(source, manifest, fetched)?;
+        for digest in lost {
+            if let Some(entry) = whole
+                .of(OfferKind::Payload)
+                .find(|entry| entry.digest == digest)
+                && self.fetch_payload(source, entry, fetched)?
+            {
+                fetched.payloads += 1;
+            }
+        }
+        Ok(())
+    }
+
+    /// Take particular payloads, by digest, and nothing else.
+    ///
+    /// The proposal *Bytes held elsewhere*: the one file somebody opened, out
+    /// of the ones a fetch left behind. Each is looked for where a fetch that
+    /// left it remembered it, and in the whole listing where nothing did. A
+    /// digest this store already holds is not asked for, and one the copy
+    /// does not offer is [`FetchError::NotOffered`].
+    ///
+    /// Unlike [`Store::fetch`] this does not `check` the store before or
+    /// after. A payload arriving under its own digest, which is the only
+    /// thing this writes, cannot make a store that was right wrong, and
+    /// checking hashes every payload the store holds — the cost this exists
+    /// to avoid.
+    pub fn fetch_payloads<S: Source + ?Sized>(
+        &mut self,
+        source: &S,
+        manifest: &str,
+        wanted: &[RevisionId],
+    ) -> Result<Fetched, FetchError> {
+        let mut fetched = Fetched::default();
+        let mut missing: Vec<RevisionId> = Vec::new();
+        for digest in wanted {
+            if !missing.contains(digest) && !self.holds_payload(digest)? {
+                missing.push(*digest);
+            }
+        }
+        if missing.is_empty() {
+            return Ok(fetched);
+        }
+
+        let base = match read_manifest(source, manifest, &mut fetched)? {
+            Manifest::Paged(tip) => tip.pages().first().map(|page| page.digest),
+            Manifest::Whole(_) => None,
+        };
+        let mut addresses: BTreeMap<RevisionId, Offered> = base
+            .and_then(|base| self.fetch_memory(&base))
+            .map(|memory| memory.left)
+            .unwrap_or_default()
+            .into_iter()
+            .filter(|entry| missing.contains(&entry.digest))
+            .map(|entry| (entry.digest, entry))
+            .collect();
+
+        let mut refetches = REFETCHES;
+        loop {
+            if missing.iter().any(|digest| !addresses.contains_key(digest)) {
+                let whole = self.whole_listing(source, manifest, &mut fetched)?;
+                for entry in whole.of(OfferKind::Payload) {
+                    if missing.contains(&entry.digest) {
+                        addresses.insert(entry.digest, entry.clone());
+                    }
+                }
+            }
+            if let Some(digest) = missing
+                .iter()
+                .find(|digest| !addresses.contains_key(digest))
+            {
+                return Err(FetchError::NotOffered { payload: *digest });
+            }
+            let mut moved = None;
+            for digest in std::mem::take(&mut missing) {
+                let entry = addresses.remove(&digest).expect("found above");
+                if self.fetch_payload(source, &entry, &mut fetched)? {
+                    fetched.payloads += 1;
+                } else {
+                    moved = Some(entry.path);
+                    missing.push(digest);
+                }
+            }
+            let Some(moved) = moved else { break };
+            if refetches == 0 {
+                return Err(FetchError::Stale { path: moved });
+            }
+            refetches -= 1;
+            fetched.refetches += 1;
+        }
+
+        if let Some(base) = base {
+            self.rewrite_left(&base, |left| {
+                left.retain(|entry| !wanted.contains(&entry.digest));
+            });
+        }
+        Ok(fetched)
+    }
+
+    /// Every page of the manifest, whatever this store remembers applying:
+    /// the whole listing.
+    pub(super) fn whole_listing<S: Source + ?Sized>(
+        &self,
+        source: &S,
+        manifest: &str,
+        fetched: &mut Fetched,
+    ) -> Result<Offer, FetchError> {
+        let mut refetches = REFETCHES;
+        loop {
+            match self.read_listing(source, manifest, fetched, false)? {
+                Ok(listing) => return Ok(listing.offer),
+                Err(moved) => {
+                    if refetches == 0 {
+                        return Err(FetchError::Stale { path: moved });
+                    }
+                    refetches -= 1;
+                    fetched.refetches += 1;
+                }
+            }
+        }
     }
 
     /// Read the manifest, and for a paged one the pages this store needs,
@@ -546,7 +887,7 @@ impl<F: Filesystem> Store<F> {
         refetches: &mut usize,
     ) -> Result<Listing, FetchError> {
         loop {
-            match self.read_listing(source, manifest, fetched)? {
+            match self.read_listing(source, manifest, fetched, true)? {
                 Ok(listing) => return Ok(listing),
                 // A publisher that wrote a fresh base removes the pages it
                 // replaced, and this fetch read the manifest before it did.
@@ -570,12 +911,13 @@ impl<F: Filesystem> Store<F> {
     /// only the pages after them are read, and the listing is what those
     /// state. Anything else — nothing remembered, no cache to remember in, or
     /// a manifest whose pages no longer begin with what was applied — reads
-    /// every page, which is the whole listing.
+    /// every page, which is the whole listing. So does `remembering` false.
     fn read_listing<S: Source + ?Sized>(
         &self,
         source: &S,
         manifest: &str,
         fetched: &mut Fetched,
+        remembering: bool,
     ) -> Result<Result<Listing, String>, FetchError> {
         let tip = match read_manifest(source, manifest, fetched)? {
             Manifest::Whole(offer) => {
@@ -583,6 +925,7 @@ impl<F: Filesystem> Store<F> {
                     offer,
                     chain: None,
                     skipped: false,
+                    left: Vec::new(),
                 }));
             }
             Manifest::Paged(tip) => tip,
@@ -592,12 +935,18 @@ impl<F: Filesystem> Store<F> {
                 offer: Offer::composed(tip.heads().to_vec(), &[]),
                 chain: None,
                 skipped: false,
+                left: Vec::new(),
             }));
         };
         let after: Vec<RevisionId> = after.iter().map(|page| page.digest).collect();
-        let applied = match self.fetched_pages(&base.digest) {
-            Some(applied) if after.starts_with(&applied) => 1 + applied.len(),
-            _ => 0,
+        let memory = remembering
+            .then(|| self.fetch_memory(&base.digest))
+            .flatten();
+        let (applied, left) = match memory {
+            Some(memory) if after.starts_with(&memory.pages) => {
+                (1 + memory.pages.len(), memory.left)
+            }
+            _ => (0, Vec::new()),
         };
         let mut pages = Vec::new();
         for page in &tip.pages()[applied..] {
@@ -624,6 +973,7 @@ impl<F: Filesystem> Store<F> {
             offer: Offer::composed(tip.heads().to_vec(), &pages),
             chain: Some((base.digest, after)),
             skipped: applied > 0,
+            left,
         }))
     }
 
@@ -639,7 +989,11 @@ impl<F: Filesystem> Store<F> {
     /// predecessor's cache, and a memory it did not earn would skip pages it
     /// never took — and, having skipped them, would never be asked whether it
     /// is related to the copy at all.
-    fn fetched_pages(&self, base: &RevisionId) -> Option<Vec<RevisionId>> {
+    ///
+    /// The same file remembers the payloads a fetch left behind, by digest
+    /// and address, since the pages that list them are the ones a later fetch
+    /// skips. `historica-fetched-1` said only the pages, and is still read.
+    fn fetch_memory(&self, base: &RevisionId) -> Option<Memory> {
         let file = self
             .cache
             .as_ref()?
@@ -647,22 +1001,43 @@ impl<F: Filesystem> Store<F> {
             .join(format!("{base}.txt"));
         let text = String::from_utf8(self.files.read(&file).ok()?).ok()?;
         let mut lines = text.lines();
-        if lines.next() != Some(FETCHED_HEADER) {
+        if !matches!(lines.next(), Some(FETCHED_HEADER | FETCHED_HEADER_1)) {
             return None;
         }
-        let mut heads = 0;
-        let mut pages = Vec::new();
+        let mut memory = Memory::default();
         for line in lines {
             if let Some(head) = line.strip_prefix("head ") {
-                if !self.holds(&head.parse().ok()?) {
+                let head = head.parse().ok()?;
+                if !self.holds(&head) {
                     return None;
                 }
-                heads += 1;
+                memory.heads.push(head);
+            } else if let Some(left) = line.strip_prefix("left ") {
+                // The path is last, because it is the one field that may hold
+                // a space (decision 0043).
+                let (digest, path) = left.split_once(' ')?;
+                memory.left.push(Offered {
+                    kind: OfferKind::Payload,
+                    digest: digest.parse().ok()?,
+                    forgets: None,
+                    path: path.to_owned(),
+                });
             } else {
-                pages.push(line.strip_prefix("page ")?.parse().ok()?);
+                memory.pages.push(line.strip_prefix("page ")?.parse().ok()?);
             }
         }
-        (heads > 0).then_some(pages)
+        (!memory.heads.is_empty()).then_some(memory)
+    }
+
+    /// Change what the memory for `base` says was left behind, where there is
+    /// one this store believes.
+    pub(super) fn rewrite_left(&self, base: &RevisionId, change: impl FnOnce(&mut Vec<Offered>)) {
+        let Some(mut memory) = self.fetch_memory(base) else {
+            return;
+        };
+        change(&mut memory.left);
+        let heads = memory.heads.clone();
+        self.remember_pages(base, &memory.pages, &heads, &memory.left);
     }
 
     /// Remember that this store has applied `base` and the pages after it,
@@ -672,7 +1047,13 @@ impl<F: Filesystem> Store<F> {
     /// later show the memory is its own. Every failure is ignored, as
     /// decision 0035 ignores every failure to keep a cache: the next fetch
     /// reads every page.
-    fn remember_pages(&self, base: &RevisionId, after: &[RevisionId], heads: &[RevisionId]) {
+    fn remember_pages(
+        &self,
+        base: &RevisionId,
+        after: &[RevisionId],
+        heads: &[RevisionId],
+        left: &[Offered],
+    ) {
         let Some(cache) = &self.cache else {
             return;
         };
@@ -689,6 +1070,9 @@ impl<F: Filesystem> Store<F> {
         }
         for page in after {
             text.push_str(&format!("page {page}\n"));
+        }
+        for entry in left {
+            text.push_str(&format!("left {} {}\n", entry.digest, entry.path));
         }
         let _ = self.files.create_directory(&directory);
         let _ = self.files.write(&file, text.as_bytes());
@@ -816,10 +1200,14 @@ impl<F: Filesystem> Store<F> {
     /// again. Whatever had already been written stays written — every group is
     /// finished before the next begins, so the store is short of content rather
     /// than short of the bytes a revision names.
+    ///
+    /// `carried` is revisions already read for the plan, by digest, which are
+    /// written from there rather than asked for twice.
     fn take<S: Source + ?Sized>(
         &mut self,
         source: &S,
         plan: &FetchPlan,
+        carried: &BTreeMap<RevisionId, Vec<u8>>,
         fetched: &mut Fetched,
     ) -> Result<Option<String>, FetchError> {
         let mut rules: Vec<Rule> = Vec::new();
@@ -852,8 +1240,14 @@ impl<F: Filesystem> Store<F> {
                 }
                 continue;
             }
-            let Some(bytes) = ask(source, &entry.path, fetched)? else {
-                return Ok(Some(entry.path.clone()));
+            let bytes = match carried.get(&entry.digest) {
+                Some(bytes) if kind == OfferKind::Revision => bytes.clone(),
+                _ => {
+                    let Some(bytes) = ask(source, &entry.path, fetched)? else {
+                        return Ok(Some(entry.path.clone()));
+                    };
+                    bytes
+                }
             };
             // Decision 0036 one level out: the catalogue says where to look, it
             // never says what is there. Hashed before it is written, and then
@@ -1026,6 +1420,20 @@ struct Listing {
     chain: Option<(RevisionId, Vec<RevisionId>)>,
     /// Whether pages this store had applied were not read again.
     skipped: bool,
+    /// What a fetch before this one left behind, from the pages this one
+    /// skipped, where it remembered.
+    left: Vec<Offered>,
+}
+
+/// What a store remembers of one paged manifest, in its cache.
+#[derive(Debug, Default)]
+struct Memory {
+    /// The manifest's heads it held once it had applied them.
+    heads: Vec<RevisionId>,
+    /// The pages after the base it applied.
+    pages: Vec<RevisionId>,
+    /// Payloads it left behind, with where the listing said they were.
+    left: Vec<Offered>,
 }
 
 /// Where in a store's cache directory the pages it has applied are kept, one
@@ -1033,10 +1441,13 @@ struct Listing {
 const FETCHED_DIR: &str = "fetched";
 
 /// The line that file starts with.
-const FETCHED_HEADER: &str = "historica-fetched-1";
+const FETCHED_HEADER: &str = "historica-fetched-2";
+
+/// The line it started with before it remembered what was left behind.
+const FETCHED_HEADER_1: &str = "historica-fetched-1";
 
 /// Read the manifest, and refuse a spelling this reader does not know.
-fn read_manifest<S: Source + ?Sized>(
+pub(super) fn read_manifest<S: Source + ?Sized>(
     source: &S,
     manifest: &str,
     fetched: &mut Fetched,
@@ -1195,6 +1606,11 @@ pub enum FetchError {
         /// What was wrong with it.
         because: String,
     },
+    /// A payload asked for by digest that the copy does not offer.
+    NotOffered {
+        /// The payload.
+        payload: RevisionId,
+    },
     /// A path kept moving out from under the fetch.
     Stale {
         /// The last path that was no longer there.
@@ -1254,6 +1670,11 @@ impl fmt::Display for FetchError {
             FetchError::Unusable { path, because } => {
                 write!(f, "{path} arrived intact and cannot be read: {because}")
             }
+            FetchError::NotOffered { payload } => write!(
+                f,
+                "the copy does not offer {payload}, so there is nowhere to fetch \
+                 it from"
+            ),
             FetchError::Stale { path } => write!(
                 f,
                 "{path} was gone every time it was asked for, across \

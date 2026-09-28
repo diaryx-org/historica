@@ -504,7 +504,27 @@ and removes the pages it replaced. A fetch built before 0080 cannot read a
 paged manifest, and says to fetch the archive instead.
 
 `fetch` takes what a published copy holds and this store lacks, adding history
-and stopping — `update` is the folder's catch-up. Decision
+and stopping — `update` is the folder's catch-up.
+
+`fetch --no-bytes` takes the history and every text payload and leaves every
+file of bytes with the copy — the proposal
+[Bytes held elsewhere](proposals/bytes-held-elsewhere.md). Which payloads those
+are is read from the revision documents, which are asked for first and still
+written last. What was left is remembered beside the pages it was listed in,
+since a later fetch reads only the pages after those. `fetch <url>` without the
+flag takes it all again, and `fetch <url> <path>...` takes the bytes of the
+files named and nothing else, without `check`ing the store, since a payload
+arriving under its own digest cannot make a store wrong. `update` writes them
+into the folder.
+
+`evict <url> <path>...` is the other direction: it lets go of the bytes of the
+files named, from the store and from the folder, where the copy at the URL
+offers them. It is not `forget`, which destroys bytes for every copy and writes
+the document that says so; `evict` writes nothing that travels, and a fetch
+brings the bytes back. It refuses a file of lines, whose text every later
+version is built on, and a payload the copy's listing does not offer. The
+listing is the publisher's word that it holds the bytes, and nothing short of
+fetching them could prove it. Decision
 [0048](decisions/0048-asking-for-what-is-missing.md) puts the transport in the
 binary rather than the library: the library does the whole of the algorithm
 through a `Source` that answers one question, and what the binary adds is that

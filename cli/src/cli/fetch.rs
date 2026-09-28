@@ -17,24 +17,31 @@
 //! `wasm32-wasip1` build is, since a wasi guest has no such stack under it and
 //! a host that wants one implements the library's trait instead.
 
+use std::collections::{BTreeMap, BTreeSet};
 use std::io::Write as _;
 use std::path::Path;
 use std::time::Duration;
 
-use historica::store::{Source, Unreachable};
+use historica::core::RevisionId;
+use historica::format;
+use historica::store::{Fetching, Source, Store, Unreachable};
+use historica::tree::Kind;
+use historica::update;
 use historica::wrote::{Line, Statement};
 
-use super::{Failure, locate, printing, render};
+use super::{Failure, locate, printing, render, target};
 
-/// `fetch <url> [--join-unrelated]` — take what a published copy has and this
-/// store lacks.
+/// `fetch <url> [--join-unrelated] [--no-bytes] [<path>...]` — take what a
+/// published copy has and this store lacks.
 pub fn fetch(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
-    let mut join_unrelated = false;
+    let mut asked = Fetching::default();
     let mut fields = false;
     let mut url: Option<String> = None;
+    let mut paths: Vec<String> = Vec::new();
     for argument in arguments {
         match argument.as_str() {
-            "--join-unrelated" => join_unrelated = true,
+            "--join-unrelated" => asked = asked.joining_unrelated(true),
+            "--no-bytes" => asked = asked.leaving_bytes(true),
             "--fields" => fields = true,
             other if other.starts_with('-') => {
                 return Err(Failure::usage(format!(
@@ -42,11 +49,7 @@ pub fn fetch(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
                 )));
             }
             other if url.is_none() => url = Some(other.to_owned()),
-            other => {
-                return Err(Failure::usage(format!(
-                    "`fetch` wants one URL, not `{other}`"
-                )));
-            }
+            other => paths.push(path(other, "fetch")?),
         }
     }
     let url = url.ok_or_else(|| {
@@ -59,8 +62,39 @@ pub fn fetch(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
 
     let mut store = super::cache::open(&locate(base)?)?;
     let source = Web::at(&root)?;
+
+    // The files somebody named, and nothing else: the history is already
+    // here, and what is missing is the bytes of these.
+    if !paths.is_empty() {
+        if asked != Fetching::default() {
+            return Err(Failure::usage(
+                "`fetch <url> <path>...` takes the files of bytes named and \
+                 nothing else, so it has no use for `--no-bytes` or \
+                 `--join-unrelated`",
+            ));
+        }
+        let named = files_of_bytes(&store, &paths)?;
+        let wanted: Vec<RevisionId> = named.values().copied().collect();
+        let fetched = store
+            .fetch_payloads(&source, &manifest, &wanted)
+            .map_err(Failure::error)?;
+        if fields {
+            return printing(|out| render::wrote(out, &Statement::new()));
+        }
+        return printing(|out| {
+            writeln!(out, "fetched {} payloads", fetched.payloads)?;
+            if fetched.payloads != 0 {
+                writeln!(
+                    out,
+                    "the folder is untouched; `historica update` writes them into it"
+                )?;
+            }
+            Ok(())
+        });
+    }
+
     let fetched = store
-        .fetch(&source, &manifest, join_unrelated)
+        .fetch_with(&source, &manifest, asked)
         .map_err(Failure::error)?;
 
     if fields {
@@ -99,6 +133,16 @@ pub fn fetch(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
         if fetched.destroyed != 0 {
             writeln!(out, "destroyed {} forgotten originals", fetched.destroyed)?;
         }
+        // The proposal *Bytes held elsewhere*: said every time, since a fetch
+        // without `--no-bytes` is what takes them.
+        if fetched.left != 0 {
+            writeln!(
+                out,
+                "left {} files of bytes with the copy; `fetch <url> <path>` \
+                 takes one, and `fetch <url>` takes them all",
+                fetched.left
+            )?;
+        }
         // Decision 0057: an observation. The recipient is the only party who
         // can install the tool that would read these, so a silent decline
         // would be a thing nobody could go looking for.
@@ -128,6 +172,146 @@ pub fn fetch(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
         }
         Ok(())
     })
+}
+
+/// `evict <url> <path>...` — let go of the bytes of files a published copy
+/// also holds.
+///
+/// The proposal *Bytes held elsewhere*. The folder's copy of each file goes
+/// first and the store's second, so an interruption leaves the store holding
+/// what the folder does not, which `update` writes back.
+pub fn evict(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
+    let mut dry_run = false;
+    let mut url: Option<String> = None;
+    let mut paths: Vec<String> = Vec::new();
+    for argument in arguments {
+        match argument.as_str() {
+            "-n" | "--dry-run" => dry_run = true,
+            other if other.starts_with('-') => {
+                return Err(Failure::usage(format!(
+                    "`{other}` is not an argument `evict` takes"
+                )));
+            }
+            other if url.is_none() => url = Some(other.to_owned()),
+            other => paths.push(path(other, "evict")?),
+        }
+    }
+    let url = url.ok_or_else(|| {
+        Failure::usage(
+            "`evict` wants the URL of the manifest of a copy that holds the \
+             bytes, and then the files to let go of",
+        )
+    })?;
+    if paths.is_empty() {
+        return Err(Failure::usage(
+            "`evict` wants the files to let go of, after the URL",
+        ));
+    }
+    let (root, manifest) = addressed(&url)?;
+
+    let store_root = locate(base)?;
+    let mut store = super::cache::open(&store_root)?;
+    let repository = store_root
+        .parent()
+        .ok_or_else(|| Failure::error("this store has no repository around it"))?
+        .to_path_buf();
+    let named = files_of_bytes(&store, &paths)?;
+    let payloads: BTreeSet<RevisionId> = named.values().copied().collect();
+    let wanted: Vec<RevisionId> = payloads.iter().copied().collect();
+
+    let source = Web::at(&root)?;
+    let plan = store
+        .eviction_plan(&source, &manifest, &wanted)
+        .map_err(Failure::error)?;
+    let working = super::cache::working(&repository, &store).map_err(Failure::error)?;
+    let folder = update::plan_eviction(&store, &working, &payloads).map_err(Failure::error)?;
+
+    if dry_run {
+        return printing(|out| {
+            for path in &folder.elsewhere {
+                writeln!(out, "{:<7} {path}", "evict")?;
+            }
+            Ok(())
+        });
+    }
+
+    let applied = update::apply(&store, &working, &repository, &folder).map_err(Failure::error)?;
+    store.evict(&plan).map_err(Failure::error)?;
+    printing(|out| {
+        for path in &applied.removed {
+            writeln!(out, "{:<7} {path}", "removed")?;
+        }
+        for (path, because) in &applied.left {
+            writeln!(out, "left {path} alone: {because}")?;
+        }
+        for path in &folder.elsewhere {
+            writeln!(out, "{:<7} {path}", "evicted")?;
+        }
+        Ok(())
+    })
+}
+
+/// One path argument, spelled as `record` spells one: normalised, and with
+/// the trailing slash a shell adds to a directory taken off.
+fn path(argument: &str, command: &str) -> Result<String, Failure> {
+    let path = format::nfc(argument.trim_end_matches('/')).into_owned();
+    if path.is_empty() {
+        return Err(Failure::usage(format!(
+            "`{command}` takes the files to act on, and an empty path names nothing"
+        )));
+    }
+    Ok(path)
+}
+
+/// The files of bytes the current heads hold at or beneath each path, with
+/// the payload each names.
+///
+/// A path naming a file of lines is refused, since only a file of bytes is
+/// ever held elsewhere; a directory takes the files of bytes beneath it and
+/// passes over the rest.
+fn files_of_bytes(
+    store: &Store,
+    paths: &[String],
+) -> Result<BTreeMap<String, RevisionId>, Failure> {
+    let mut trees = Vec::new();
+    for head in target::current_heads(store) {
+        trees.push(store.tree(&head).map_err(Failure::error)?);
+    }
+    let mut found = BTreeMap::new();
+    for named in paths {
+        let mut any = false;
+        for tree in &trees {
+            for (_, entry) in tree.entries() {
+                let beneath = entry.path == *named
+                    || entry
+                        .path
+                        .strip_prefix(named.as_str())
+                        .is_some_and(|rest| rest.starts_with('/'));
+                if !beneath {
+                    continue;
+                }
+                any = true;
+                match (entry.kind, entry.payload) {
+                    (Kind::Whole, Some(payload)) => {
+                        found.insert(entry.path.clone(), payload);
+                    }
+                    _ if entry.path == *named => {
+                        return Err(Failure::usage(format!(
+                            "`{named}` is not a file of bytes with one content, and \
+                             only such a file is ever held elsewhere"
+                        )));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        if !any {
+            return Err(Failure::usage(format!(
+                "`{named}` names no file the heads hold"
+            )));
+        }
+    }
+    Ok(found)
 }
 
 /// The directory a manifest sits in, and the manifest's own name in it.

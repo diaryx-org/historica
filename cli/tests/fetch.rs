@@ -20,7 +20,7 @@ use std::process::{Command, Output};
 
 use historica::core::RevisionId;
 use historica::format::digest;
-use historica::store::{FetchError, Source, Store, Travel, Unreachable};
+use historica::store::{EvictError, FetchError, Fetching, Source, Store, Travel, Unreachable};
 
 /// The manifest's own name, which decision 0052 makes one more path resolving
 /// against the directory it sits in.
@@ -164,6 +164,9 @@ impl Source for Directory {
         }
     }
 }
+
+/// The picture every published fixture here holds.
+const PICTURE: [u8; 4] = [0, 1, 2, 255];
 
 /// A repository with one of everything a fetch has to decide about, and the
 /// published copy of it.
@@ -1179,4 +1182,210 @@ fn a_store_made_again_where_one_was_does_not_believe_its_memory() {
     assert_eq!(fetched.pages, 1);
     assert_eq!(store(&here).revisions().count(), held + 1);
     assert_eq!(head_of(&here), head_of(&origin));
+}
+
+// ── Files of bytes left behind ───────────────────────────────────────────────
+
+/// The proposal *Bytes held elsewhere*: the history and every text payload
+/// arrive, the picture does not, and the store is a store all the same.
+#[test]
+fn leaving_bytes_takes_the_history_and_the_text_and_not_the_picture() {
+    let (origin, root) = published("leaving");
+    let here = repository("leaving-here");
+    let source = Directory::at(&root);
+    let fetched = store(&here)
+        .fetch_with(&source, MANIFEST, Fetching::default().leaving_bytes(true))
+        .expect("a fetch leaving bytes behind");
+
+    assert_eq!(fetched.revisions.len(), 2);
+    assert_eq!(fetched.payloads, 1, "the text, and not the picture");
+    assert_eq!(fetched.left, 1);
+    let picture = digest(&PICTURE);
+    assert!(store(&here).held_elsewhere(&picture).expect("a store"));
+    // Asked for once, whatever order it was asked in.
+    let revisions = source
+        .asked()
+        .iter()
+        .filter(|path| path.ends_with(".rev.txt"))
+        .count();
+    assert_eq!(revisions, 2, "{:?}", source.asked());
+    let report = Store::check(here.join("history"));
+    assert!(report.is_ok(), "{report:?}");
+    assert_eq!(
+        store(&here).history().heads(),
+        store(&origin).history().heads()
+    );
+
+    // The folder catches up without it, and says so.
+    let said = out(&here, &["update"]);
+    assert!(said.contains("absent  notes/photo.png"), "{said}");
+    assert!(here.join("notes.md").is_file());
+
+    // And the one file somebody opens arrives by itself.
+    let source = Directory::at(&root);
+    let fetched = store(&here)
+        .fetch_payloads(&source, MANIFEST, &[picture])
+        .expect("fetching the picture");
+    assert_eq!(fetched.payloads, 1);
+    assert!(!store(&here).held_elsewhere(&picture).expect("a store"));
+    out(&here, &["update"]);
+    assert_eq!(
+        fs::read(here.join("notes/photo.png")).expect("the picture"),
+        PICTURE
+    );
+}
+
+/// A digest the copy does not offer has nowhere to come from.
+#[test]
+fn a_payload_the_copy_does_not_offer_is_refused_by_digest() {
+    let (_, root) = published("not-offered");
+    let here = repository("not-offered-here");
+    store(&here)
+        .fetch_with(
+            &Directory::at(&root),
+            MANIFEST,
+            Fetching::default().leaving_bytes(true),
+        )
+        .expect("a fetch");
+    let nowhere = digest(b"bytes nobody published");
+    match store(&here).fetch_payloads(&Directory::at(&root), MANIFEST, &[nowhere]) {
+        Err(FetchError::NotOffered { payload }) => assert_eq!(payload, nowhere),
+        other => panic!("fetched what nobody offered: {other:?}"),
+    }
+}
+
+/// A fetch that reads only the pages after its last one still takes what an
+/// earlier fetch left behind, from where it remembered it — and one that
+/// leaves bytes again does not.
+#[test]
+fn a_fetch_without_leaving_takes_what_an_earlier_one_left() {
+    let (origin, root) = published("left-paged");
+    fs::remove_file(root.join(MANIFEST)).expect("the whole listing");
+    publish_paged(&origin, &root);
+    let here = repository("left-paged-here");
+    caching(&here)
+        .fetch_with(
+            &Directory::at(&root),
+            MANIFEST,
+            Fetching::default().leaving_bytes(true),
+        )
+        .expect("the first fetch");
+
+    write(&origin, "notes.md", "one\ntwo\nthree\n");
+    out(&origin, &["record", "-m", "A third thought"]);
+    publish_paged(&origin, &root);
+
+    let fetched = caching(&here)
+        .fetch_with(
+            &Directory::at(&root),
+            MANIFEST,
+            Fetching::default().leaving_bytes(true),
+        )
+        .expect("a second fetch leaving bytes");
+    assert_eq!(fetched.revisions.len(), 1);
+    assert_eq!(fetched.pages, 1, "only the page after the last one");
+    assert_eq!(fetched.left, 1, "the picture is still remembered");
+
+    write(&origin, "notes.md", "one\ntwo\nthree\nfour\n");
+    out(&origin, &["record", "-m", "A fourth thought"]);
+    publish_paged(&origin, &root);
+    let fetched = caching(&here)
+        .fetch(&Directory::at(&root), MANIFEST, false)
+        .expect("a fetch taking everything");
+    assert_eq!(fetched.pages, 1);
+    assert_eq!(
+        fetched.payloads, 1,
+        "the picture, from where it was remembered"
+    );
+    assert_eq!(fetched.left, 0);
+    assert!(
+        !store(&here)
+            .held_elsewhere(&digest(&PICTURE))
+            .expect("a store")
+    );
+}
+
+/// Letting go of a payload the copy offers leaves a store naming bytes it
+/// does not hold, and the folder without the file; the refusals are the ones
+/// that would lose something.
+#[test]
+fn evicting_lets_go_of_bytes_the_copy_offers_and_refuses_the_rest() {
+    let (_, root) = published("evict");
+    let here = repository("evict-here");
+    store(&here)
+        .fetch(&Directory::at(&root), MANIFEST, false)
+        .expect("a fetch");
+    out(&here, &["update"]);
+    let picture = digest(&PICTURE);
+
+    // The text of a file of lines is not let go of.
+    let text = store(&here)
+        .payloads()
+        .expect("the payloads")
+        .into_keys()
+        .find(|payload| *payload != picture)
+        .expect("the text payload");
+    match store(&here).eviction_plan(&Directory::at(&root), MANIFEST, &[text]) {
+        Err(EvictError::Text { payload }) => assert_eq!(payload, text),
+        other => panic!("planned to let go of text: {other:?}"),
+    }
+
+    // A picture only this store holds is not offered, so it stays.
+    fs::write(here.join("mine.bin"), [9u8, 0, 9]).expect("a picture of its own");
+    out(&here, &["record", "-m", "Mine"]);
+    match store(&here).eviction_plan(&Directory::at(&root), MANIFEST, &[digest(&[9u8, 0, 9])]) {
+        Err(EvictError::NotOffered { .. }) => {}
+        other => panic!("planned to let go of the only copy: {other:?}"),
+    }
+
+    let mut held = store(&here);
+    let plan = held
+        .eviction_plan(&Directory::at(&root), MANIFEST, &[picture])
+        .expect("a plan");
+    let working = historica::working::Working::read(&here, held.skipped()).expect("the folder");
+    let folder = historica::update::plan_eviction(&held, &working, &[picture].into())
+        .expect("the folder's half");
+    assert_eq!(folder.elsewhere, vec!["notes/photo.png".to_owned()]);
+    historica::update::apply(&held, &working, &here, &folder).expect("the folder let go");
+    assert_eq!(held.evict(&plan).expect("evicted"), vec![picture]);
+    drop(held);
+
+    assert!(!here.join("notes/photo.png").exists());
+    assert!(store(&here).held_elsewhere(&picture).expect("a store"));
+    let status = out(&here, &["status"]);
+    assert!(status.contains("absent  notes/photo.png"), "{status}");
+    assert!(status.contains("nothing here differs"), "{status}");
+    let report = Store::check(here.join("history"));
+    assert!(report.is_ok(), "{report:?}");
+
+    // Nothing to let go of twice.
+    match store(&here).eviction_plan(&Directory::at(&root), MANIFEST, &[picture]) {
+        Err(EvictError::NotHeld { .. }) => {}
+        other => panic!("planned to let go of nothing: {other:?}"),
+    }
+}
+
+/// What `fetch` and `evict` refuse about the paths they are given is refused
+/// before anything is asked of the copy.
+#[test]
+fn naming_files_for_fetch_or_evict_is_checked_before_asking_the_copy() {
+    let (origin, _) = published("naming");
+    let url = "https://example.invalid/offer.txt";
+    for (arguments, said) in [
+        (
+            vec!["fetch", url, "nowhere.bin"],
+            "names no file the heads hold",
+        ),
+        (vec!["evict", url, "notes.md"], "not a file of bytes"),
+        (vec!["evict", url], "wants the files to let go of"),
+        (
+            vec!["fetch", url, "--no-bytes", "notes/photo.png"],
+            "no use for `--no-bytes`",
+        ),
+    ] {
+        let output = run(&origin, &arguments);
+        assert!(!output.status.success(), "{arguments:?} was accepted");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        assert!(stderr.contains(said), "{arguments:?}: {stderr}");
+    }
 }

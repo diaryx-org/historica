@@ -211,6 +211,13 @@ names one that is read as lines; a `bytes` line names one that is not.
 A payload that was forgotten is not there, and a document stands where it
 was — see "Forgetting" below.
 
+A payload a `bytes` line names may also be missing because this copy never
+took it, or let it go: another copy holds it. Nothing stands where it was, and
+nothing needs to. The digest is the whole of what the revision says, and any
+copy holding bytes that hash to it can supply them. A `text` payload is never
+left behind like this, because every later version of the file is built on
+it.
+
 
 What a file holds at a revision
 --------------------------------

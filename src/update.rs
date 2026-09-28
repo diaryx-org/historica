@@ -678,6 +678,56 @@ pub fn plan_into<F: Filesystem, G: Filesystem>(
     plan_at(store, into, directory, target, Overwrite::Recorded)
 }
 
+/// The folder's half of letting go of payloads.
+///
+/// The proposal *Bytes held elsewhere*. Every path a current head names one
+/// of `payloads` at becomes held elsewhere once the store lets go of it, and
+/// the folder's file there is removed where it holds exactly those bytes —
+/// freeing the space is the point. A file holding anything else is left: it is
+/// an edit `record` has not seen, and letting go of the store's copy changes
+/// nothing about it.
+///
+/// Applied with [`apply`] *before* [`Store::evict`], so that an interruption
+/// leaves the store holding what the folder no longer does, which is a folder
+/// `update` fills again, rather than the other way round.
+pub fn plan_eviction<F: Filesystem, G: Filesystem>(
+    store: &Store<F>,
+    working: &Working<G>,
+    payloads: &BTreeSet<RevisionId>,
+) -> Result<Update, UpdateError> {
+    let mut update = Update::default();
+    let mut seen: BTreeSet<String> = BTreeSet::new();
+    for head in &current_heads(store) {
+        for (_, entry) in store.tree(head)?.entries() {
+            let Some(payload) = entry
+                .payload
+                .filter(|payload| entry.kind == Kind::Whole && payloads.contains(payload))
+            else {
+                continue;
+            };
+            if !seen.insert(entry.path.clone()) {
+                continue;
+            }
+            if working.holds(&entry.path)
+                && !working.is_link(&entry.path)
+                && working.reread_digest(&entry.path)? == payload
+            {
+                update.removes.push(Remove {
+                    path: entry.path.clone(),
+                    held: Some(payload),
+                    link: None,
+                });
+            }
+            update.elsewhere.push(entry.path.clone());
+        }
+    }
+    update
+        .removes
+        .sort_by(|one, other| one.path.cmp(&other.path));
+    update.elsewhere.sort();
+    Ok(update)
+}
+
 /// What a plan may write over at a path the folder already holds.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Overwrite {

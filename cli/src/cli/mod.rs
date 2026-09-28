@@ -46,12 +46,17 @@ pub fn usage() -> String {
 
 /// The `fetch` entry, in a build that has a transport.
 #[cfg(feature = "http")]
-const FETCHING: &str = "  fetch <url> [--join-unrelated] [--fields]
+const FETCHING: &str = "  fetch <url> [--join-unrelated] [--no-bytes] [--fields]
                            take what a published copy holds and this store
                            lacks: the URL is the manifest `offer` wrote, and
                            every path in it resolves against the directory
                            that manifest sits in. adds history and stops —
-                           `update` is the folder's catch-up
+                           `update` is the folder's catch-up. --no-bytes
+                           leaves every file of bytes with the copy
+  fetch <url> <path>...    take the bytes of the files named, and nothing else
+  evict <url> <path>... [--dry-run]
+                           let go of the bytes of the files named, from the
+                           store and the folder, where the copy holds them
 ";
 
 /// Nothing, in a build without one. Such a build fetches through the library's
@@ -401,6 +406,13 @@ pub fn run(arguments: impl IntoIterator<Item = String>) -> Result<u8, Failure> {
         "offer" => offer::offer(&base, rest),
         #[cfg(feature = "http")]
         "fetch" => fetch::fetch(&base, rest),
+        #[cfg(feature = "http")]
+        "evict" => fetch::evict(&base, rest),
+        #[cfg(not(feature = "http"))]
+        "evict" => Err(Failure::usage(
+            "this build of historica has no transport in it, so it cannot ask \
+             a copy whether it holds what `evict` would let go of",
+        )),
         // Named rather than left to fall through, because "there is no `fetch`
         // command" would be true of this binary and false of historica.
         #[cfg(not(feature = "http"))]
