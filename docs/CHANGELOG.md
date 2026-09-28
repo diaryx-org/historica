@@ -57,6 +57,103 @@ _No commits since the last tag._
 
 <!-- git-cliff:end -->
 
+## v1.0.0-rc.6 — 2026-09-28
+
+### Added
+
+- **store** — Store::comply_with_stand_ins, for a tool that inserts documents itself ([`b7df946`](https://github.com/diaryx-org/historica/commit/b7df9463cae7e76b4c056b418757417eecaf5d87))
+- **store** — a manifest in pages ([`ecb9824`](https://github.com/diaryx-org/historica/commit/ecb9824602e7efb62680b6f5d283b39e1f77d470))
+- **update** — a file of bytes the store does not hold is held elsewhere, not dropped ([`f3374cc`](https://github.com/diaryx-org/historica/commit/f3374cc3711b2345b1924e364359a6d2e4e0d87b))
+- **fetch** — leave files of bytes with the copy, take one by name, and evict ([`97aa4ac`](https://github.com/diaryx-org/historica/commit/97aa4ac8543eddbbfbbb091c4d472da9083abac8))
+
+### Fixed
+
+- **store** — a reader looks where forget files a stand-in ([`e7ff298`](https://github.com/diaryx-org/historica/commit/e7ff298fd0d945371c5424bc84526daf301843bd))
+- **fetch** — believe a fetch's memory only while the store holds what it took ([`5ffc705`](https://github.com/diaryx-org/historica/commit/5ffc70524dd432b75ee85962ef1c9464608b5a8c))
+- **store** — read a stand-in at the top of operations/ once, and clear before destroying ([`bac28cc`](https://github.com/diaryx-org/historica/commit/bac28cc46c2a9ec5be10f6b4f40c2d02afa88505))
+- **forget** — a stand-in for a payload filed under its digest is filed under its own ([`5bb7a5b`](https://github.com/diaryx-org/historica/commit/5bb7a5b45de8d53f643e03fdaf9fe36c01366fa2))
+- **fetch** — refuse a URL that is not HTTP rather than wait on it ([`dc499f6`](https://github.com/diaryx-org/historica/commit/dc499f62c03aba211d65cacefecca999ba3c46e8))
+- **store** — holds_payload hashes what it finds, and the cache keeps what was removed ([`d20098e`](https://github.com/diaryx-org/historica/commit/d20098e078b17b9c5656a7267e8bdb43098c6aa0))
+- **fetch** — leave forgotten bytes forgotten, keep what is still left, and evict the store first ([`8826e81`](https://github.com/diaryx-org/historica/commit/8826e817b56dadbbe9013a46ea1d5e061ebe0bf9))
+- **record** — read a missing file of bytes against the revision the folder holds ([`26bfdbf`](https://github.com/diaryx-org/historica/commit/26bfdbf504f27d93bbd3c2c0a17f66267e00c2fd))
+- **update** — move the only copy of a renamed file of bytes rather than strand it ([`828e844`](https://github.com/diaryx-org/historica/commit/828e844f1409a17fd1d7c1843e7ee01aaa72cbef))
+- **cli** — say where bytes left with another copy went, and list them in path order ([`88db6fd`](https://github.com/diaryx-org/historica/commit/88db6fd52e6d5a7fc4885c5324fd8f1045464722))
+
+### Changed
+
+- **store** — one pass says who states every file ([`f9e49d8`](https://github.com/diaryx-org/historica/commit/f9e49d8d50f1024acfe879cdfd5706600855d203))
+
+### Behavioural changes
+
+- A store opened with a cache applies a forgetting document that a sync copied into the top of `operations/` on the first command after it arrives, rather than after something walks the directory. Such a store now makes one `Filesystem::entries` call on `operations/` itself per command that reads content.
+
+- `Store::payload_file`, `payload`, `payload_in_pieces` and `copy_payload_to` answer as though the bytes were absent (`None` / `false`) where the store also holds a stand-in that forgets them. `cat` reports such a payload forgotten, `update` refuses to lay it in the folder, and `export` leaves it out of a copy. `Store::payloads` still lists it.
+
+- `check`'s note for a resurrected document says readers apply the forgetting document where `forget` files one, rather than that a reader may still show the bytes.
+
+- a fetch reads a `historica-offer-2` manifest; one built before this refuses it and says to fetch the archive, so a publisher who switches to `offer --into` leaves older fetchers behind. Plain `historica offer` prints the whole `historica-offer-1` listing as before.
+
+- `Fetched` gains `pages`, and a store opened with a cache writes a `fetched/` directory into it after a fetch from a paged manifest.
+
+- `status`, `record` and `update` settle a file of lines whose folder copy has the digest its stating revision names without reading that revision's content, so a store missing that content no longer fails the survey over a file nobody changed.
+
+- `update` no longer refuses when the store lacks a file of bytes the head names; it leaves the path without a file, reports it in `Update::elsewhere`, and prints it as `absent`.
+
+- `record` with no paths no longer drops a file of bytes the folder lacks when the store does not hold its bytes either; `Survey::elsewhere` lists it. Naming the path still drops it.
+
+- `update` refuses to write over, and leaves in place, a folder file whose bytes a revision records but the store does not hold, where it used to overwrite or remove it.
+
+- `export` and `export --files-only` refuse a target whose folder holds files of bytes the store does not hold, with `ExportError::Elsewhere`.
+
+- `forget` of a file of bytes whose payload is filed under its digest (any store that fetched or received it) writes the stand-in as `<stand-in digest>.ops.txt` instead of `<payload digest>.ops.txt`, and `check` passes afterwards.
+
+- `arrange` renames a file in `operations/` that no revision names and whose name claims a digest it does not hash to, to `<its digest>` with its suffix kept; before, it counted it as named by no revision and left it.
+
+- `check`'s false-filename finding ends "and `arrange` gives the file a true one".
+
+- `fetch` and `evict` refuse a URL whose scheme is not `http` or `https` with a usage error (exit 2), where a `file:` URL hung.
+
+- `Store::holds_payload` hashes the file it finds and answers `false` for bytes damaged in place or forgotten beside; before, it answered `true` wherever the catalogue placed the digest.
+
+- `update` treats a payload whose stored copy is damaged as not held: it leaves the folder's copy of those bytes alone as the only copy, and leaves a head's file absent rather than refusing with "the store's copy of … is not what it names", which no longer appears.
+
+- `export` refuses a target whose files include a payload damaged in place, before writing anything, where it failed part-way through the copy.
+
+- `prune`, `forget`, `receive`, `evict` and `arrange` write the catalogue cache after they remove or move files, so the next command reads nothing it need not.
+
+- `fetch <url> <path>` and `Store::fetch_payloads` do not take a payload something in this store forgets; the command prints "left <path> alone: its bytes were forgotten here".
+
+- a fetch that cannot take a remembered left payload keeps it remembered and counts it in `Fetched::left`, where it silently forgot it.
+
+- `evict` lets go of the store's copy before the folder's, and writes the fetch memory before removing anything.
+
+- `Store::eviction_plan` no longer refuses a payload the store does not hold, and passes over one it forgets; `EvictError::NotHeld` is gone.
+
+- `fetch`/`evict` refuse a path that names no file, a file of lines, or a directory with no file of bytes with a one-line error and exit 1, where they printed the usage and exited 2.
+
+- `fetch` reports "left N payloads with the copy, each the bytes of a file at some revision", where it said "left N files of bytes".
+
+- `amend` refuses with "the revision being amended states … as bytes this store does not hold" (`RecordError::HeldElsewhere`) where it recorded a drop or omitted the file, and keeps a file the amended revision dropped dropped.
+
+- `record --merge` refuses a contested file of bytes missing from the folder until `--accept <path>` names it, where it recorded the drop.
+
+- `merge` leaves a file of bytes held elsewhere absent and prints `absent  <path>`, and removes a recorded version the store holds from the folder there, where it refused with "this store does not hold the content …".
+
+- `merge` refuses forgotten bytes before writing anything, with a message naming the path.
+
+- `diff <path>` shows the deletion of a named file of bytes held elsewhere.
+
+- `update` moves a file whose bytes only the folder holds from a path the head no longer has to the absent path the head names those bytes at, printing `moved   <from> -> <to>` (`move` under `--dry-run`), where it left the file and printed "left … alone". `Update::moves` and `Applied::moved` are new.
+
+- `update`'s last line reads "the folder holds <head>, but for the files of bytes absent above" where files were left absent.
+
+- `forget`'s refusal for bytes this store does not hold ends with the `fetch <url> <path>` that brings them, where it said "there is nothing here to forget".
+
+- `check`'s missing-content note adds "or been left with another copy by `fetch --no-bytes` or `evict`".
+
+- `status` lists its `absent` lines by path.
+
+
 ## v1.0.0-rc.5 — 2026-09-28
 
 ### Added
