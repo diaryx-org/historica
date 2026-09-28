@@ -399,6 +399,86 @@ impl<F: Filesystem> Store<F> {
         super::prune::remove_empty_directories(self.filesystem(), &self.root.join(OPERATIONS_DIR))?;
         Ok(destroys.len())
     }
+
+    /// Destroy what each of these stand-ins forgets, where this store still
+    /// holds it, and say how many files went.
+    ///
+    /// For a tool that moves documents into a store itself, through
+    /// [`Store::insert_operation_at`] and its siblings, rather than through
+    /// `receive` or `fetch` — a replica kept in step by a transport of its
+    /// own, which cannot afford the whole-store `check` a fetch begins with.
+    /// Decision 0014 owes a delivered stand-in the redaction `receive` gives
+    /// it, in the same place: the content in, then this, with the digests of
+    /// the stand-ins just filed, then the revisions.
+    ///
+    /// **Only a held stand-in names what goes.** Each digest must be a
+    /// forgetting document this store holds, in any of the three grammars,
+    /// and what it forgets is what is destroyed. A digest that is anything
+    /// else is refused with [`StoreError::NotAStandIn`], and a refusal
+    /// destroys nothing, since every digest is read before any file goes. So
+    /// a caller cannot destroy content by naming it, only by filing a
+    /// document that forgets it.
+    ///
+    /// **Found through the catalogue, not by reading the directory.** Each
+    /// original is looked up where the catalogue places it and hashed before
+    /// it is removed, so a catalogue that is wrong costs a file left, never
+    /// the wrong file gone. The catalogue holds one path per digest, so a
+    /// second copy of the same bytes — one a person or a file-copying sync
+    /// made, since a writer never files bytes twice — is left where it is.
+    /// Readers still apply the redaction over it (decision 0079), `check`
+    /// reports it as resurrected, and `forget` or `receive` destroys it.
+    ///
+    /// What the cache derived from the destroyed bytes goes with them, and
+    /// the catalogue is kept without the files, so the next reader neither
+    /// reads a state from before the redaction nor walks for a file that is
+    /// gone.
+    pub fn comply_with_stand_ins(&mut self, stand_ins: &[RevisionId]) -> Result<usize, StoreError> {
+        let mut targets: BTreeSet<RevisionId> = BTreeSet::new();
+        for id in stand_ins {
+            let target = self
+                .body(id)?
+                .and_then(|body| body.forgets())
+                .ok_or(StoreError::NotAStandIn { document: *id })?;
+            targets.insert(target);
+        }
+        let boundary = self.root.join(OPERATIONS_DIR);
+        let mut destroyed = 0;
+        for target in &targets {
+            let Some(filed) = self.catalogue()?.at(target) else {
+                continue;
+            };
+            let path = self.root.join(&filed.path);
+            match crate::fs::digest_of(&self.files, &path) {
+                Ok(found) if found == *target => {}
+                Ok(_) => continue,
+                Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
+                Err(error) => return Err(StoreError::io(&path, error)),
+            }
+            self.files
+                .remove_file(&path)
+                .map_err(|error| StoreError::io(&path, error))?;
+            destroyed += 1;
+            self.catalogue_to_add()?.remove(target);
+            let mut read = self.read.borrow_mut();
+            read.operations.remove(target);
+            read.resolutions.remove(target);
+            drop(read);
+            // The revision's folder, if that was the last file in it, as
+            // `arrange` tidies: upwards until a directory refuses.
+            let mut empty = path.parent();
+            while let Some(directory) = empty
+                && directory != boundary
+                && self.files.remove_directory(directory).is_ok()
+            {
+                empty = directory.parent();
+            }
+        }
+        if destroyed > 0 {
+            self.clear_cache();
+            self.keep_catalogue();
+        }
+        Ok(destroyed)
+    }
 }
 
 /// Empty stores may be seeded. Otherwise one shared document or direct graph

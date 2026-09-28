@@ -4429,6 +4429,17 @@ pub enum StoreError {
         /// What the pieces actually hashed to.
         found: RevisionId,
     },
+    /// A digest handed to [`Store::comply_with_stand_ins`] that is not a
+    /// forgetting document this store holds.
+    ///
+    /// Decision 0014 destroys what a held stand-in forgets and nothing else,
+    /// so a digest that is not one names nothing to destroy — and naming the
+    /// content itself, rather than what forgets it, is the mistake this
+    /// refuses before anything is gone.
+    NotAStandIn {
+        /// The digest as given.
+        document: RevisionId,
+    },
     /// A bookmark name that cannot be a filename.
     UnusableName {
         /// The name as given.
@@ -4515,6 +4526,11 @@ impl fmt::Display for StoreError {
                 "the content for {} hashes to {found} rather than {wanted}, \
                  so nothing was written; it changed while it was being copied",
                 file.display()
+            ),
+            StoreError::NotAStandIn { document } => write!(
+                f,
+                "{document} is not a forgetting document this store holds, so it \
+                 names nothing to destroy; comply with a stand-in once it is filed"
             ),
             StoreError::UnusableName { name, because } => {
                 write!(f, "`{name}` cannot be a bookmark: {because}")

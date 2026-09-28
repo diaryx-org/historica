@@ -1314,3 +1314,148 @@ fn bytes_the_catalogue_does_not_name_are_filed_again_and_only_noted() {
         report.findings()
     );
 }
+
+/// `Store::comply_with_stand_ins`: a tool that moves documents into a store
+/// itself files the stand-ins it was sent, then complies with them, then files
+/// the revisions — `receive`'s order. What each stand-in forgets is destroyed,
+/// found through the catalogue rather than by walking `operations/`, and a
+/// digest that is not a held stand-in is refused before anything goes.
+#[test]
+fn a_tool_that_files_stand_ins_itself_complies_with_them_without_a_walk() {
+    let files = Stamped::new();
+    files
+        .create_directory(Path::new(ROOT))
+        .expect("the working copy");
+    let history = Path::new(ROOT).join("history");
+    let notes = Path::new(ROOT).join("notes.md");
+    Store::init_on(files.clone(), &history).expect("a new store");
+    let mut store = Store::open_caching_on(files.clone(), &history, CACHE).expect("the store");
+    files.write(&notes, b"secret\nkept\n").expect("a journal");
+    files
+        .write(
+            &Path::new(ROOT).join("photo.png"),
+            b"\x89PNG\x00the secret picture\x00",
+        )
+        .expect("a photograph");
+    let first = record_at(&files, &mut store, Vec::new(), "first");
+    files
+        .write(&notes, b"secret\nkept\nmore\n")
+        .expect("a second thought");
+    let second = record_at(&files, &mut store, vec![first], "second");
+    let tree = store.tree(&second).expect("a tree");
+    let text = tree.at("notes.md")[0];
+    let photo = tree.at("photo.png")[0];
+    let payload = tree
+        .entry(&photo)
+        .and_then(|entry| entry.payload)
+        .expect("a payload");
+    let content = *store
+        .get(&second)
+        .expect("readable")
+        .expect("held")
+        .edited
+        .get(&text)
+        .expect("the second revision edited notes.md");
+
+    // What another replica's `forget` wrote, without this one destroying
+    // anything: the stand-ins a transport would deliver.
+    let mut sent = Vec::new();
+    let mut originals = Vec::new();
+    for forgetting in [
+        historica::store::Forgetting {
+            revision: first,
+            file: text,
+            extent: historica::store::Extent::Lines { first: 1, last: 1 },
+        },
+        historica::store::Forgetting {
+            revision: first,
+            file: photo,
+            extent: historica::store::Extent::Whole,
+        },
+    ] {
+        let plan = store.forget_plan(&forgetting).expect("a plan");
+        sent.extend(plan.writes);
+        originals.extend(plan.destroys);
+    }
+    assert_eq!(sent.len(), 2, "one stand-in for each");
+    drop(store);
+
+    // A later exchange: the store opened afresh over the cache it kept.
+    let mut store = Store::open_caching_on(files.clone(), &history, CACHE).expect("the store");
+    assert!(
+        store
+            .content(&second, &text)
+            .expect("the content")
+            .text()
+            .contains("secret")
+    );
+    let listings = files.listings_under("history/operations");
+    let mut filed = Vec::new();
+    for body in &sent {
+        let id = historica::format::digest(&body.write());
+        let name = format!("{id}{}", historica::store::OPERATION_SUFFIX);
+        filed.push(
+            match body {
+                historica::store::Body::Operation(document) => {
+                    store.insert_operation_at(document, &name)
+                }
+                historica::store::Body::Resolution(document) => {
+                    store.insert_resolution_at(document, &name)
+                }
+                historica::store::Body::Forgotten(document) => {
+                    store.insert_forgotten_payload_at(document, &name)
+                }
+            }
+            .expect("filed"),
+        );
+    }
+
+    // Naming content rather than what forgets it is refused, and destroys
+    // nothing, whatever else was named with it.
+    let before = files.held.count();
+    let refused = store.comply_with_stand_ins(&[filed[0], content]);
+    assert!(
+        matches!(refused, Err(historica::store::StoreError::NotAStandIn { document }) if document == content),
+        "{refused:?}"
+    );
+    assert_eq!(files.held.count(), before, "a refusal destroyed something");
+
+    let destroyed = store.comply_with_stand_ins(&filed).expect("complying");
+    assert_eq!(destroyed, originals.len());
+    assert!(
+        files.listings_under("history/operations") <= listings + 1,
+        "complying walked operations/"
+    );
+    for original in &originals {
+        assert!(
+            files.held.read(&history.join(original)).is_err(),
+            "{} is still here",
+            original.display()
+        );
+    }
+    drop(store);
+
+    // The next reader, over the catalogue this kept, reads the redaction and
+    // finds no original beside it.
+    let store = Store::open_caching_on(files.clone(), &history, CACHE).expect("the store");
+    let shown = store.content(&second, &text).expect("the content").text();
+    assert!(
+        !shown.contains("secret") && shown.contains("kept"),
+        "{shown}"
+    );
+    assert!(store.payload(&payload).expect("a lookup").is_none());
+    assert!(
+        store
+            .forgotten_payload(&payload)
+            .expect("a lookup")
+            .is_some()
+    );
+    let report = Store::check_on(&files.clone(), &history);
+    assert!(report.is_ok());
+    assert!(
+        !report
+            .notes()
+            .any(|finding| matches!(finding, historica::store::Finding::Resurrected { .. })),
+        "an original survived complying"
+    );
+}

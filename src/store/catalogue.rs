@@ -33,7 +33,7 @@
 //! which builds its catalogue by reading the directory and never from
 //! the cache, is the command that holds a store to it.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 
 use crate::core::RevisionId;
@@ -101,6 +101,13 @@ pub(super) struct Catalogue {
     /// so every materialised operation asks this question. Derived from `at`
     /// and maintained with it, so the two cannot disagree.
     forgetting: BTreeMap<RevisionId, Vec<RevisionId>>,
+    /// Digests a held line names and the store has since destroyed.
+    ///
+    /// A held catalogue is text, and its lines are not taken out one at a
+    /// time; this is what lets a caller that destroyed a file without walking
+    /// the directory stop the catalogue naming it, here and in what
+    /// [`write`] keeps.
+    removed: BTreeSet<RevisionId>,
 }
 
 /// A held catalogue's text, and where each of its lines begins.
@@ -153,6 +160,9 @@ impl Catalogue {
         if let Some(filed) = self.at.get(id) {
             return Some(filed.clone());
         }
+        if self.removed.contains(id) {
+            return None;
+        }
         let line = self.held.as_ref()?.line(id)?;
         let (_, rest) = line.split_once(' ')?;
         let (forgets, path) = rest.split_once(' ')?;
@@ -201,12 +211,21 @@ impl Catalogue {
                 standing.push(id);
             }
         }
+        self.removed.remove(&id);
         self.at.insert(id, filed);
     }
 
     /// Let go of one file, and of the index entry standing for it.
     pub(super) fn remove(&mut self, id: &RevisionId) -> Option<Located> {
-        let filed = self.at.remove(id)?;
+        let filed = match self.at.remove(id) {
+            Some(filed) => filed,
+            // A held line, which stays in the text and is skipped from now on.
+            None => {
+                let filed = self.at(id)?;
+                self.removed.insert(*id);
+                filed
+            }
+        };
         if let Some(target) = filed.forgets
             && let Some(standing) = self.forgetting.get_mut(&target)
         {
@@ -303,6 +322,7 @@ pub(super) fn cached<F: Filesystem + ?Sized>(files: &F, cache: &Path) -> Option<
         at: BTreeMap::new(),
         forgetting,
         held: Some(Held { text, lines }),
+        removed: BTreeSet::new(),
     })
 }
 
@@ -570,7 +590,11 @@ fn render(catalogue: &Catalogue) -> String {
     if let Some(held) = &catalogue.held {
         for index in 0..held.lines.len() {
             let line = held.at(index);
-            if let Some((id, _)) = line.split_once(' ') {
+            if let Some((id, _)) = line.split_once(' ')
+                && !id
+                    .parse::<RevisionId>()
+                    .is_ok_and(|id| catalogue.removed.contains(&id))
+            {
                 lines.insert(id.to_owned(), format!("{line}\n"));
             }
         }
