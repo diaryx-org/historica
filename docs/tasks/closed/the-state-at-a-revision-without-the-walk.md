@@ -1,28 +1,56 @@
 ---
 title: The state at a revision without the walk
 description: Answer "file F at revision R" — its content digest and its path — by lookup rather than by loading every reachable revision, most likely as a derived index under `cache/`
-status: open
+status: done
 created: 2026-09-16
-updated: 2026-09-27
-part_of: "[Tasks](tasks.md)"
+updated: 2026-09-28
+part_of: '[Closed tasks](/docs/tasks/closed/closed.md)'
 ---
 
 # The state at a revision without the walk
+
+**Status.** Done, by `perf(store): one pass says who states every file`, and
+not in the shape proposed below. [0081](/docs/decisions/0081-who-states-a-file.md)
+records why. Measured first, the walk's cost was its repetition, once per
+file, not the work of finding the answer. One pass over the revisions a
+command has already read says which revision states every file, kept for
+the command and never written, so none of this lives under `cache/`, which
+[0078](/docs/decisions/0078-where-a-cache-is-kept.md) has since taken out of the
+store anyway. `cargo xtask bench` gained `edits=N` for the writer's shape. At
+5,000 files, with the cache warm, `status` went from 1,325 ms to 84 ms at
+1,000 revisions and from 3,297 ms to 137 ms at 2,000; `log` is 31 ms and
+62 ms.
+
+Against *Done when*:
+
+- `cat` and `status` no longer pay a walk per file. They still grow with the
+  history, as `log` does: opening the store reads every revision. That is
+  the question 0049 deferred, not this one.
+- The unrestricted survey `record` and `status` share compares each file's
+  stated digest instead of materialising it.
+- `Store::content_at` and the content walk use the pass. `Store::tree` was
+  not the cost, and `merged_content` is the merge algorithm, which the pass
+  does not replace.
+- Nothing is kept, so deleting the cache changes nothing this adds.
+- `check` takes neither the jump nor the digest.
+- `src/store/stating_tests.rs` asks every corpus store holding files, and a
+  branching history, for every file at every revision, both ways, and gets
+  the same answers.
 
 `Store::tree` and everything built on it — `cat`, `status`, `update`,
 `content_at` — answer by `reachable_from(head)`, which loads every revision
 document reachable from the head, and then `tree::merge`, which replays every
 tree event in causal order. That is linear in the length of the history, on
-every command, and a history only gets longer. [0035](../decisions/0035-the-cache-is-a-file-already-named.md)
+every command, and a history only gets longer. [0035](/docs/decisions/0035-the-cache-is-a-file-already-named.md)
 bounded the *content* replay with checkpoints and
-[0036](../decisions/0036-where-a-digest-is.md) removed the cost of finding a
+[0036](/docs/decisions/0036-where-a-digest-is.md) removed the cost of finding a
 digest; the walk that finds *which* digest, and *where* the file is, still
 stands.
 
 It is a smaller problem than it looks, because the format already states
-most of the answer. Since [0031](../decisions/0031-a-document-states-its-result.md)
+most of the answer. Since [0031](/docs/decisions/0031-a-document-states-its-result.md)
 every operation document names the digest of the file it produces, and since
-[0032](../decisions/0032-a-merge-states-its-resolution.md) a merge that
+[0032](/docs/decisions/0032-a-merge-states-its-resolution.md) a merge that
 touched a file names its resolution. So for a single revision R, file F's
 content is the `result` of the nearest `edit F` or resolution in R's
 ancestry — unique, because a merge that did not mention F has the answer on
@@ -53,7 +81,7 @@ declines to hold it gets the walk it has today.
 header on the revision document naming a flat `file path content-digest`
 list, filed under `cache/` by its digest and rebuilt by the walk on a miss.
 State at R becomes a single lookup, and a hand verifier gets what they do not
-have today — something to check a tree replay against. [0008](../decisions/0008-tree.md)
+have today — something to check a tree replay against. [0008](/docs/decisions/0008-tree.md)
 refused restating every path *inside the revision document*; a stated digest
 is one line. But it raises the format version, and an object stored rather
 than cached is Git's tree without subtree sharing, which is the size argument
@@ -86,7 +114,7 @@ asks.
 A restricted record went from 38 ms at the tenth revision to 113 ms at the
 two-thousandth. That slope was not this walk: sampled, 79% of it was the
 writer's walk of `operations/` that 0036 kept, which
-[0077](../decisions/0077-a-writer-believes-the-catalogue-it-holds.md)
+[0077](/docs/decisions/0077-a-writer-believes-the-catalogue-it-holds.md)
 removes, and the same record is then 23 ms and 33 ms. What this walk costs
 there is small — at 2,000 revisions, `reachable_from` 7 ms and
 `merged_tree_of` 3 ms — because a restricted record asks the state of one

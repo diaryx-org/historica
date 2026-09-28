@@ -40,6 +40,16 @@ struct Shape {
     revisions: usize,
     lines: usize,
     runs: usize,
+    /// How many files each round edits, `None` for every one of them.
+    ///
+    /// Every file every round is the shape the reading commands were first
+    /// measured against, and it never makes a walk go past the head: every
+    /// file was edited there. A few files a round, recorded with the paths
+    /// named, is a writer that records every few seconds, and there a file
+    /// untouched since the import is found only by walking every revision
+    /// back to it — the shape *The state at a revision without the walk* is
+    /// about.
+    edits: Option<usize>,
 }
 
 impl Default for Shape {
@@ -51,6 +61,7 @@ impl Default for Shape {
             revisions: 120,
             lines: 400,
             runs: 5,
+            edits: None,
         }
     }
 }
@@ -76,6 +87,7 @@ impl Shape {
                 "revisions" => shape.revisions = number,
                 "lines" => shape.lines = number,
                 "runs" => shape.runs = number,
+                "edits" => shape.edits = Some(number),
                 _ => return Err(format!("unknown setting `{key}`\n\n{}", usage())),
             }
         }
@@ -87,6 +99,27 @@ impl Shape {
     fn recorded(&self) -> usize {
         self.revisions + 1
     }
+
+    /// The files one round edits, by number from one.
+    ///
+    /// Every file, or a run of `edits` of them that moves on each round and
+    /// wraps, so that each file is edited as rarely as the shape allows.
+    fn edited(&self, revision: usize) -> Vec<usize> {
+        match self.edits {
+            None => (1..=self.files).collect(),
+            Some(edits) => (0..edits.min(self.files))
+                .map(|at| ((revision - 1) * edits + at) % self.files + 1)
+                .collect(),
+        }
+    }
+
+    /// The file edited longest ago, which is the one a walk goes deepest for.
+    fn stalest(&self) -> usize {
+        match self.edits {
+            None => 1,
+            Some(edits) => (self.revisions * edits) % self.files + 1,
+        }
+    }
 }
 
 pub fn usage() -> String {
@@ -94,7 +127,9 @@ pub fn usage() -> String {
      files=30        how many files the store holds\n  \
      revisions=120   how many rounds of edits to record\n  \
      lines=400       how many lines each file starts with\n  \
-     runs=5          how many times to time each command\n"
+     runs=5          how many times to time each command\n  \
+     edits=N         how many files each revision edits, recording those\n                  \
+     paths alone; every file when not given\n"
         .to_owned()
 }
 
@@ -115,19 +150,25 @@ pub fn bench(sh: &Sh, args: &[&str]) -> Result<()> {
 
     let store = Bench::new(&binary, &shape)?;
     println!(
-        "\n\x1b[1m━━ a store of {} files × {} revisions × {} lines ━━\x1b[0m",
+        "\n\x1b[1m━━ a store of {} files × {} revisions × {} lines{} ━━\x1b[0m",
         shape.files,
         shape.recorded(),
-        shape.lines
+        shape.lines,
+        match shape.edits {
+            Some(edits) => format!(", {edits} edited a revision"),
+            None => String::new(),
+        }
     );
     let recording = store.build()?;
 
     let head = store.head()?;
-    let path = "f1.txt";
+    let stalest = format!("f{}.txt", shape.stalest());
+    let path = stalest.as_str();
+    let cat = format!("cat <head> {path}");
     let commands: [(&str, Vec<&str>); 6] = [
         ("log", vec!["log"]),
         ("files <head>", vec!["files", &head]),
-        ("cat <head> f1.txt", vec!["cat", &head, path]),
+        (cat.as_str(), vec!["cat", &head, path]),
         ("status", vec!["status"]),
         ("update --dry-run", vec!["update", "--dry-run"]),
         ("check", vec!["check"]),
@@ -160,7 +201,7 @@ pub fn bench(sh: &Sh, args: &[&str]) -> Result<()> {
     );
     println!(
         "  {:<28}{:>9.1} ms  (fastest of {})\n",
-        format!("a capture of {} edits", shape.files),
+        format!("a capture of {} edits", shape.edits.unwrap_or(shape.files)),
         recording.edits.as_secs_f64() * 1000.0,
         shape.revisions
     );
@@ -255,7 +296,8 @@ impl<'a> Bench<'a> {
         let mut edits = Duration::MAX;
         let mut done = 0;
         for revision in 1..=self.shape.revisions {
-            for file in 1..=self.shape.files {
+            let edited = self.shape.edited(revision);
+            for &file in &edited {
                 // One line per file per revision, at a position that moves, so
                 // the operation documents are small and spread through the
                 // file rather than piling up at one end.
@@ -268,8 +310,16 @@ impl<'a> Bench<'a> {
                     }
                 })?;
             }
+            let message = format!("revision {revision}");
+            let mut arguments = vec!["record", "-m", message.as_str()];
+            // Named where a round edits a few, as a writer that knows what it
+            // changed does: the rest of the folder is left unlooked at.
+            let named: Vec<String> = edited.iter().map(|file| format!("f{file}.txt")).collect();
+            if self.shape.edits.is_some() {
+                arguments.extend(named.iter().map(String::as_str));
+            }
             let start = Instant::now();
-            self.run(&["record", "-m", &format!("revision {revision}")])?;
+            self.run(&arguments)?;
             edits = edits.min(start.elapsed());
             done += 1;
             if done % 20 == 0 && done != self.shape.revisions {
@@ -359,13 +409,13 @@ impl<'a> Bench<'a> {
     /// whole of what makes the cold column cold: the first run fills it, and
     /// the fastest of the rest would otherwise be a cached run wearing the
     /// other column's label.
-    fn time(
+    fn time<'l>(
         &self,
-        label: &'static str,
+        label: &'l str,
         args: &[&str],
         runs: usize,
         cache: Cache,
-    ) -> Result<(&'static str, Duration)> {
+    ) -> Result<(&'l str, Duration)> {
         let mut best = Duration::MAX;
         for _ in 0..runs {
             if cache == Cache::Cleared {

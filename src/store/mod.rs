@@ -68,7 +68,7 @@ use crate::format::{
 use crate::fs::{self, Disk, Entry, Filesystem, read_to_string};
 use crate::merge::{self, Merged};
 use crate::replay::{self, ReplayError, State};
-use crate::tree::{self, Kind, MergedTree, Tree, TreeError};
+use crate::tree::{self, Kind, MergedTree, Stater, Tree, TreeError};
 use crate::working::{MalformedSkip, Rule, SKIPPED_DIR, Skipped};
 
 mod arrange;
@@ -81,6 +81,8 @@ mod offer;
 mod prune;
 mod receive;
 mod revisions;
+#[cfg(test)]
+mod stating_tests;
 
 pub use arrange::{ArrangeError, Arranged, Arrangement, Filed, Occupied, Placement, Rename, Tally};
 use catalogue::Catalogue;
@@ -919,6 +921,12 @@ pub struct Store<F = Disk> {
     /// give — an absence, or a removal — and
     /// preferred over the cheap one from then on.
     walked: OnceCell<Catalogue>,
+    /// Which revisions state each file's content, over every revision this
+    /// store holds: decision 0081's pass, made once per command rather than a
+    /// walk per file. `None` inside where it could not be built — a store
+    /// missing a parent — which leaves every reader on the walk. Let go of
+    /// whenever the documents change.
+    stating: OnceCell<Option<std::sync::Arc<tree::Stating>>>,
     /// The directory the host keeps this store's caches in, or `None`.
     ///
     /// Decision 0078: a cache is one device's, so it is kept where the host
@@ -1278,6 +1286,7 @@ impl<F: Filesystem> Store<F> {
             documents,
             catalogue: OnceCell::new(),
             walked: OnceCell::new(),
+            stating: OnceCell::new(),
             read: RefCell::new(Read::default()),
             scanned: Cell::new(false),
             cache,
@@ -2511,6 +2520,72 @@ impl<F: Filesystem> Store<F> {
         })
     }
 
+    /// Which revisions state each file's content, over every revision held.
+    ///
+    /// Decision 0081: built on first need and kept until the documents
+    /// change. `None` where the store cannot order its revisions — a parent
+    /// not delivered — which leaves every reader on the walk, which reports
+    /// that as it always has.
+    fn stating(&self) -> Option<std::sync::Arc<tree::Stating>> {
+        self.stating
+            .get_or_init(|| {
+                let mut events = Vec::with_capacity(self.documents.len());
+                for (revision, document) in &self.documents {
+                    events.push(tree::Event {
+                        revision: *revision,
+                        document: document.whole().ok()?,
+                    });
+                }
+                tree::stating(events).ok().map(std::sync::Arc::new)
+            })
+            .clone()
+    }
+
+    /// The digest of one file's content at `head`, as the documents state it,
+    /// or `None` where that is not one lookup.
+    ///
+    /// Decision 0081, for the question a survey asks of every file: has the
+    /// folder's copy changed? The one revision stating the file's content
+    /// already names the digest of what it produces — a `text` line names the
+    /// payload, and an `edit` names a document stating its result (0031) — so
+    /// the answer is a comparison, and nothing is materialised to make it.
+    ///
+    /// `None` wherever materialising could say something else: concurrent
+    /// statements, a document that states no result, and any store holding
+    /// a forgetting document, since a redaction makes the file what no
+    /// document's digest describes.
+    pub(crate) fn stated_digest(
+        &self,
+        head: &RevisionId,
+        file: &FileId,
+    ) -> Result<Option<RevisionId>, MaterialiseError> {
+        if self
+            .catalogue()
+            .map_err(MaterialiseError::unreadable)?
+            .forgets_anything()
+        {
+            return Ok(None);
+        }
+        let Some(stating) = self.stating() else {
+            return Ok(None);
+        };
+        let Stater::One(at) = stating.stater(file, head) else {
+            return Ok(None);
+        };
+        let document = self
+            .documents
+            .get(&at)
+            .ok_or(MaterialiseError::Unknown { revision: at })?
+            .whole()
+            .map_err(MaterialiseError::unreadable)?;
+        if let Some(named) = document.edited.get(file) {
+            return self
+                .stated_result(named)
+                .map_err(MaterialiseError::unreadable);
+        }
+        Ok(document.text.get(file).copied())
+    }
+
     /// The file set at `head`.
     pub fn tree(&self, head: &RevisionId) -> Result<Tree, MaterialiseError> {
         Ok(self.merged_tree(head)?.tree)
@@ -2674,6 +2749,14 @@ impl<F: Filesystem> Store<F> {
     ) -> Result<Stated, MaterialiseError> {
         let mut known: BTreeMap<RevisionId, Stated> = BTreeMap::new();
         let mut stack = vec![*head];
+        // Decision 0081, for the reader that wants the answer rather than the
+        // work: a revision that says nothing about the file holds what the one
+        // statement it sees says, so the walk goes there rather than through
+        // every revision between. `check` walks every step.
+        let stating = match caching {
+            Caching::Take => self.stating(),
+            Caching::Replay => None,
+        };
         // What this walk cost, in operation documents it had to apply rather
         // than read an answer for. It is what decides whether the answer is
         // kept. A revision that says nothing about the file costs nothing to
@@ -2719,6 +2802,33 @@ impl<F: Filesystem> Store<F> {
                 known.insert(id, Stated::Known(Rc::new(assembled)));
                 stack.pop();
                 continue;
+            }
+
+            if let Some(stating) = &stating
+                && !document.edited.contains_key(file)
+                && !document.text.contains_key(file)
+            {
+                match stating.stater(file, &id) {
+                    Stater::Nothing => {
+                        known.insert(id, Stated::Absent);
+                        stack.pop();
+                        continue;
+                    }
+                    Stater::One(from) => {
+                        match known.get(&from) {
+                            Some(stated) => {
+                                let stated = stated.clone();
+                                known.insert(id, stated);
+                                stack.pop();
+                            }
+                            None => stack.push(from),
+                        }
+                        continue;
+                    }
+                    // Concurrent statements, which the parents' agreement
+                    // below is what joins.
+                    Stater::Several => {}
+                }
             }
 
             let unknown: Vec<RevisionId> = document
@@ -3176,6 +3286,7 @@ impl<F: Filesystem> Store<F> {
         let held = Document::new(document.to_revision(), bytes, path);
         let _ = held.whole.set(document.clone());
         self.documents.insert(id, held);
+        self.stating = OnceCell::new();
         // And where the catalogue is kept, for the same reason: whatever a
         // writer filed since the last revision is now named by one, and a
         // reader in the next command should find it without walking
@@ -3215,6 +3326,7 @@ impl<F: Filesystem> Store<F> {
         );
         let _ = held.whole.set(document.clone());
         self.documents.insert(id, held);
+        self.stating = OnceCell::new();
         Some(id)
     }
 
@@ -3226,6 +3338,7 @@ impl<F: Filesystem> Store<F> {
     /// are made by the one call that makes them everywhere else.
     pub(crate) fn withdraw(&mut self, id: &RevisionId) {
         self.documents.remove(id);
+        self.stating = OnceCell::new();
     }
 
     /// Whether this store already holds the bytes `id` names, for a writer

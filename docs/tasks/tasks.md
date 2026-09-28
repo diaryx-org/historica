@@ -4,7 +4,6 @@ description: Deferred work in historica — one file each, every one with a done
 created: 2026-09-02
 updated: 2026-09-28
 contents:
-  - "[The state at a revision without the walk](the-state-at-a-revision-without-the-walk.md)"
   - '[Closed tasks](/docs/tasks/closed/closed.md)'
 part_of: '[historica](/README.md)'
 ---

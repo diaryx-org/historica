@@ -899,6 +899,15 @@ pub fn survey<F: Filesystem>(
         // the merge states a delta against that agreed state or nothing at
         // all. Where they differ the merge owes a resolution, and the walk is
         // demoted to what proposes one.
+        // Decision 0081: where one revision states what the parent holds, the
+        // digest it names is the comparison 0043 makes below, and nothing is
+        // materialised to make it.
+        if let [parent] = parents
+            && let Some(stated) = store.stated_digest(parent, &file)?
+            && stated == working.digest(path)?
+        {
+            continue;
+        }
         let joined = if parents.is_empty() {
             Joined::Agreed(State::empty())
         } else if joining {

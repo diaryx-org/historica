@@ -194,6 +194,11 @@ impl Catalogue {
         self.at.iter()
     }
 
+    /// Whether any document this catalogue knows of forgets anything.
+    pub(super) fn forgets_anything(&self) -> bool {
+        !self.forgetting.is_empty()
+    }
+
     /// The documents standing in for a destroyed digest.
     pub(super) fn forgetting(&self, target: &RevisionId) -> &[RevisionId] {
         self.forgetting.get(target).map_or(&[], Vec::as_slice)

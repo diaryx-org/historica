@@ -756,6 +756,96 @@ pub fn merge<'a>(events: impl IntoIterator<Item = Event<'a>>) -> Result<MergedTr
     })
 }
 
+/// Who states each file's content, over every revision handed in.
+///
+/// Decision 0081. A file's content at a revision is what the nearest revision
+/// stating it says (0031, 0032), and finding that revision one file at a time
+/// was a walk from the revision asked about, per file. This is the one pass
+/// that answers it for every file and every revision: each revision that
+/// states a file's content, in causal order, with the ancestry that orders
+/// them.
+pub(crate) fn stating<'a>(
+    events: impl IntoIterator<Item = Event<'a>>,
+) -> Result<Stating, TreeError> {
+    let events: Vec<Event<'a>> = events.into_iter().collect();
+    let ancestors = ancestry(&events)?;
+
+    // Every revision that states a file's content, whichever way: a `text`
+    // creating it, or an `edit` naming an operation document or a resolution.
+    // In the order the ancestry puts them, earliest first.
+    let mut stated: BTreeMap<FileId, Vec<RevisionId>> = BTreeMap::new();
+    for event in &events {
+        let document = event.document;
+        for file in document.text.keys().chain(document.edited.keys()) {
+            let held = stated.entry(*file).or_default();
+            if held.last() != Some(&event.revision) {
+                held.push(event.revision);
+            }
+        }
+    }
+    for held in stated.values_mut() {
+        held.sort_by_key(|revision| ancestors.rank(revision));
+        held.dedup();
+    }
+    Ok(Stating { ancestors, stated })
+}
+
+/// Which revisions state each file's content, and the ancestry that orders
+/// them, over the revisions one [`stating`] was handed.
+pub(crate) struct Stating {
+    ancestors: Ancestors,
+    stated: BTreeMap<FileId, Vec<RevisionId>>,
+}
+
+impl fmt::Debug for Stating {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Stating")
+            .field("files", &self.stated.len())
+            .finish_non_exhaustive()
+    }
+}
+
+/// Where a file's content at one revision comes from.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum Stater {
+    /// Nothing at or before the revision states it.
+    Nothing,
+    /// One revision states it, and every other that does is its ancestor, so
+    /// the file there is the file at this one.
+    One(RevisionId),
+    /// Concurrent revisions state it, and the rule that joins them is the
+    /// walk's to apply.
+    Several,
+}
+
+impl Stating {
+    /// Where `file`'s content at `at` comes from.
+    ///
+    /// The statements at or before `at` that no other one at or before it
+    /// replaced. One of them is the answer: every revision between it and
+    /// `at` says nothing about the file, and every other statement is one
+    /// it saw. Several is concurrency, which is not settled here.
+    pub(crate) fn stater(&self, file: &FileId, at: &RevisionId) -> Stater {
+        let Some(stated) = self.stated.get(file) else {
+            return Stater::Nothing;
+        };
+        let reaches =
+            |revision: &RevisionId| revision == at || self.ancestors.is_ancestor(revision, at);
+        // Latest first: the first statement `at` reaches is one no later
+        // statement it reaches can have replaced, since a descendant sits
+        // later in the order.
+        let mut reached = stated.iter().rev().filter(|revision| reaches(revision));
+        let Some(latest) = reached.next() else {
+            return Stater::Nothing;
+        };
+        if reached.all(|earlier| self.ancestors.is_ancestor(earlier, latest)) {
+            Stater::One(*latest)
+        } else {
+            Stater::Several
+        }
+    }
+}
+
 /// A file a `drop` took, kept in case a link turns out to still name it.
 struct Buried {
     entry: Entry,
@@ -817,6 +907,9 @@ struct Ancestors {
     index: BTreeMap<RevisionId, usize>,
     /// What each of those had seen.
     ancestry: Ancestry,
+    /// Each indexed revision's place in a causal order: an ancestor always
+    /// ranks below its descendants.
+    ranks: Vec<usize>,
 }
 
 impl Ancestors {
@@ -826,6 +919,14 @@ impl Ancestors {
             (Some(earlier), Some(later)) => self.ancestry.saw(*later, *earlier),
             _ => false,
         }
+    }
+
+    /// A revision's place in the causal order, or past the end for one this
+    /// was not handed.
+    fn rank(&self, revision: &RevisionId) -> usize {
+        self.index
+            .get(revision)
+            .map_or(usize::MAX, |at| self.ranks[*at])
     }
 }
 
@@ -882,9 +983,14 @@ fn ancestry(events: &[Event<'_>]) -> Result<Ancestors, TreeError> {
         // Unreachable for digests, which cannot name a descendant.
         return Err(TreeError::Cyclic);
     }
+    let mut ranks = vec![0; order.len()];
+    for (rank, at) in order.iter().enumerate() {
+        ranks[*at] = rank;
+    }
     Ok(Ancestors {
         ancestry: Ancestry::new(&order, &parents),
         index,
+        ranks,
     })
 }
 

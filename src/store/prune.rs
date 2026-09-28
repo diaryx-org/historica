@@ -128,6 +128,7 @@ impl<F: Filesystem> Store<F> {
         }
         for id in &pruned.revisions {
             self.documents.remove(id);
+            self.stating = std::cell::OnceCell::new();
         }
         for id in &pruned.operations {
             self.catalogue_mut()?.remove(id);

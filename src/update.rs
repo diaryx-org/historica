@@ -838,6 +838,25 @@ pub(crate) fn plan_at<F: Filesystem, G: Filesystem>(
             continue;
         }
 
+        // Decision 0081: a file of lines the folder already holds as the one
+        // revision stating it says is kept, and settling that is comparing
+        // the digest that revision names with the folder's — nothing is
+        // replayed to learn what was already written down.
+        if entry.kind == Kind::Lines
+            && working.holds(path)
+            && let Some(stated) = store.stated_digest(target, file)?
+            && working.reread_digest(path)? == stated
+        {
+            match working.executable(path)?.map(Mode::of) {
+                Some(mode) if mode != entry.mode => update.modes.push(Chmod {
+                    path: (*path).to_owned(),
+                    mode: entry.mode,
+                }),
+                _ => update.kept.push((*path).to_owned()),
+            }
+            continue;
+        }
+
         // Decision 0067: a file of lines is replayed here and carried; a file
         // of bytes is *named* here, and the naming is checked — a payload the
         // store cannot produce is the refusal below, worked out by hashing the

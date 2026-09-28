@@ -10,6 +10,7 @@ contents:
 - '[A stand-in beside a held resolution is read only after a scan](/docs/tasks/closed/a-stand-in-beside-a-held-resolution-is-read-only-after-a-scan.md)'
 - '[A forget a sync brings is read only after a pass](/docs/tasks/closed/a-forget-a-sync-brings-is-read-only-after-a-pass.md)'
 - '[An export restates its indexes whole](/docs/tasks/closed/an-export-restates-its-indexes-whole.md)'
+- '[The state at a revision without the walk](/docs/tasks/closed/the-state-at-a-revision-without-the-walk.md)'
 ---
 
 # Closed tasks

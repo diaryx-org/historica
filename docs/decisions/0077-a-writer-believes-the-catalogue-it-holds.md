@@ -19,7 +19,7 @@ it, release build: `record` took 38 ms at the tenth revision and 115 ms at
 the two-thousandth. Sampling the loop at 2,000 revisions put 79% of
 `record`'s time in `insert_operation_at` → `upgrade` → `catalogue::read` →
 `walk`, and most of that in `opendir`. The state walk that
-[The state at a revision without the walk](../tasks/the-state-at-a-revision-without-the-walk.md)
+[The state at a revision without the walk](../tasks/closed/the-state-at-a-revision-without-the-walk.md)
 is about cost 10 ms of it at that length. A writer that records every few
 seconds — a program keeping a folder's history as it is edited, rather than
 a person asking — reaches ten thousand revisions in weeks, where the walk

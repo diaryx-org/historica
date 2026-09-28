@@ -912,6 +912,15 @@ depend on each other in.
   fetcher remembers in its cache which pages it applied and reads the rest:
   698 bytes at either length.
 
+- [0081 — Who states a file](0081-who-states-a-file.md)
+  A file's content at a revision is what the one revision stating it says,
+  and the store found that revision by walking from the head once per file,
+  so `status` cost files × depth: 3.3 s at 2,000 revisions of a 5,000-file
+  writer. One pass per command now says who states every file, the walk
+  jumps to it, and a survey compares the digest that revision names instead
+  of materialising the file. 137 ms. Nothing is kept, and `check` walks every
+  step.
+
 Not a decision, but the evaluation one of them rests on:
 [`docs/loro.md`](../loro.md) — the initial Loro evaluation, and the conditions
 that would reverse it.
