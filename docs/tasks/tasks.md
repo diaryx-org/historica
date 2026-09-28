@@ -27,8 +27,8 @@ What does not belong here:
   task.
 - **A commitment to consumers** is the changelog's unreleased region or a
   `Behavioural-change:` trailer, not a task file.
-- **An argument for a change** that might lose is a proposal, and would live in
-  `docs/proposals/`. This repository has none yet.
+- **An argument for a change** that might lose is a
+  [proposal](../proposals/proposals.md).
 
 `status` takes `open`, `in-progress`, `done`, or `dropped`, and nothing else,
 so that a tool can read it across every repository in the org.

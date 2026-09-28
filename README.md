@@ -5,6 +5,7 @@ contents:
 - '[historica on diaryx.org](/www/index.md)'
 - '[Audiences](/vocab/audiences.md)'
 - '[Tasks](/docs/tasks/tasks.md)'
+- '[Proposals](/docs/proposals/proposals.md)'
 - '[Decisions](/docs/decisions/index.md)'
 config: .config/prov.yaml
 registry: registry.yaml
