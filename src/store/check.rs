@@ -521,7 +521,8 @@ impl fmt::Display for Finding {
             Finding::MissingPayload { payload, named_by } => write!(
                 f,
                 "{} names the content {}, which is not here; it may not have \
-                 arrived yet, or another writer may have overwritten it",
+                 arrived yet, or been left with another copy by `fetch \
+                 --no-bytes` or `evict`, or another writer may have overwritten it",
                 named_by.abbreviate(12),
                 payload.abbreviate(12)
             ),

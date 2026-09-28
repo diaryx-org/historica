@@ -463,7 +463,9 @@ pub fn status(
     }
     // Not a difference, and never counted as one: `record` states nothing
     // about these. Said so that a folder missing a file is never a surprise.
-    for path in survey.elsewhere.values() {
+    let mut elsewhere: Vec<&String> = survey.elsewhere.values().collect();
+    elsewhere.sort();
+    for path in elsewhere {
         writeln!(
             out,
             "{:<7} {path}: this store does not hold its bytes; `fetch` brings them",

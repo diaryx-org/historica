@@ -692,7 +692,10 @@ impl fmt::Display for ForgetError {
             ForgetError::MissingPayload { payload } => write!(
                 f,
                 "this store does not hold the content {payload}, and has no \
-                 record of destroying it; there is nothing here to forget"
+                 record of destroying it, so there is nothing here to measure \
+                 or destroy; where another copy holds it, `fetch <url> <path>` \
+                 brings it, and forgetting it then destroys it here and \
+                 wherever the forgetting document travels"
             ),
             ForgetError::MissingQuoted { document } => write!(
                 f,
