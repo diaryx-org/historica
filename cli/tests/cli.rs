@@ -3782,6 +3782,16 @@ fn a_merge_that_would_empty_a_contested_file_says_so() {
         "one\nTHEIRS\nthree\n",
     );
     write(&directory, "f.md", "");
+
+    // `status` says what `record` is about to refuse, and does not say that
+    // nothing differs while it would.
+    let status = out(recorded(
+        &directory,
+        &["status", "--merge", &mine, "--merge", &theirs],
+    ));
+    assert!(status.contains("emptied f.md"), "{status}");
+    assert!(!status.contains("nothing here differs"), "{status}");
+
     let refused = recorded(
         &directory,
         &["record", "--merge", &mine, "--merge", &theirs, "-m", "Join"],

@@ -6,6 +6,7 @@ contents:
 - '[A claim arriving needs no line](/docs/tasks/closed/a-claim-arriving-needs-no-line.md)'
 - '[The first capture is barrier-bound](/docs/tasks/closed/first-capture-is-barrier-bound.md)'
 - '[Saying what a command wrote](/docs/tasks/closed/saying-what-a-command-wrote.md)'
+- '[Saying a merge would empty a file](/docs/tasks/closed/saying-a-merge-would-empty-a-file.md)'
 ---
 
 # Closed tasks

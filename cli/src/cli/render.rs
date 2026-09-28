@@ -442,6 +442,17 @@ pub fn status(
     for (path, lines) in &survey.standing {
         writeln!(out, "{:<7} {path} ({lines} left)", "marked")?;
     }
+    // What `record` refuses as `EmptiedByMerge`, said before it is refused.
+    // The survey keeps such a path out of `edited`, so without this line it
+    // would print nothing at all.
+    for path in &survey.emptied {
+        writeln!(
+            out,
+            "{:<7} {path}: a merge cannot state an empty file; leave it something \
+             and remove it in the revision after, or drop it here",
+            "emptied"
+        )?;
+    }
     for path in &survey.contested_bytes {
         writeln!(
             out,
@@ -465,6 +476,7 @@ pub fn status(
     if survey.is_empty()
         && survey.refused.is_empty()
         && survey.unsettled.is_empty()
+        && survey.emptied.is_empty()
         && survey.contested_bytes.is_empty()
     {
         writeln!(out, "nothing here differs from what is recorded")?;
