@@ -389,6 +389,13 @@ impl<F: Filesystem> Store<F> {
             self.catalogue_mut()?.remove(target);
         }
         self.forget_catalogue();
+        // What `cache/` derived from the destroyed bytes goes with them, as
+        // it does for `forget`: a state is found by the digest the unredacted
+        // document states, so one kept from before would go on being read
+        // in place of the redaction.
+        if !destroys.is_empty() {
+            self.clear_cache();
+        }
         super::prune::remove_empty_directories(self.filesystem(), &self.root.join(OPERATIONS_DIR))?;
         Ok(destroys.len())
     }

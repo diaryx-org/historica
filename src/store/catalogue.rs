@@ -361,6 +361,9 @@ pub(super) fn read<F: Filesystem + ?Sized>(
     // case, and rewriting the file for it would be the whole catalogue's
     // bytes for no change at all — on every command.
     let mut accounted = 0usize;
+    // Whether it read a forgetting document the held catalogue did not name,
+    // which is what makes the states in `cache/` suspect: below.
+    let mut arrived = false;
 
     let mut catalogue = Catalogue::default();
     let mut parsed: BTreeMap<RevisionId, OperationDocument> = BTreeMap::new();
@@ -428,6 +431,7 @@ pub(super) fn read<F: Filesystem + ?Sized>(
                         Err(_) => None,
                     }
                 };
+                arrived |= forgets.is_some();
                 (id, forgets)
             }
         };
@@ -444,6 +448,19 @@ pub(super) fn read<F: Filesystem + ?Sized>(
         catalogue.at.entry(id).or_insert(filed);
     }
     catalogue.index();
+
+    // A state in `cache/` is named by the digest of the file it holds, which
+    // is the digest the unredacted document states, so a reader takes it
+    // before asking whether anything forgets what produced it. `forget`,
+    // `receive` and `fetch` clear the states when they destroy an original.
+    // A forgetting document that arrived some other way — a sync that copies
+    // files and deletes nothing, which 0003 and 0014 both allow for — is
+    // first seen here, so the states go here, and before the catalogue that
+    // would stop the next pass seeing it arrive. With no catalogue held,
+    // every forgetting document is one it did not name.
+    if cached && arrived {
+        super::clear_states(files, root);
+    }
 
     // Written when the directory and the held catalogue disagreed: a path
     // this pass had to read, or one the catalogue named and the directory has

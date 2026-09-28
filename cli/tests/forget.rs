@@ -610,3 +610,94 @@ fn a_stand_in_beside_a_held_resolution_is_read_on_every_reading() {
     let diffed = out(&here, &["diff", "head"]);
     assert!(!diffed.contains("f.md"), "{diffed}");
 }
+
+/// A store with twenty revisions of `f.md` after the one that wrote
+/// `secret`, and the file read at the last, which is long enough a walk for
+/// the reader to keep the state it found in `cache/`. The first revision and
+/// the last.
+fn a_long_history_read_once(directory: &Path) -> (String, String) {
+    fs::create_dir_all(directory).expect("a repository");
+    assert!(run(directory, &["init"]).status.success());
+    write(directory, "f.md", "secret\nv0\n");
+    let first = digest_in(&out(directory, &["record", "-m", "first"]));
+    let mut last = first.clone();
+    for edit in 1..=20 {
+        write(directory, "f.md", &format!("secret\nv{edit}\n"));
+        last = digest_in(&out(directory, &["record", "-m", &format!("edit {edit}")]));
+    }
+    assert_eq!(out(directory, &["cat", &last, "f.md"]), "secret\nv20\n");
+    let states = fs::read_dir(directory.join("history/cache"))
+        .expect("the cache")
+        .filter_map(Result::ok)
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .parse::<RevisionId>()
+                .is_ok()
+        })
+        .count();
+    assert_ne!(
+        states, 0,
+        "the reading kept no state, so this tests nothing"
+    );
+    (first, last)
+}
+
+/// Decision 0014: `receive` destroys an original a forgetting document it
+/// brings forgets, and what `cache/` derived from those bytes goes with
+/// them. A state is found by the digest the unredacted document states, so
+/// one kept from before was read in place of the redaction.
+#[test]
+fn receiving_a_forget_takes_no_state_kept_from_before_it() {
+    let base = scratch("receive-states");
+    let here = base.join("here");
+    let (first, last) = a_long_history_read_once(&here);
+    let elsewhere = base.join("elsewhere");
+    copy_tree(&here, &elsewhere);
+    out(&elsewhere, &["forget", &first, "f.md", "--lines", "1"]);
+
+    let received = out(&here, &["receive", &elsewhere.to_string_lossy()]);
+    assert!(
+        received.contains("destroyed 1 forgotten originals"),
+        "{received}"
+    );
+    assert_eq!(out(&here, &["cat", &last, "f.md"]), "\\ forgotten\nv20\n");
+    assert!(!contains(&store_bytes(&here), "secret"));
+}
+
+/// Decisions 0003 and 0014: a sync that copies files and deletes nothing
+/// brings a forgetting document in beside the original it forgets. The pass
+/// that first catalogues it clears the states `cache/` kept before it came,
+/// or the reader goes on taking one of them in place of the redaction — and
+/// the catalogue it writes back would stop any later pass seeing it arrive.
+#[test]
+fn a_forget_a_sync_brings_takes_no_state_kept_from_before_it() {
+    let base = scratch("sync-states");
+    let here = base.join("here");
+    let (first, last) = a_long_history_read_once(&here);
+    copy_tree(&here.join("history/cache"), &base.join("states"));
+    let elsewhere = base.join("elsewhere");
+    copy_tree(&here, &elsewhere);
+    out(&elsewhere, &["forget", &first, "f.md", "--lines", "1"]);
+    copy_new(
+        &elsewhere.join("history/operations"),
+        &here.join("history/operations"),
+    );
+
+    // `offer` lists the directory by the pass, taking `cache/`'s catalogue
+    // for what it already accounts for.
+    out(&here, &["offer", "."]);
+    assert_eq!(out(&here, &["cat", &last, "f.md"]), "\\ forgotten\nv20\n");
+
+    // A pass with no catalogue held cannot tell which forgetting documents
+    // are new, so it takes every one as new: the state from before the sync,
+    // put back, goes again.
+    let catalogue = here.join("history/cache/operations.txt");
+    let held = fs::read_to_string(&catalogue).expect("the catalogue");
+    copy_new(&base.join("states"), &here.join("history/cache"));
+    fs::write(&catalogue, "historica-catalogue-1\n").expect("a catalogue from another version");
+    out(&here, &["offer", "."]);
+    assert_eq!(out(&here, &["cat", &last, "f.md"]), "\\ forgotten\nv20\n");
+    assert_eq!(fs::read_to_string(&catalogue).expect("the catalogue"), held);
+}

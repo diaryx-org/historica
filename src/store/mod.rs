@@ -2645,21 +2645,7 @@ impl<F: Filesystem> Store<F> {
     /// reader hashes, finds intact, and correctly uses — and one that is
     /// half-deleted is one the next reader hashes and discards.
     fn clear_cache(&self) {
-        let directory = self.root.join(CACHE_DIR);
-        let Ok(entries) = self.files.entries(&directory) else {
-            return;
-        };
-        for entry in entries {
-            if entry.kind == fs::Kind::File
-                // A person's own note in `cache/` — `init` writes one — is
-                // not a cache entry: an entry is named by a digest and
-                // nothing else is.
-                && let Some(name) = entry.path.file_name().and_then(|name| name.to_str())
-                && name.parse::<RevisionId>().is_ok()
-            {
-                let _ = self.files.remove_file(&entry.path);
-            }
-        }
+        clear_states(&self.files, &self.root);
     }
 
     /// The digest one content document states its result to be.
@@ -3490,6 +3476,31 @@ impl<F: Filesystem> Store<F> {
 }
 
 /// One of the store's directories, joined with a name that may carry `/`.
+/// Remove every state `cache/` holds, which is [`Store::clear_cache`] for a
+/// caller that has the directory and no store: the catalogue pass, which
+/// finds a forgetting document the states were derived before.
+///
+/// The catalogue and the other named files stay. They say where bytes are
+/// and what forgets what, never what a file read, and the pass is what keeps
+/// them true.
+fn clear_states<F: Filesystem + ?Sized>(files: &F, root: &Path) {
+    let directory = root.join(CACHE_DIR);
+    let Ok(entries) = files.entries(&directory) else {
+        return;
+    };
+    for entry in entries {
+        if entry.kind == fs::Kind::File
+            // A person's own note in `cache/` — `init` writes one — is
+            // not a cache entry: an entry is named by a digest and
+            // nothing else is.
+            && let Some(name) = entry.path.file_name().and_then(|name| name.to_str())
+            && name.parse::<RevisionId>().is_ok()
+        {
+            let _ = files.remove_file(&entry.path);
+        }
+    }
+}
+
 fn within(directory: &Path, name: &str) -> PathBuf {
     let mut path = directory.to_path_buf();
     for component in name.split('/') {
