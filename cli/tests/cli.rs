@@ -5633,6 +5633,142 @@ fn update_keeps_a_file_whose_bytes_only_the_folder_holds() {
     assert!(directory.join("photo.bin").exists());
 }
 
+/// The bytes of `bytes`, gone from the store and the folder both: what a
+/// fetch that left them behind leaves, and what `update` leaves beside it.
+fn let_go(directory: &Path, path: &str, bytes: &[u8]) {
+    let payload = find_bytes(&directory.join("history/operations"), bytes).expect("the payload");
+    fs::remove_file(payload).expect("removing the payload");
+    let _ = fs::remove_file(directory.join(path));
+}
+
+/// An amendment states again what the amended revision states, and a file of
+/// bytes it changed or added cannot be stated again without its bytes: a
+/// refusal, where it was a deletion or a file quietly left out.
+#[test]
+fn amend_refuses_to_restate_bytes_the_store_does_not_hold() {
+    let directory = repository("amend-changed-elsewhere");
+    fs::write(directory.join("photo.bin"), [0xffu8, 0x00, 0x31]).expect("a payload");
+    out(recorded(&directory, &["record", "-m", "first"]));
+    fs::write(directory.join("photo.bin"), [0xffu8, 0x00, 0x32]).expect("a payload");
+    out(recorded(&directory, &["record", "-m", "second"]));
+    let_go(&directory, "photo.bin", &[0xffu8, 0x00, 0x32]);
+    let said = refused(&directory, &["amend", "-m", "second, reworded"]);
+    assert!(said.contains("photo.bin"), "{said}");
+    assert!(said.contains("fetch"), "{said}");
+
+    let directory = repository("amend-added-elsewhere");
+    fs::write(directory.join("photo.bin"), [0xffu8, 0x00, 0x33]).expect("a payload");
+    out(recorded(&directory, &["record", "-m", "first"]));
+    let_go(&directory, "photo.bin", &[0xffu8, 0x00, 0x33]);
+    let said = refused(&directory, &["amend", "-m", "first, reworded"]);
+    assert!(said.contains("photo.bin"), "{said}");
+}
+
+/// A file the amended revision dropped stays dropped, and one it left alone
+/// stays, whether or not this store holds the bytes the parents name.
+#[test]
+fn amend_reads_what_the_folder_lacks_against_the_revision_it_amends() {
+    let directory = repository("amend-dropped-elsewhere");
+    fs::write(directory.join("photo.bin"), [0xffu8, 0x00, 0x34]).expect("a payload");
+    fs::write(directory.join("kept.bin"), [0xffu8, 0x00, 0x35]).expect("a payload");
+    write(&directory, "notes.md", "one\n");
+    out(recorded(&directory, &["record", "-m", "first"]));
+    fs::remove_file(directory.join("photo.bin")).expect("the deletion");
+    write(&directory, "notes.md", "one\ntwo\n");
+    out(recorded(&directory, &["record", "-m", "second"]));
+    let_go(&directory, "photo.bin", &[0xffu8, 0x00, 0x34]);
+    let_go(&directory, "kept.bin", &[0xffu8, 0x00, 0x35]);
+
+    out(recorded(&directory, &["amend", "-m", "second, reworded"]));
+    let files = stdout(&directory, &["files", "head"]);
+    assert!(!files.contains("photo.bin"), "the deletion came undone: {files}");
+    assert!(files.contains("kept.bin"), "an untouched file went: {files}");
+}
+
+/// A merge lays down what it can, and leaves a file whose bytes are held
+/// elsewhere absent, as `update` does, rather than refusing the whole merge.
+#[test]
+fn merge_leaves_a_file_held_elsewhere_absent() {
+    let directory = repository("merge-elsewhere");
+    fs::write(directory.join("photo.bin"), [0xffu8, 0x00, 0x36]).expect("a payload");
+    write(&directory, "a.md", "root\n");
+    out(recorded(&directory, &["record", "-m", "root"]));
+    let root = head_digest(&directory);
+    write(&directory, "mine.md", "mine\n");
+    out(recorded(&directory, &["record", "-m", "mine"]));
+    fs::remove_file(directory.join("mine.md")).expect("back to the root");
+    write(&directory, "theirs.md", "theirs\n");
+    out(recorded(
+        &directory,
+        &["record", "--onto", &root, "-m", "theirs"],
+    ));
+    let_go(&directory, "photo.bin", &[0xffu8, 0x00, 0x36]);
+
+    let merged = stdout(&directory, &["merge"]);
+    assert!(merged.contains("absent  photo.bin"), "{merged}");
+    assert!(directory.join("mine.md").is_file());
+    let command = merged
+        .lines()
+        .find(|line| line.trim_start().starts_with("historica record --merge"))
+        .expect("the command that records the merge");
+    let mut arguments: Vec<&str> = command.split_whitespace().skip(1).collect();
+    arguments.retain(|argument| *argument != "<message>");
+    arguments.push("Join");
+    out(recorded(&directory, &arguments));
+    let files = stdout(&directory, &["files", "head"]);
+    assert!(files.contains("photo.bin"), "{files}");
+}
+
+/// A contested file of bytes the folder holds no version of is a resolution
+/// somebody accepts, as one it holds a version of is.
+#[test]
+fn a_contested_attachment_the_folder_lacks_is_dropped_only_when_accepted() {
+    let directory = repository("merge-attachment-absent");
+    fs::write(directory.join("photo.bin"), [0x00, 0x41]).expect("the root attachment");
+    out(recorded(&directory, &["record", "-m", "root"]));
+    let root = head_digest(&directory);
+    fs::write(directory.join("photo.bin"), [0x00, 0x42]).expect("our attachment");
+    out(recorded(&directory, &["record", "-m", "mine"]));
+    fs::write(directory.join("photo.bin"), [0x00, 0x43]).expect("their attachment");
+    out(recorded(
+        &directory,
+        &["record", "--onto", &root, "-m", "theirs"],
+    ));
+    let [mine, theirs] = <[String; 2]>::try_from(heads_of(&directory)).expect("two heads");
+    fs::remove_file(directory.join("photo.bin")).expect("no version in the folder");
+
+    let complaint = refused(
+        &directory,
+        &["record", "--merge", &mine, "--merge", &theirs, "-m", "Join"],
+    );
+    assert!(complaint.contains("--accept photo.bin"), "{complaint}");
+    out(recorded(
+        &directory,
+        &[
+            "record", "--merge", &mine, "--merge", &theirs, "--accept", "photo.bin", "-m",
+            "Join",
+        ],
+    ));
+    let files = stdout(&directory, &["files", "head"]);
+    assert!(!files.contains("photo.bin"), "{files}");
+}
+
+/// `diff` names the deletion `record` would make of a file it is given, and
+/// not of one it is not.
+#[test]
+fn diff_of_a_named_file_held_elsewhere_shows_what_record_would_drop() {
+    let directory = repository("diff-named-elsewhere");
+    fs::write(directory.join("photo.bin"), [0xffu8, 0x00, 0x37]).expect("a payload");
+    write(&directory, "notes.md", "one\n");
+    out(recorded(&directory, &["record", "-m", "first"]));
+    let_go(&directory, "photo.bin", &[0xffu8, 0x00, 0x37]);
+
+    let everything = stdout(&directory, &["diff", "--color", "never"]);
+    assert!(!everything.contains("photo.bin"), "{everything}");
+    let named = stdout(&directory, &["diff", "photo.bin", "--color", "never"]);
+    assert!(named.contains("photo.bin"), "{named}");
+}
+
 /// A payload damaged where it sits is not one the store holds, so the
 /// folder's intact copy of those bytes is the only one, and is not written
 /// over.

@@ -440,8 +440,10 @@ fn folder(
         let entry = file.and_then(|file| tree.entry(&file));
         // What `status` calls held elsewhere is not a deletion here either: a
         // file of bytes the folder lacks and this store does not hold is one
-        // `record` would not drop, so it is not a difference to show.
+        // `record` would not drop, so it is not a difference to show — unless
+        // it is the file named, which `record` given the same name drops.
         if !there
+            && limit.is_none()
             && let Some(payload) = entry
                 .filter(|entry| entry.kind == Kind::Whole)
                 .and_then(|entry| entry.payload)

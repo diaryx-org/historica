@@ -600,6 +600,26 @@ pub fn survey<F: Filesystem>(
     only: &Restriction,
     kinds: &Kinds,
 ) -> Result<Survey, RecordError> {
+    survey_laid(store, working, parents, moves, at, only, kinds, None)
+}
+
+/// The survey, of a folder laid out from `laid` rather than from `parents`.
+///
+/// Decision 0023's amendment is the one caller that passes it: it surveys
+/// against its predecessor's parents, and the folder holds the predecessor.
+/// What a file of bytes the folder lacks means is a question about the
+/// revision the folder was laid out from, since `update` left it out there.
+#[allow(clippy::too_many_arguments)]
+fn survey_laid<F: Filesystem>(
+    store: &Store<F>,
+    working: &Working<F>,
+    parents: &[RevisionId],
+    moves: &[(String, String)],
+    at: &[(FileId, String)],
+    only: &Restriction,
+    kinds: &Kinds,
+    laid: Option<&RevisionId>,
+) -> Result<Survey, RecordError> {
     restricted(parents, moves, only)?;
     let joining = parents.len() > 1;
     let (tree, contested) = if parents.is_empty() {
@@ -995,24 +1015,69 @@ pub fn survey<F: Filesystem>(
     // rather than a guess — decision 0011's reason for having no `--drop`.
     // Unless it is a file of bytes this store does not hold, which nothing
     // here could have put in the folder: that is held elsewhere, and only a
-    // person naming the path drops it.
+    // person naming the file itself drops it. Naming a directory does not:
+    // a person recording the one photograph they changed in a folder of them
+    // has said nothing about the ones this copy never held.
+    //
+    // Held elsewhere where the folder was laid out, which for an amendment is
+    // the revision being amended: a file it dropped is dropped, and a file of
+    // bytes it states differently from the parents cannot be stated again
+    // without its bytes, which is a refusal rather than a quiet revert.
+    let laid = match laid {
+        Some(laid) => Some(store.tree(laid)?),
+        None => None,
+    };
+    let laid_from = laid.as_ref().unwrap_or(&tree);
+    let mut unstatable = Vec::new();
     for (file, path) in &placed {
         if !only.covers(path) || working.holds(path) {
             continue;
         }
         let named = only.paths().any(|named| named == path);
-        if !named
-            && let Some(payload) = tree
+        let entry = tree.entry(file).filter(|entry| entry.kind == Kind::Whole);
+        // Decision 0008's divergence, with no version in the folder: that
+        // neither side is kept is a resolution too, and a person says so with
+        // `--accept` as for any other.
+        if entry.is_some_and(|entry| entry.payload.is_none()) {
+            survey.contested_bytes.insert(path.clone());
+        } else if !named
+            && let Some(payload) = laid_from
                 .entry(file)
                 .filter(|entry| entry.kind == Kind::Whole)
                 .and_then(|entry| entry.payload)
             && store.held_elsewhere(&payload)?
         {
-            survey.elsewhere.insert(*file, path.clone());
+            if entry.and_then(|entry| entry.payload) == Some(payload) {
+                survey.elsewhere.insert(*file, path.clone());
+            } else {
+                unstatable.push(path.clone());
+            }
             continue;
         }
         survey.dropped.insert(*file, path.clone());
         survey.moved.remove(file);
+    }
+    // And a file of bytes the amended revision added, which the parents do
+    // not hold at all.
+    if let Some(laid) = &laid {
+        for (file, entry) in laid.entries() {
+            if placed.contains_key(file)
+                || !only.covers(&entry.path)
+                || working.holds(&entry.path)
+            {
+                continue;
+            }
+            if entry.kind == Kind::Whole
+                && let Some(payload) = entry.payload
+                && store.held_elsewhere(&payload)?
+            {
+                unstatable.push(entry.path.clone());
+            }
+        }
+    }
+    if !unstatable.is_empty() {
+        unstatable.sort();
+        return Err(RecordError::HeldElsewhere { paths: unstatable });
     }
 
     // Decision 0040's resolution, once the whole folder is known. The tree
@@ -1301,7 +1366,7 @@ pub fn plan<F: Filesystem>(
     recording: &Recording,
     entropy: &mut impl Entropy,
 ) -> Result<Plan, RecordError> {
-    plan_with(store, working, recording, entropy, &BTreeMap::new())
+    plan_with(store, working, recording, entropy, &BTreeMap::new(), None)
 }
 
 /// The same, keeping identifiers a rewritten revision already minted.
@@ -1311,15 +1376,17 @@ pub fn plan<F: Filesystem>(
 /// one of them surveys as added again, and minting afresh would make the same
 /// file, in the same place, in the same piece of work, a different file after
 /// every amendment. `kept` is that predecessor's `add` lines, by path, and
-/// minting happens only for a path it does not name.
+/// minting happens only for a path it does not name. `laid` is that
+/// predecessor, which the folder holds.
 fn plan_with<F: Filesystem>(
     store: &Store<F>,
     working: &Working<F>,
     recording: &Recording,
     entropy: &mut impl Entropy,
     kept: &BTreeMap<String, FileId>,
+    laid: Option<&RevisionId>,
 ) -> Result<Plan, RecordError> {
-    let surveyed = survey(
+    let surveyed = survey_laid(
         store,
         working,
         &recording.parents,
@@ -1327,6 +1394,7 @@ fn plan_with<F: Filesystem>(
         &recording.at,
         &recording.only,
         &recording.kinds,
+        laid,
     )?;
 
     // Three things the survey reports and recording refuses. Decision 0015
@@ -1663,7 +1731,14 @@ fn rewrite<F: Filesystem>(
     }
 
     let (previous, recording, kept) = rewriting(store, amendment)?;
-    let plan = plan_with(store, working, &recording, entropy, &kept)?;
+    let plan = plan_with(
+        store,
+        working,
+        &recording,
+        entropy,
+        &kept,
+        Some(&amendment.revision),
+    )?;
 
     let content = content_of(&plan);
     let document = RevisionDocument {
@@ -2334,6 +2409,12 @@ pub enum RecordError {
         /// Each file, and how many marker lines still stand in it.
         files: Vec<(String, usize)>,
     },
+    /// Files of bytes an amendment would state as the amended revision does,
+    /// whose bytes this store does not hold.
+    HeldElsewhere {
+        /// Each path.
+        paths: Vec<String>,
+    },
     /// Contested byte payloads a person has not explicitly accepted.
     UnacceptedAttachments {
         /// Every path requiring `--accept`.
@@ -2628,6 +2709,18 @@ impl fmt::Display for RecordError {
                 files
                     .iter()
                     .map(|(path, lines)| format!("\n  {path} ({lines} left)"))
+                    .collect::<String>()
+            ),
+            RecordError::HeldElsewhere { paths } => write!(
+                f,
+                "the revision being amended states {} as bytes this store does not \
+                 hold, and the folder has nothing to state {} with; `fetch <url> \
+                 <path>` brings them:{}",
+                if paths.len() == 1 { "a file" } else { "files" },
+                if paths.len() == 1 { "it" } else { "them" },
+                paths
+                    .iter()
+                    .map(|path| format!("\n  {path}"))
                     .collect::<String>()
             ),
             RecordError::UnacceptedAttachments { paths } => write!(

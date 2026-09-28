@@ -812,6 +812,23 @@ pub fn merge(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
     let merged = store.merged_tree_of(&heads).map_err(Failure::error)?;
     let mut contested = 0usize;
 
+    // Decision 0066: bytes somebody destroyed cannot be laid down, and saying
+    // so before the first file is written leaves the folder as it was. Bytes
+    // held elsewhere can be left out, as `update` leaves them, below.
+    for (_, entry) in merged.tree.entries() {
+        if entry.kind == Kind::Whole
+            && let Some(payload) = entry.payload
+            && !store.holds_payload(&payload).map_err(Failure::error)?
+            && !store.held_elsewhere(&payload).map_err(Failure::error)?
+        {
+            return Err(Failure::error(format!(
+                "{}: its content {payload} was forgotten here, so this merge cannot \
+                 lay it down; record the `drop` that makes that true",
+                entry.path
+            )));
+        }
+    }
+
     // A path two files claim cannot be a folder's truth: one keeps the path
     // and the other is written beside it under a rendered name, which `--at`
     // then settles. Decision 0008 forbids the format inventing either.
@@ -874,30 +891,63 @@ pub fn merge(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
                     said.push(format!(
                         "left {at} alone: it is contested and holds no lines"
                     ));
-                    for (revision, _) in contested_payloads(&merged.contested, file) {
-                        said.push(format!("  historica cat {} {at}", revision.abbreviate(8)));
+                    for (revision, side) in contested_payloads(&merged.contested, file) {
+                        if store.holds_payload(&side).map_err(Failure::error)? {
+                            said.push(format!("  historica cat {} {at}", revision.abbreviate(8)));
+                        } else {
+                            said.push(format!(
+                                "  {}'s bytes are not in this store; `historica fetch <url> {at}` brings them",
+                                revision.abbreviate(8)
+                            ));
+                        }
                     }
                     continue;
                 };
-                if store
-                    .payload_file(&payload)
-                    .map_err(Failure::error)?
-                    .is_none()
-                {
-                    return Err(Failure::error(format!(
-                        "this store does not hold the content {payload}"
-                    )));
-                }
                 // Decision 0067: what stands in the folder is compared by
                 // digest, so a photograph already in place is settled without
                 // either copy of it being read into memory.
-                if let Ok(held) = historica::fs::digest_of(&Disk, &on_disk)
-                    && held != payload
-                    && !heads.iter().any(|head| {
+                let held = historica::fs::digest_of(&Disk, &on_disk).ok();
+                let recorded = |held: RevisionId| {
+                    heads.iter().any(|head| {
                         store
                             .content_at(head, file)
                             .is_ok_and(|content| content.digest() == held)
                     })
+                };
+                // The proposal *Bytes held elsewhere*, as `update` reads it:
+                // the merge holds bytes this store does not, so the path is
+                // left without them, and a version the store does hold is
+                // taken away so that `record --merge` does not read it as one
+                // side undoing the other.
+                if !store.holds_payload(&payload).map_err(Failure::error)? {
+                    match held {
+                        None => said.push(format!(
+                            "{:<7} {at}: this store does not hold its bytes; `fetch` brings them",
+                            "absent"
+                        )),
+                        Some(held) if held == payload => {}
+                        Some(held)
+                            if recorded(held)
+                                && store.holds_payload(&held).map_err(Failure::error)? =>
+                        {
+                            fs::remove_file(&on_disk)
+                                .map_err(|error| Failure::error(format!("{at}: {error}")))?;
+                            said.push(format!(
+                                "removed {at}: the merge holds bytes this store does not; \
+                                 `fetch` brings them"
+                            ));
+                        }
+                        Some(_) => said.push(format!(
+                            "left {at} alone: the merge holds bytes this store does not, \
+                             and nothing else here holds what the folder does; `fetch` \
+                             brings the merge's"
+                        )),
+                    }
+                    continue;
+                }
+                if let Some(held) = held
+                    && held != payload
+                    && !recorded(held)
                 {
                     said.push(format!(
                         "left {at} alone: it holds work nothing has recorded"

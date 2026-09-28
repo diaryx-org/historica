@@ -248,7 +248,12 @@ never existed.
 A named path the folder no longer holds records the deletion, because absence
 is still a fact. That includes a file of bytes the store does not hold, which a
 bare `record` leaves alone because the store could not have put it in the
-folder: naming it is how to say it is gone. A path nothing answers to is
+folder: naming it is how to say it is gone. It is the file that has to be
+named — a directory holding it is not enough, since recording the one picture
+changed in a folder of them says nothing about the ones this copy never held.
+`amend` reads what the folder lacks against the revision it rewrites, and
+refuses a file of bytes that revision changed or added whose bytes are not
+here, since the folder has nothing to state it with. A path nothing answers to is
 refused, and so is a `--move`
 with one end outside the restriction, since a restriction that spelled half a
 rename would record the other half as a file appearing out of nowhere.
@@ -290,9 +295,14 @@ would refuse.
 A file of bytes takes the same route and stops at the merge:
 [0008](decisions/0008-tree.md) makes two concurrent `bytes` a divergence to
 report, and there is nothing to render between marker lines in a JPEG, so
-`merge` names the contested path, prints the command that fetches each side,
-and leaves the folder alone. For that one case the tool cannot tell a
-resolution from an oversight, which is said out loud rather than papered over.
+`merge` names the contested path, prints the command that reads each side —
+or, for a side whose bytes this store does not hold, the `fetch` that brings
+them — and leaves the folder alone. For that one case the tool cannot tell a
+resolution from an oversight, which is said out loud rather than papered over,
+and a contested file of bytes the folder holds no version of is refused by
+`record --merge` until `--accept` says that dropping it is the resolution. A
+file of bytes held elsewhere that is not contested is left absent, as `update`
+leaves it.
 
 ### `update`
 
