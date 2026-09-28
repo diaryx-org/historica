@@ -41,8 +41,8 @@ use crate::fs::Filesystem;
 use crate::naming::{self, Filing};
 
 use super::{
-    MaterialiseError, OPERATIONS_DIR, REVISION_SUFFIX, REVISION_SUFFIXES, REVISIONS_DIR, Store,
-    StoreError, claims, walk, within,
+    MaterialiseError, OPERATION_SUFFIX, OPERATION_SUFFIXES, OPERATIONS_DIR, REVISION_SUFFIX,
+    REVISION_SUFFIXES, REVISIONS_DIR, Store, StoreError, claims, walk, within,
 };
 
 /// Whether `arrange` decides where a revision document sits, or only what it
@@ -237,6 +237,24 @@ impl<F: Filesystem> Store<F> {
         for path in walk(&self.files, &self.root, OPERATIONS_DIR)?.files {
             let id = self.digest_of(&path)?;
             let Some((stem, name)) = operations.get(&id) else {
+                // A name spelling a digest its bytes do not hash to is the one
+                // name `check` holds against a store, and a stand-in `forget`
+                // filed beside a payload filed under its digest was given one.
+                // No revision names the file, so there is no arranged name
+                // for it; its own digest is the name nothing else can claim,
+                // and where `forget` files a stand-in otherwise.
+                if let Some(claimed) = super::check::claimed_digest(&path)
+                    && claimed != id
+                {
+                    let suffix = if claims(&path, &OPERATION_SUFFIXES) {
+                        OPERATION_SUFFIX
+                    } else {
+                        ""
+                    };
+                    let target = within(&operations_dir, &format!("{id}{suffix}"));
+                    self.place(&mut plan, path, target, Filed::Operation)?;
+                    continue;
+                }
                 plan.unnamed.push(self.relative(&path));
                 continue;
             };

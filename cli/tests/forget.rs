@@ -814,3 +814,70 @@ fn a_stand_in_filed_under_what_it_forgets_is_read_at_the_top_once() {
         "a reader cleared the cache for nothing new"
     );
 }
+
+/// A payload a receive or a fetch filed under its digest is forgotten into a
+/// store `check` still passes: the stand-in's name cannot be the payload's
+/// digest with a suffix, because that name claims a digest the stand-in's
+/// bytes are not.
+#[test]
+fn a_payload_filed_under_its_digest_is_forgotten_under_a_name_that_is_true() {
+    let base = scratch("digest-filed");
+    let origin = folder(base.join("origin"));
+    assert!(run(&origin, &["init"]).status.success());
+    write(&origin, "f.md", "one\n");
+    write_bytes(&origin, "photo.png", b"\x89PNG\x00the secret picture\x00");
+    out(&origin, &["record", "-m", "first"]);
+
+    let here = folder(base.join("here"));
+    assert!(run(&here, &["init"]).status.success());
+    out(&here, &["receive", &origin.to_string_lossy()]);
+    let picture = historica::format::digest(b"\x89PNG\x00the secret picture\x00");
+    assert!(
+        here.join(format!("history/operations/{picture}")).is_file(),
+        "the payload is not filed under its digest, so this tests nothing"
+    );
+    out(&here, &["forget", "head", "photo.png"]);
+
+    let lying = here.join(format!("history/operations/{picture}.ops.txt"));
+    assert!(!lying.exists(), "the stand-in claims the payload's digest");
+    let checked = run(&here, &["check"]);
+    assert!(
+        checked.status.success(),
+        "{}",
+        String::from_utf8_lossy(&checked.stdout)
+    );
+
+    // A store an earlier version left that way: `check` names the lie and
+    // `arrange` gives the stand-in its own digest.
+    let stand_in = filed(&here, &format!("{}.ops.txt", stand_in_digest(&here)));
+    fs::rename(&stand_in, &lying).expect("the name an earlier forget gave it");
+    let checked = run(&here, &["check"]);
+    assert!(!checked.status.success(), "a false name passed `check`");
+    let said = String::from_utf8_lossy(&checked.stdout);
+    assert!(said.contains("`arrange` gives the file a true one"), "{said}");
+    out(&here, &["arrange"]);
+    let checked = run(&here, &["check"]);
+    assert!(
+        checked.status.success(),
+        "{}",
+        String::from_utf8_lossy(&checked.stdout)
+    );
+    assert!(stand_in.exists(), "the stand-in went somewhere else");
+}
+
+/// The digest of the one forgetting document in a store.
+fn stand_in_digest(directory: &Path) -> RevisionId {
+    let operations = directory.join("history/operations");
+    fs::read_dir(&operations)
+        .expect("operations/")
+        .filter_map(Result::ok)
+        .map(|entry| entry.path())
+        .filter(|path| path.is_file())
+        .find_map(|path| {
+            let bytes = fs::read(&path).ok()?;
+            bytes
+                .starts_with(b"historica\nforgets ")
+                .then(|| historica::format::digest(&bytes))
+        })
+        .expect("a forgetting document at the top of `operations/`")
+}

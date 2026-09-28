@@ -411,7 +411,8 @@ impl fmt::Display for Finding {
                 actual,
             } => write!(
                 f,
-                "{} claims {} and hashes to {actual}; the name is a claim and it is false",
+                "{} claims {} and hashes to {actual}; the name is a claim and it is \
+                 false, and `arrange` gives the file a true one",
                 file.display(),
                 claimed.abbreviate(12)
             ),
@@ -683,7 +684,7 @@ impl Report {
 /// only the last of — so a digest-named `<digest>.rev.txt` would come back as
 /// `<digest>.rev`, parse as nothing, and quietly stop being checked. Every
 /// accepted suffix is stripped instead.
-fn claimed_digest(path: &Path) -> Option<RevisionId> {
+pub(super) fn claimed_digest(path: &Path) -> Option<RevisionId> {
     let name = path.file_name().and_then(|name| name.to_str())?;
     let stem = REVISION_SUFFIXES
         .iter()

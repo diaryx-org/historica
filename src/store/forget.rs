@@ -236,6 +236,17 @@ impl<F: Filesystem> Store<F> {
         else {
             return Ok(None);
         };
+        // A payload filed under its own digest, which is how a fetch and a
+        // receive file one: beside it, the stand-in's name would claim the
+        // payload's digest for bytes that are the stand-in's own, and `check`
+        // holds every name that spells a digest to it.
+        if Path::new(&name)
+            .file_name()
+            .and_then(|leaf| leaf.to_str())
+            .is_some_and(|leaf| leaf.parse::<RevisionId>().is_ok())
+        {
+            return Ok(None);
+        }
         let name = format!("{name}{OPERATION_SUFFIX}");
         let taken = self
             .filesystem()
