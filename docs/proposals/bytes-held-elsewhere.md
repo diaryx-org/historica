@@ -21,9 +21,11 @@ and since [0067](/docs/decisions/0067-content-that-arrives-whole-is-named-not-ca
 nothing carries a file of bytes except the payload named by that digest. So
 the reference a lighter copy would keep already exists. It is the digest,
 and it is in every revision. A store that holds a revision naming bytes it
-does not hold is already legal: `check` reports `MissingPayload` as a note,
-and [0044](/docs/decisions/0044-what-this-copy-has-held.md) makes that absence
-an error only where this copy once held the bytes.
+does not hold is already legal: `check` reports `MissingPayload` as a note.
+[0044](/docs/decisions/0044-what-this-copy-has-held.md) decided that the
+absence should be an error where this copy once held the bytes, and that has
+not been built. Nothing here depends on it, and `evict` below says what it
+would owe when it is.
 
 What is missing is the rest of the tool:
 
@@ -122,13 +124,18 @@ This proposal needs no list. The store already says which bytes it holds.
   ([0078](/docs/decisions/0078-where-a-cache-is-kept.md)). A fetch for one of
   them reads the address from there, or composes the whole listing if the
   cache is gone. Deleting the cache changes how long this takes and nothing
-  else.
+  else. A later fetch without `--no-bytes` takes the payloads left behind as
+  well, from the same addresses. 0080's memory lets a fetch skip the pages
+  it has applied, and the payloads left behind are listed in those pages, so
+  without the addresses a plain fetch would never ask for them. A fetch
+  records its pages as applied once it has taken everything it did not leave
+  on purpose.
 
 - **`historica evict <url> <path>...` lets go of a payload this copy
   holds.** It removes the payload from `operations/` and removes the folder's
-  file where the folder holds exactly those bytes. It clears the digest from
-  0044's witness record, so `check` reads the absence as held elsewhere
-  rather than as lost. It refuses unless the source's listing names the
+  file where the folder holds exactly those bytes. When 0044's witness
+  record is built, `evict` clears the digest from it, so that `check` reads
+  the absence as held elsewhere rather than as lost. It refuses unless the source's listing names the
   digest, and it refuses where the folder holds bytes nobody recorded at that
   path. It writes nothing that travels. Another copy never learns that this
   one let go, which is the difference from `forget`: forgetting destroys the
@@ -217,8 +224,9 @@ above, which needs nothing from the caller and nothing from the listing.
 - 0030's all-or-nothing rule gains its one exception, with the reason above.
   Its promise not to destroy the only copy becomes a check on what the store
   holds.
-- `status` gains a heading, and `--fields` gains a line kind for it
-  ([0064](/docs/decisions/0064-a-listing-for-something-that-is-not-a-person.md)).
+- `status` gains a heading, and the library's survey a set of paths held
+  elsewhere. `status` has no reading for a program yet, so there is no line
+  kind to add.
 - `forget` still refuses bytes this store does not hold, since the stand-in's
   `length` is measured from them (0066). That now includes bytes it evicted.
   The fix is to fetch them first, or to wait for somebody else's forgetting
