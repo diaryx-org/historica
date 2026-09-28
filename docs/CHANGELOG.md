@@ -53,14 +53,42 @@ visible, to be triaged into its real group before the tag is cut.
 
 <!-- git-cliff:begin — generated; edits here are overwritten -->
 
+_No commits since the last tag._
+
+<!-- git-cliff:end -->
+
+## v1.0.0-rc.5 — 2026-09-28
+
+### Added
+
+- **store** — a file's content asked of a tree the caller has already merged ([`268e407`](https://github.com/diaryx-org/historica/commit/268e40793439b463ad58040f373889629656bd5b))
+- **store** — keep caches where the host says, not in the store ([`42b8dee`](https://github.com/diaryx-org/historica/commit/42b8deeb5e0c980990fdea7961330ebd84baf338))
+
 ### Fixed
 
 - **xtask** — the bench builds the binary it times ([`4386a8f`](https://github.com/diaryx-org/historica/commit/4386a8f60f10c7c826977a922b9f079e75e7138f))
+- **format** — preserve deletion bounds across replacements ([`b4f66f4`](https://github.com/diaryx-org/historica/commit/b4f66f41505b35ef61563a43c8d6295a91079a1b))
+- **store** — hand stand-ins for a digest to the reader in digest order ([`dd48f8e`](https://github.com/diaryx-org/historica/commit/dd48f8e247971805e3bf21d7f1be8e7ba69c9068))
+- **cli** — status says a merge would empty a contested file ([`e169bc4`](https://github.com/diaryx-org/historica/commit/e169bc4387976096bedc2767ade64c9e1e8853bb))
+- **store** — a pass catalogues what a resolution forgets ([`eee496a`](https://github.com/diaryx-org/historica/commit/eee496a97e48e9be7012c00e789fadac1fbe7289))
+- **store** — a forget that arrives clears the states read before it ([`39ddd83`](https://github.com/diaryx-org/historica/commit/39ddd83e31b2fe8141c6ad974289ec218e9c557d))
 
 ### Changed
 
 - **fs** — a streamed payload is barriered, not drained, twice per file ([`15a9ecf`](https://github.com/diaryx-org/historica/commit/15a9ecf7a04448ea2c8e0814ac42164257142ec6))
 - **fs** — a capture pushes per file and barriers once before the revision ([`ee42524`](https://github.com/diaryx-org/historica/commit/ee425243388ce33c61ab2812c475b03e25da7516))
+- **store** — a revision that says nothing about a file shares its parent's state ([`3acecb8`](https://github.com/diaryx-org/historica/commit/3acecb8f5cde7b7bbca5f719d900270c3fe48c81))
+- **store** — a payload wanted whole is read once and the bytes read are hashed ([`b44eb1b`](https://github.com/diaryx-org/historica/commit/b44eb1b66304ab130fd7770ee881ff5063fab6b7))
+- **diff** — each side's content is asked of the tree already merged for it ([`f4e227f`](https://github.com/diaryx-org/historica/commit/f4e227f7fbe53255f3f7b0d38f10941d19096e69))
+- **format** — admit each operation through an Ordered that Verus proves ordered pairwise ([`ce17fee`](https://github.com/diaryx-org/historica/commit/ce17feee5f1c79a6269aeef3edff44cf4aa9f749))
+- **replay** — prove State::applied in place with Verus ([`c601ea4`](https://github.com/diaryx-org/historica/commit/c601ea4a3888e2035051cb2991e5bfec09c271d1))
+- **format** — prove stand_in and decision 0014's laws in place with Verus ([`adf4c46`](https://github.com/diaryx-org/historica/commit/adf4c46f5233cb9a806445b44cac53f879cf8316))
+- **format** — prove the resolution grammar's stand_in in place with Verus ([`e4db715`](https://github.com/diaryx-org/historica/commit/e4db7156ab911416bf14f4b1fa6e7e64ddf37b1c))
+- **merge** — prove the walk's steps for operation documents in place with Verus ([`643923c`](https://github.com/diaryx-org/historica/commit/643923cef8cfad2f48bdb4d23d449b31a2269eaf))
+- **store** — a writer believes the catalogue it holds, and keeps it as the revision lands ([`74bf86d`](https://github.com/diaryx-org/historica/commit/74bf86d20caca23b6936a071d16c936c99f13d1d))
+- **merge** — prove the merge walk in place, resolutions included, with Verus ([`b443308`](https://github.com/diaryx-org/historica/commit/b443308c92d8fd49c77efc264b4008ceef77a130))
+- **merge** — prove the ancestry a partial order and the walk's order causal ([`05958f1`](https://github.com/diaryx-org/historica/commit/05958f1b0e7bb4b66b3da10b0eb1cc109f08843e))
+- **merge** — prove the fast path reads the lines the walk reads ([`636bd91`](https://github.com/diaryx-org/historica/commit/636bd9108313b0839f422c26b6444caa90a67a51))
 
 ### Behavioural changes
 
@@ -88,7 +116,70 @@ visible, to be triaged into its real group before the tag is cut.
   content did not, and nothing a revision names can be lost to a power cut
   the bookmark that names the revision survived.
 
-<!-- git-cliff:end -->
+- reading a file writes a `cache/` checkpoint only once
+  its walk has applied sixteen of the file's operation documents, not
+  once it has passed sixteen revisions. A store's `cache/` stays far
+  smaller, and a file written once and never edited is never cached. What
+  every command prints is unchanged; `cache/` is disposable (0003), so
+  nothing reads the entries that are no longer written.
+
+- Operation documents with overlapping operations or adjacent deletions hidden by intervening inserts are now refused by the parser.
+
+- Where a store holds stand-ins for a destroyed document that disagree about its shape, readers now take the one whose digest sorts first as the shape, whatever the files are called or the order they arrived in; before, it was whichever the directory or catalogue listed first. Stand-ins that agree about the shape read as before.
+
+- a writer no longer lists operations/ before filing, so bytes that reached operations/ without passing through a writer (a hand copy, or a file sync) since cache/operations.txt was last written are filed a second time under the name given, which `check` reports as a DuplicateContent note; no answer changes.
+
+- Store::insert_at writes cache/operations.txt when a writer added to the catalogue since it was last written, so a record, receive, fetch or export now leaves the catalogue current where before the next writer's walk did; Store::keep_catalogue is new and public.
+
+- a chain holding an `OperationDocument` built by hand
+with its inserts out of position order, which the parser refuses, is now
+merged by the walk rather than the fast path. The file is the same; the
+ordinals in `Merged::references` for the lines that document wrote now
+follow the document's order, as the walk and every concurrent merge
+number them, where they followed file order before.
+
+- `status` joining work (`--merge`) prints `emptied <path>:
+a merge cannot state an empty file; …` for each contested file of lines the
+folder holds empty, and no longer prints `nothing here differs from what is
+recorded` while there is one. It exits 0 as before; `record` refuses the same
+merge as it did.
+
+- in a store that holds a merge's resolution beside a
+stand-in that forgets it (a sync that copies files brings one in), `cat`,
+`diff`, `blame` and every reader now show the forgotten items as
+`\ forgotten` on every reading. Before, a reading showed the original text
+unless something earlier in the same command had scanned `operations/`.
+
+- `Store::offer` and `historica offer` now name the digest
+a forgetting resolution forgets in the fourth field, where they said `-`
+when the listing came from a pass. A fetcher reading that offer destroys
+the resolution it forgets, as it already did for an operation document's
+stand-in.
+
+- `cache/operations.txt` is written as
+`historica-catalogue-2`. A `historica-catalogue-1` catalogue is discarded,
+so the first command after upgrading reads `operations/` once and writes
+the catalogue again. An older version meeting a `-2` catalogue discards it
+the same way.
+
+- after `receive` or `fetch` destroys a forgotten original, readers show the redaction; before, a file read (and cached) before the forget arrived kept showing the forgotten text.
+
+- a command that re-reads operations/ and finds a forgetting document the cached catalogue did not list empties cache/'s stored states, so the next reads replay; the same happens once in a store with forgetting documents whose catalogue is missing or from another version.
+
+- `check`'s note for a forgotten document whose bytes are back reads "a reader that has not yet read the forgetting document still shows them" in place of "the redaction still holds".
+
+- `Store::open`, `open_on`, `discover` and `init`, and `Working::read` and `read_on`, keep no cache: every answer is the same and repeated reads are slower. A host opts back in by passing a directory to `Store::open_caching_on` / `Working::read_caching_on` (or `open_caching` / `read_caching` on disk).
+
+- opening a store deletes a `cache/` directory inside it, and everything in it; `check` does not.
+
+- `init` no longer creates `history/cache/` or its `README.txt`, and the note in a new store's `historica.txt` no longer lists `cache/`.
+
+- the `historica` command keeps its caches in `<base>/<16 hex digits>/` per store, where base is `--cache-dir`, `$HISTORICA_CACHE_DIR`, `$XDG_CACHE_HOME/historica`, `~/Library/Caches/historica` (macOS) or `~/.cache/historica`. A store moved to another path starts with nothing kept.
+
+- `export` leaves no cache in the copy, and an export onto a copy it already made reads that copy in full on every run. `receive` writes nothing into the store it reads from.
+
+- a writer filing bytes the catalogue says are held hashes the file the catalogue names first, and files the bytes if it does not hash.
+
 
 ## v1.0.0-rc.4 — 2026-09-15
 
