@@ -323,7 +323,9 @@ travels nowhere: leaving a file behind can be undone by copying it again, and
 carrying one that should have stayed cannot.
 
 `cache/` is a third kind, and Historica's own: derived, nobody's, and
-deletable without loss.
+deletable without loss. Earlier releases kept what Historica had read there;
+Historica keeps that outside the store now, and deletes a `cache/` it finds in
+one.
 
 All of that is about directories somebody else wrote. Where Historica speaks
 about its own layout is the header block in `historica.txt`, described above,

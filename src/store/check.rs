@@ -270,7 +270,7 @@ pub enum Finding {
     /// Decision 0013's deferred resurrection, arriving by sync: a pruned or
     /// forgotten file that returns is not an error, and the union rule means
     /// the redaction still wins — for a reader that has read the forgetting
-    /// document, which one taking `cache/`'s catalogue as it stands may not
+    /// document, which one taking the cache's catalogue as it stands may not
     /// have.
     Resurrected {
         /// The document whose bytes are back.
@@ -872,7 +872,7 @@ fn check_resolutions<F: Filesystem + ?Sized>(
         return;
     }
     // Decisions 0036 and 0058: `check` reads `revisions/` and catalogues
-    // `operations/` itself, never by taking what `cache/` says. Everything
+    // `operations/` itself, never by taking what the cache says. Everything
     // else this store answers is the arithmetic itself, and this is the one
     // command that exists to run it.
     let Ok(store) = super::Store::open_reading_everything_on(files, root) else {

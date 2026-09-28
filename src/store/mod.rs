@@ -102,7 +102,12 @@ pub const REVISIONS_DIR: &str = "revisions";
 pub const OPERATIONS_DIR: &str = "operations";
 /// Bookmarks: the only mutable files in a store.
 pub const NAMES_DIR: &str = "names";
-/// Derived, disposable, and deletable without loss.
+/// Where a store kept its caches before decision 0078 moved them out of it.
+///
+/// A store holds no cache now: a host names a directory of its own, on
+/// [`Store::open_caching_on`], and a store opened without one caches nothing.
+/// The name stays reserved, as [`Travel::Derived`], because stores written
+/// before 0078 have one, and opening such a store deletes it.
 pub const CACHE_DIR: &str = "cache";
 
 /// How a directory at the store root crosses a store boundary.
@@ -157,9 +162,10 @@ pub enum Travel {
 /// and it grows the way everything else here does — when a tool exists that
 /// wants one, with a decision behind it.
 ///
-/// Historica's own [`CACHE_DIR`] is the [`Derived`](Travel::Derived) example
-/// and is not listed, because this table is what transport consults about
-/// directories it does not otherwise know.
+/// Historica's own [`CACHE_DIR`], where a store written before decision 0078
+/// kept its caches, is the [`Derived`](Travel::Derived) example and is not
+/// listed, because this table is what transport consults about directories it
+/// does not otherwise know.
 pub const RESERVED_DIRS: [(&str, Travel); 2] = [
     ("claims", Travel::TravelsAndUnions),
     ("trust", Travel::LocalOnly),
@@ -255,11 +261,6 @@ into directories of your own breaks nothing either.
                   without `.txt`, so a name may have directories in it —
                   `names/feature/x.txt` is the bookmark `feature/x`. The only
                   files here that change.
-  cache/          derived and disposable: files you have already read, kept
-                  under the digest their history says they hash to, so that
-                  reading them again does not replay it, and operations.txt,
-                  which says where in operations/ each digest is. Deleting
-                  all of it loses nothing.
   skipped/        what recording does not take, one rule to a file. A rule
                   is a key, a space, and a value: `skip <path>` and `skip
                   <path>/`, or `skip-name <name>` and `skip-name <name>/`,
@@ -290,24 +291,6 @@ names bytes this copy does not hold, which is what a backup about to be trusted
 — or a sync that should have finished — is asking.
 
 `historica help` lists what the tool can do with all of this.
-";
-
-/// What `init` puts inside the disposable cache directory.
-///
-/// Decision 0027 puts the permission to delete a cache at the point where a
-/// person is about to do it. The file is itself derived and disposable.
-const CACHE_NOTE: &str = "\
-Everything in this directory is derived from other files.
-You may delete any or all of it; Historica will rebuild what it needs.
-
-Each file here is named by the SHA-256 of its own bytes, as everything in this
-store is, and holds one of your files as it stood at one revision. That is a
-number the operation document for that revision already states, which is how
-the file is found again; the bytes are hashed before they are used, so an
-entry that has been edited or half-written is ignored rather than believed.
-
-Nothing points at this directory and nothing depends on it. Deleting it costs
-a little time and no information.
 ";
 
 /// Names the store does not own, matched on a file's last component.
@@ -776,7 +759,7 @@ fn minted_by(document: &OperationDocument) -> Vec<Item> {
 /// once at the root of a long history costs its walk nothing to keep.
 ///
 /// A cache with no limit on it grows one entry per file per revision anybody
-/// ever looked at, which on this store's own history is a `cache/` many times
+/// ever looked at, which on this store's own history is a cache many times
 /// the size of the store — a poor trade for a walk that was about to be one
 /// step long. Keeping only the answers that cost something turns the entries
 /// into checkpoints: a walk stops at the first one it meets, so it replays at
@@ -789,7 +772,7 @@ fn minted_by(document: &OperationDocument) -> Vec<Item> {
 /// incorrect. `cargo xtask bench` is what would move it.
 const CACHE_AFTER: usize = 16;
 
-/// Whether materialising may take an answer `cache/` already holds.
+/// Whether materialising may take an answer the cache already holds.
 ///
 /// Two callers, and they want opposite things: a person reading a file wants
 /// the file, and `check` wants every step of the arithmetic that produces it
@@ -800,7 +783,7 @@ const CACHE_AFTER: usize = 16;
 enum Caching {
     /// Take a cached state where one is held, and keep the answer.
     Take,
-    /// Replay every revision, reading nothing from `cache/` and writing
+    /// Replay every revision, reading nothing from the cache and writing
     /// nothing to it.
     Replay,
 }
@@ -902,7 +885,7 @@ impl Content {
 ///
 /// Holds documents rather than [`crate::core::Revision`]s, because the
 /// documents are the authority and the graph is the projection — the same
-/// relationship decision 0003 gives `cache/`.
+/// relationship decision 0003 gives the cache.
 ///
 /// The filesystem is a type parameter rather than a bound on the struct, so
 /// that `Store` derives exactly what `F` supports: a `Store<Disk>` is `Debug`,
@@ -917,7 +900,7 @@ pub struct Store<F = Disk> {
     root: PathBuf,
     documents: BTreeMap<RevisionId, Document>,
     /// Where everything in `operations/` is, by digest. Built on first need,
-    /// never at open, and taken from `cache/` where decision 0036 allows.
+    /// never at open, and taken from the cache where decision 0036 allows.
     catalogue: OnceCell<Catalogue>,
     /// The documents read so far, so that one command asking for one digest
     /// twice reads the file once. Emptied with the catalogue.
@@ -929,19 +912,22 @@ pub struct Store<F = Disk> {
     /// directory, once, rather than reporting an absence.
     scanned: Cell<bool>,
     /// The same, built by a pass over the directory rather than taken from
-    /// `cache/`. Filled when something needs an answer the cheap one cannot
+    /// the cache. Filled when something needs an answer the cheap one cannot
     /// give — an absence, or a removal — and
     /// preferred over the cheap one from then on.
     walked: OnceCell<Catalogue>,
-    /// Whether the catalogue may come from `cache/`.
+    /// The directory the host keeps this store's caches in, or `None`.
     ///
-    /// False for `check` alone. Decision 0035 keeps that command away from
+    /// Decision 0078: a cache is one device's, so it is kept where the host
+    /// says rather than in the store, where a sync would carry it to devices
+    /// it was never true for. `None` where the host named nothing, and for
+    /// `check` whatever it named. Decision 0035 keeps that command away from
     /// every cached answer, because it is the one caller that wants the work
     /// rather than the result — and 0036 makes a catalogue's account of what
     /// forgets what the one thing a reader believes without re-reading it, so
     /// the command that holds a store to its own rules must not take it.
-    cached: bool,
-    /// Whether a writer has filed something the catalogue in `cache/` does
+    cache: Option<PathBuf>,
+    /// Whether a writer has filed something the catalogue in the cache does
     /// not name yet. Decision 0077: set by the writers, cleared by
     /// [`Store::keep_catalogue`].
     unkept: Cell<bool>,
@@ -1010,7 +996,7 @@ struct Read {
     absent: BTreeSet<RevisionId>,
     /// Which held documents forget which digest, as a full pass found them.
     ///
-    /// A catalogue taken from `cache/` alone is believed about where a digest
+    /// A catalogue taken from the cache alone is believed about where a digest
     /// is and checked by hashing; what it cannot be checked on is a
     /// forgetting document nobody has read. So the pass that reads every
     /// document — the one a miss already pays for — answers that question
@@ -1086,9 +1072,19 @@ impl Store<Disk> {
         Self::init_on(Disk, root)
     }
 
-    /// Open the store rooted at `root`.
+    /// Open the store rooted at `root`, caching nothing.
     pub fn open(root: impl AsRef<Path>) -> Result<Self, StoreError> {
         Self::open_on(Disk, root)
+    }
+
+    /// Open the store rooted at `root`, keeping its caches in `cache`.
+    ///
+    /// [`Store::open_caching_on`] says what `cache` has to be.
+    pub fn open_caching(
+        root: impl AsRef<Path>,
+        cache: impl AsRef<Path>,
+    ) -> Result<Self, StoreError> {
+        Self::open_caching_on(Disk, root, cache)
     }
 
     /// Examine a store without loading it, reporting every fault at once.
@@ -1130,13 +1126,7 @@ impl<F: Filesystem> Store<F> {
         if crate::fs::exists(&files, &header).map_err(|error| StoreError::io(&header, error))? {
             return Err(StoreError::AlreadyAStore { path: root });
         }
-        for directory in [
-            REVISIONS_DIR,
-            OPERATIONS_DIR,
-            NAMES_DIR,
-            CACHE_DIR,
-            SKIPPED_DIR,
-        ] {
+        for directory in [REVISIONS_DIR, OPERATIONS_DIR, NAMES_DIR, SKIPPED_DIR] {
             let path = root.join(directory);
             files
                 .create_directory(&path)
@@ -1164,10 +1154,6 @@ impl<F: Filesystem> Store<F> {
         files
             .write(&format, FORMAT_NOTE.as_bytes())
             .map_err(|error| StoreError::io(&format, error))?;
-        let cache_note = root.join(CACHE_DIR).join("README.txt");
-        files
-            .write(&cache_note, CACHE_NOTE.as_bytes())
-            .map_err(|error| StoreError::io(&cache_note, error))?;
         Self::open_on(files, root)
     }
 
@@ -1185,30 +1171,86 @@ impl<F: Filesystem> Store<F> {
     /// not before. `check` is where a store is read through deliberately, and
     /// it reports an unparsable document there whether or not anything ever
     /// asks for it.
+    ///
+    /// A store opened this way caches nothing, which decision 0035 makes a
+    /// question of time alone: every answer is the one a cached store gives.
+    /// [`Store::open_caching_on`] is the same with somewhere to keep them.
     pub fn open_on(files: F, root: impl AsRef<Path>) -> Result<Self, StoreError> {
-        Self::open_with(files, root, true)
+        Self::open_with(files, root, None)
     }
 
-    /// The same, reading every document itself rather than taking `cache/`.
+    /// Open the store rooted at `root` on `files`, keeping its caches in
+    /// `cache` on the same filesystem.
+    ///
+    /// Decision 0078. What is kept there — the files already read, and
+    /// catalogues of `revisions/` and `operations/` — is derived, and true of
+    /// this device: a catalogue is believed against the times this
+    /// filesystem reports, and a kept file against what this device has
+    /// forgotten. So `cache` is a directory the host owns and nothing syncs,
+    /// an application's caches directory, say, and it is made where it is
+    /// missing. Three obligations come with it, all the caller's:
+    ///
+    /// - **One directory, one store.** Nothing records which store a cache
+    ///   was for, and two stores sharing one would each read the other's
+    ///   catalogues. Every answer would still be right — a catalogue is
+    ///   checked before it is believed — but slowly.
+    /// - **Not inside the store.** A cache there is one a sync carries, which
+    ///   is what 0078 moved it out of.
+    /// - **The store's clock.** A catalogue is believed only where it is
+    ///   strictly newer than what it describes, measured by the times this
+    ///   filesystem reports for both. A directory on a volume stamped by
+    ///   another clock — one local, one on a server — weakens that rule for
+    ///   a file edited in place in the moment the catalogue was written.
+    ///
+    /// Every failure to keep a cache there is ignored, as 0035 ignores every
+    /// one: a directory that cannot be written costs time and nothing else.
+    pub fn open_caching_on(
+        files: F,
+        root: impl AsRef<Path>,
+        cache: impl AsRef<Path>,
+    ) -> Result<Self, StoreError> {
+        Self::open_with(files, root, Some(cache.as_ref().to_path_buf()))
+    }
+
+    /// The same, reading every document itself rather than taking the cache.
     ///
     /// Decision 0058, on the rule 0035 set and 0036 restated: the command that
     /// holds a store to its own rules must not be handed an answer. `check` is
     /// the only caller, and this is the opening rather than
     /// [`Store::reading_everything`] because the documents of `revisions/` are
-    /// read at the moment a store opens — declining `cache/` afterwards would
+    /// read at the moment a store opens — declining the cache afterwards would
     /// be declining it too late.
     pub fn open_reading_everything_on(
         files: F,
         root: impl AsRef<Path>,
     ) -> Result<Self, StoreError> {
-        Ok(Self::open_with(files, root, false)?.reading_everything())
-    }
-
-    fn open_with(files: F, root: impl AsRef<Path>, cached: bool) -> Result<Self, StoreError> {
         let root = root.as_ref().to_path_buf();
         check_header(&files, &root)?;
+        Ok(Self::opened(files, root, None)?.reading_everything())
+    }
 
-        let documents = revisions::load(&files, &root, cached)?;
+    fn open_with(
+        files: F,
+        root: impl AsRef<Path>,
+        cache: Option<PathBuf>,
+    ) -> Result<Self, StoreError> {
+        let root = root.as_ref().to_path_buf();
+        check_header(&files, &root)?;
+        // Decision 0078: what a store kept before caches left it is deleted
+        // at open, not merely ignored. It is derived, so nothing is lost, and
+        // it may hold the text of a file as it read before something here
+        // was forgotten — which is 0014's promise broken for as long as it
+        // stays. `check` opens by the path above and leaves it, since `check`
+        // writes nothing.
+        clear_legacy_cache(&files, &root);
+        // The second obligation `open_caching_on` states, where it can be
+        // seen: a cache inside the store is one a sync carries.
+        let cache = cache.filter(|cache| !cache.starts_with(&root));
+        Self::opened(files, root, cache)
+    }
+
+    fn opened(files: F, root: PathBuf, cache: Option<PathBuf>) -> Result<Self, StoreError> {
+        let documents = revisions::load(&files, &root, cache.as_deref())?;
 
         let mut names = BTreeMap::new();
         for (name, path) in name_files(&files, &root)? {
@@ -1231,7 +1273,7 @@ impl<F: Filesystem> Store<F> {
             walked: OnceCell::new(),
             read: RefCell::new(Read::default()),
             scanned: Cell::new(false),
-            cached,
+            cache,
             unkept: Cell::new(false),
             names,
             skipped,
@@ -1246,7 +1288,7 @@ impl<F: Filesystem> Store<F> {
         check::check(files, root.as_ref())
     }
 
-    /// The same store, reading `operations/` itself rather than `cache/`.
+    /// The same store, reading `operations/` itself rather than the cache.
     ///
     /// Decision 0035 keeps `check` away from every cached answer, because it
     /// is the one caller that wants the work rather than the result. 0036
@@ -1254,7 +1296,7 @@ impl<F: Filesystem> Store<F> {
     /// forgets what, and the command that holds a store to its own rules is
     /// the one that must not believe anything.
     pub fn reading_everything(mut self) -> Self {
-        self.cached = false;
+        self.cache = None;
         self.forget_catalogue();
         self
     }
@@ -1262,6 +1304,15 @@ impl<F: Filesystem> Store<F> {
     /// The directory this store occupies.
     pub fn root(&self) -> &Path {
         &self.root
+    }
+
+    /// Where this store keeps its caches, or `None` where it keeps none.
+    ///
+    /// What [`Store::open_caching_on`] was given, for a caller that reads the
+    /// folder beside the store and would keep that folder's catalogue in the
+    /// same place: [`Working::read_caching_on`](crate::working::Working::read_caching_on).
+    pub fn cache_directory(&self) -> Option<&Path> {
+        self.cache.as_deref()
     }
 
     /// The filesystem this store was opened on.
@@ -1357,7 +1408,7 @@ impl<F: Filesystem> Store<F> {
     /// Where everything in `operations/` is, catalogued on first need.
     ///
     /// The first call walks the directory — names, not contents — and reads
-    /// only the files `cache/` cannot already account for. A command that
+    /// only the files the cache cannot already account for. A command that
     /// asks graph questions alone — `log`, `files`, `names` — never reaches
     /// here, and so never pays for a directory it has no question about.
     /// Decision 0036 is the argument, and 0017 is where the same reasoning
@@ -1375,12 +1426,12 @@ impl<F: Filesystem> Store<F> {
         // byte of it, so a catalogue that is wrong about where a digest is
         // costs the fallback every reader already has. The walk is what
         // *absence* needs, and absence is what `scan` is for.
-        if self.cached
-            && let Some(catalogue) = catalogue::cached(&self.files, &self.root)
+        if let Some(cache) = &self.cache
+            && let Some(catalogue) = catalogue::cached(&self.files, cache)
         {
             return Ok(self.catalogue.get_or_init(|| catalogue));
         }
-        let pass = catalogue::read(&self.files, &self.root, self.cached)?;
+        let pass = catalogue::read(&self.files, &self.root, self.cache.as_deref())?;
         // Whatever cataloguing had to parse is already the answer to a
         // question this store is about to be asked, so it is kept rather than
         // dropped and read again.
@@ -1396,7 +1447,7 @@ impl<F: Filesystem> Store<F> {
     /// Catalogue the directory, where the cheap catalogue could not answer.
     ///
     /// This is the pass decision 0036 describes: names first, and only the
-    /// files `cache/` cannot account for are read. It is what a `no` costs —
+    /// files the cache cannot account for are read. It is what a `no` costs —
     /// a digest not placed, a writer asking whether these bytes are held —
     /// and it is cheaper than the scan behind it, which reads every document
     /// in the directory. Once per store, since what it builds is kept.
@@ -1404,7 +1455,7 @@ impl<F: Filesystem> Store<F> {
         if self.walked.get().is_some() {
             return Ok(());
         }
-        let pass = catalogue::read(&self.files, &self.root, self.cached)?;
+        let pass = catalogue::read(&self.files, &self.root, self.cache.as_deref())?;
         let mut read = self.read.borrow_mut();
         read.operations.extend(pass.parsed);
         read.resolutions.extend(pass.resolutions);
@@ -1416,10 +1467,10 @@ impl<F: Filesystem> Store<F> {
     /// The walked catalogue, to take a file out of.
     ///
     /// Walked because a removal has to be removed from the whole of what the
-    /// directory holds: a catalogue taken from `cache/` holds its lines as
+    /// directory holds: a catalogue taken from the cache holds its lines as
     /// text and would go on naming the file. `forget`, `prune` and the
     /// compliance in `receive` are the callers, and each then lets the
-    /// catalogue go or empties `cache/`. A writer adding a file asks
+    /// catalogue go or empties the cache. A writer adding a file asks
     /// [`Store::catalogue_to_add`] instead, which does not walk (0077).
     fn catalogue_mut(&mut self) -> Result<&mut Catalogue, StoreError> {
         self.upgrade()?;
@@ -1431,7 +1482,7 @@ impl<F: Filesystem> Store<F> {
     /// Decision 0077: a writer asks the catalogue it has whether the bytes are
     /// held, and files them where it is not told they are. Whichever
     /// catalogue that is — the walked one where something in this command
-    /// paid for a walk, the one taken from `cache/` otherwise, and a walk
+    /// paid for a walk, the one taken from the cache otherwise, and a walk
     /// only where neither exists — what is filed is added to it, and kept
     /// when the revision naming it lands.
     fn catalogue_to_add(&mut self) -> Result<&mut Catalogue, StoreError> {
@@ -1443,7 +1494,7 @@ impl<F: Filesystem> Store<F> {
         Ok(self.catalogue.get_mut().expect("just catalogued"))
     }
 
-    /// Write the catalogue back to `cache/`, if a writer added to it.
+    /// Write the catalogue back to the cache, if a writer added to it.
     ///
     /// [`Store::insert_at`] calls this as each revision lands, which is the
     /// end of every command that files content; it is public for a caller
@@ -1453,11 +1504,13 @@ impl<F: Filesystem> Store<F> {
     /// reconciles the file. Every failure is ignored, as 0035 ignores every
     /// failure to keep a cache.
     pub fn keep_catalogue(&self) {
-        if !self.unkept.replace(false) || !self.cached {
+        if !self.unkept.replace(false) {
             return;
         }
-        if let Some(catalogue) = self.walked.get().or_else(|| self.catalogue.get()) {
-            catalogue::write(&self.files, &self.root, catalogue);
+        if let Some(cache) = &self.cache
+            && let Some(catalogue) = self.walked.get().or_else(|| self.catalogue.get())
+        {
+            catalogue::write(&self.files, cache, catalogue);
         }
     }
 
@@ -1512,7 +1565,7 @@ impl<F: Filesystem> Store<F> {
         // requires, since a cache that turns a held document into a missing
         // one has changed an answer.
         if body.is_none() {
-            // The pass over the directory first: it reads only what `cache/`
+            // The pass over the directory first: it reads only what the cache
             // could not place, where the scan behind it reads everything.
             self.upgrade()?;
             body = self.filed_body(id)?;
@@ -1680,7 +1733,7 @@ impl<F: Filesystem> Store<F> {
     pub fn forgetting(&self, target: &RevisionId) -> Result<Vec<OperationDocument>, StoreError> {
         let mut standing = self.standing(target)?;
         // *Nothing stands in for this* is the one answer a catalogue taken
-        // from `cache/` alone must not give. Where a digest is is a claim the
+        // from the cache alone must not give. Where a digest is is a claim the
         // reader checks by hashing what it finds; that a digest is forgotten
         // by nothing is a claim about every other file in the directory, and
         // only reading them says so. This is reached when a document or a
@@ -1802,7 +1855,7 @@ impl<F: Filesystem> Store<F> {
     ) -> Result<Option<ForgottenPayload>, StoreError> {
         let mut standing = self.standing(target)?;
         // *Nothing stands in for this* is the one answer a catalogue taken
-        // from `cache/` alone must not give, for the reason
+        // from the cache alone must not give, for the reason
         // [`Store::forgetting`] states at length.
         if standing.is_empty() && !self.scanned.get() {
             self.upgrade()?;
@@ -2159,7 +2212,7 @@ impl<F: Filesystem> Store<F> {
     /// answer, so a command that never reads content never reads a payload.
     pub fn payloads(&self) -> Result<BTreeMap<RevisionId, PathBuf>, StoreError> {
         // Every payload here, which is a question about the directory rather
-        // than about one digest: a catalogue taken from `cache/` is believed
+        // than about one digest: a catalogue taken from the cache is believed
         // about where a digest is and never about what the whole of it holds,
         // so this is one of the callers that pays for the pass.
         self.upgrade()?;
@@ -2464,7 +2517,7 @@ impl<F: Filesystem> Store<F> {
                 && let Some(result) = self
                     .stated_result(named)
                     .map_err(MaterialiseError::unreadable)?
-                && let Some(state) = self.cached(&result)
+                && let Some(state) = self.kept_state(&result)
             {
                 known.insert(id, Stated::Known(Rc::new(state)));
                 stack.pop();
@@ -2570,14 +2623,14 @@ impl<F: Filesystem> Store<F> {
             && replayed >= CACHE_AFTER
             && let Stated::Known(state) = &stated
         {
-            self.cache(state);
+            self.keep_state(state);
         }
         Ok(stated)
     }
 
-    /// One file's content, if `cache/` already holds bytes with this digest.
+    /// One file's content, if the cache already holds bytes with this digest.
     ///
-    /// Decision 0003 gives `cache/` its one promise — *deleting every cache
+    /// Decision 0003 gives the cache its one promise — *deleting every cache
     /// must lose neither information nor meaning* — and this is the whole of
     /// what keeps it. An entry is a file named by the SHA-256 of its own
     /// bytes, exactly as everything else in the store is, holding the content
@@ -2591,11 +2644,9 @@ impl<F: Filesystem> Store<F> {
     /// discarded, so an entry left behind by an older version of this program,
     /// half-written by an interrupted one, or edited by a person, is refused
     /// here rather than returned as a file's history.
-    fn cached(&self, digest: &RevisionId) -> Option<State> {
-        let bytes = self
-            .files
-            .read(&self.root.join(CACHE_DIR).join(digest.to_string()))
-            .ok()?;
+    fn kept_state(&self, digest: &RevisionId) -> Option<State> {
+        let cache = self.cache.as_ref()?;
+        let bytes = self.files.read(&cache.join(digest.to_string())).ok()?;
         if format::digest(&bytes) != *digest {
             return None;
         }
@@ -2614,24 +2665,24 @@ impl<F: Filesystem> Store<F> {
     /// destroyed.
     ///
     /// Every failure here is ignored on purpose. A store on a read-only
-    /// filesystem, a full disk, and a `cache/` somebody deleted mid-command
+    /// filesystem, a full disk, and a cache somebody deleted mid-command
     /// are all conditions under which reading a file must still succeed —
     /// there is nothing to report, because nothing was lost.
-    fn cache(&self, state: &State) {
+    fn keep_state(&self, state: &State) {
+        let Some(cache) = &self.cache else {
+            return;
+        };
         let text = state.text();
-        let path = self
-            .root
-            .join(CACHE_DIR)
-            .join(format::digest(text.as_bytes()).to_string());
+        let path = cache.join(format::digest(text.as_bytes()).to_string());
         // `create_new`, so two commands racing to cache one state cannot meet
         // half a file: the loser's write fails and the bytes were identical
-        // anyway. The directory may be missing — `init` makes it, and a
-        // person is free to delete it — so it is made first.
-        let _ = self.files.create_directory(&self.root.join(CACHE_DIR));
+        // anyway. The directory may be missing — nothing makes it but this,
+        // and a person is free to delete it — so it is made first.
+        let _ = self.files.create_directory(cache);
         let _ = self.files.create_new(&path, text.as_bytes());
     }
 
-    /// Empty `cache/`, and say nothing about it.
+    /// Empty the cache, and say nothing about it.
     ///
     /// Called where the store destroys content: forgetting and pruning.
     /// Decision 0014 is a promise that bytes are *gone*, and a cache holding
@@ -2645,7 +2696,9 @@ impl<F: Filesystem> Store<F> {
     /// reader hashes, finds intact, and correctly uses — and one that is
     /// half-deleted is one the next reader hashes and discards.
     fn clear_cache(&self) {
-        clear_states(&self.files, &self.root);
+        if let Some(cache) = &self.cache {
+            clear_states(&self.files, cache);
+        }
     }
 
     /// The digest one content document states its result to be.
@@ -2991,6 +3044,34 @@ impl<F: Filesystem> Store<F> {
         self.documents.remove(id);
     }
 
+    /// Whether this store already holds the bytes `id` names, for a writer
+    /// deciding whether to file them.
+    ///
+    /// The catalogue this store holds, walked or not. Decision 0077: a `no`
+    /// from one taken from the cache can cost a second copy of bytes that
+    /// arrived without passing through here, which every reader resolves and
+    /// `check` notes, and believing it is what keeps a record from walking
+    /// every revision the store has ever held.
+    ///
+    /// A `yes` is checked, by hashing the file it names. Decision 0078 keeps
+    /// the cache where the host says, which a store does not outlive: a
+    /// folder deleted and made again at the same path finds the catalogue its
+    /// predecessor kept, naming bytes this store never held. Believed, that
+    /// `yes` would leave the bytes unwritten and the revision naming them
+    /// unreadable. It is paid only where the answer is `yes` — bytes filed a
+    /// second time, which is rare — and a `yes` that does not hash is a `no`.
+    fn already_holds(&self, id: &RevisionId) -> Result<bool, StoreError> {
+        let Some(filed) = self.catalogue()?.at(id) else {
+            return Ok(false);
+        };
+        let path = self.root.join(&filed.path);
+        match crate::fs::digest_of(&self.files, &path) {
+            Ok(found) => Ok(found == *id),
+            Err(error) if error.kind() == io::ErrorKind::NotFound => Ok(false),
+            Err(error) => Err(StoreError::io(&path, error)),
+        }
+    }
+
     /// Write an operation document into the store, named by its digest.
     ///
     /// Append-only on the same terms as [`Store::insert`], and for the extra
@@ -3016,12 +3097,7 @@ impl<F: Filesystem> Store<F> {
     ) -> Result<RevisionId, StoreError> {
         let bytes = document.write();
         let id = digest(&bytes);
-        // The catalogue this store holds, walked or not. Decision 0077: a `no`
-        // from one taken from `cache/` can cost a second copy of bytes that
-        // arrived without passing through here, which every reader resolves
-        // and `check` notes, and believing it is what keeps a record from
-        // walking every revision the store has ever held.
-        if self.catalogue()?.at(&id).is_some() {
+        if self.already_holds(&id)? {
             return Ok(id);
         }
         let path = within(&self.root.join(OPERATIONS_DIR), name);
@@ -3052,12 +3128,7 @@ impl<F: Filesystem> Store<F> {
     ) -> Result<RevisionId, StoreError> {
         let bytes = document.write();
         let id = digest(&bytes);
-        // The catalogue this store holds, walked or not. Decision 0077: a `no`
-        // from one taken from `cache/` can cost a second copy of bytes that
-        // arrived without passing through here, which every reader resolves
-        // and `check` notes, and believing it is what keeps a record from
-        // walking every revision the store has ever held.
-        if self.catalogue()?.at(&id).is_some() {
+        if self.already_holds(&id)? {
             return Ok(id);
         }
         let path = within(&self.root.join(OPERATIONS_DIR), name);
@@ -3088,12 +3159,7 @@ impl<F: Filesystem> Store<F> {
     ) -> Result<RevisionId, StoreError> {
         let bytes = document.write();
         let id = digest(&bytes);
-        // The catalogue this store holds, walked or not. Decision 0077: a `no`
-        // from one taken from `cache/` can cost a second copy of bytes that
-        // arrived without passing through here, which every reader resolves
-        // and `check` notes, and believing it is what keeps a record from
-        // walking every revision the store has ever held.
-        if self.catalogue()?.at(&id).is_some() {
+        if self.already_holds(&id)? {
             return Ok(id);
         }
         let path = within(&self.root.join(OPERATIONS_DIR), name);
@@ -3152,12 +3218,7 @@ impl<F: Filesystem> Store<F> {
         name: &str,
         feed: &mut dyn FnMut(&mut dyn io::Write) -> io::Result<()>,
     ) -> Result<RevisionId, StoreError> {
-        // The catalogue this store holds, walked or not. Decision 0077: a `no`
-        // from one taken from `cache/` can cost a second copy of bytes that
-        // arrived without passing through here, which every reader resolves
-        // and `check` notes, and believing it is what keeps a record from
-        // walking every revision the store has ever held.
-        if self.catalogue()?.at(id).is_some() {
+        if self.already_holds(id)? {
             return Ok(*id);
         }
         let path = within(&self.root.join(OPERATIONS_DIR), name);
@@ -3476,29 +3537,47 @@ impl<F: Filesystem> Store<F> {
 }
 
 /// One of the store's directories, joined with a name that may carry `/`.
-/// Remove every state `cache/` holds, which is [`Store::clear_cache`] for a
-/// caller that has the directory and no store: the catalogue pass, which
-/// finds a forgetting document the states were derived before.
+/// Remove every state a cache directory holds, which is
+/// [`Store::clear_cache`] for a caller that has the directory and no store:
+/// the catalogue pass, which finds a forgetting document the states were
+/// derived before.
 ///
-/// The catalogue and the other named files stay. They say where bytes are
-/// and what forgets what, never what a file read, and the pass is what keeps
-/// them true.
-fn clear_states<F: Filesystem + ?Sized>(files: &F, root: &Path) {
-    let directory = root.join(CACHE_DIR);
-    let Ok(entries) = files.entries(&directory) else {
+/// The catalogues stay. They say where bytes are and what forgets what,
+/// never what a file read, and the pass is what keeps them true.
+fn clear_states<F: Filesystem + ?Sized>(files: &F, cache: &Path) {
+    let Ok(entries) = files.entries(cache) else {
         return;
     };
     for entry in entries {
         if entry.kind == fs::Kind::File
-            // A person's own note in `cache/` — `init` writes one — is
-            // not a cache entry: an entry is named by a digest and
-            // nothing else is.
+            // A person's own note in the cache directory is not a cache
+            // entry: an entry is named by a digest and nothing else is.
             && let Some(name) = entry.path.file_name().and_then(|name| name.to_str())
             && name.parse::<RevisionId>().is_ok()
         {
             let _ = files.remove_file(&entry.path);
         }
     }
+}
+
+/// Delete the `cache/` a store written before decision 0078 kept inside
+/// itself, and say nothing about it.
+///
+/// Everything in it was derived, `README.txt` included, and it is the one
+/// directory a store reserves for itself that nothing reads any more. What
+/// will not delete — a read-only filesystem, a file somebody else put there —
+/// stays, and costs nothing: nothing reads it.
+fn clear_legacy_cache<F: Filesystem + ?Sized>(files: &F, root: &Path) {
+    let directory = root.join(CACHE_DIR);
+    let Ok(entries) = files.entries(&directory) else {
+        return;
+    };
+    for entry in entries {
+        if entry.kind == fs::Kind::File {
+            let _ = files.remove_file(&entry.path);
+        }
+    }
+    let _ = files.remove_directory(&directory);
 }
 
 fn within(directory: &Path, name: &str) -> PathBuf {

@@ -23,6 +23,10 @@ fn run(directory: &Path, arguments: &[&str]) -> Output {
 fn with(directory: &Path, arguments: &[&str], environment: &[(&str, &str)]) -> Output {
     let mut command = Command::new(env!("CARGO_BIN_EXE_historica"));
     command
+        .env(
+            "HISTORICA_CACHE_DIR",
+            concat!(env!("CARGO_TARGET_TMPDIR"), "/caches"),
+        )
         .arg("-C")
         .arg(directory)
         .args(arguments)

@@ -7,9 +7,10 @@
 //!
 //! Decision 0043 leaves that sentence standing and makes it cheaper to keep.
 //! [`Working::digest`] is what a comparison against the store actually asks
-//! for, and `history/cache/working.txt` says what each path hashed to last
-//! time — believed only where the directory still reports the size and the
-//! modification time that digest was taken at, and only where that time is
+//! for, and a catalogue in the host's cache directory (decision 0078) says
+//! what each path hashed to last time — believed only where the directory
+//! still reports the size and the modification time that digest was taken
+//! at, and only where that time is
 //! strictly older than the catalogue's own. It is not an index and holds no
 //! content: delete it and every command says exactly what it said before,
 //! having read the folder, which is what it would have done anyway.
@@ -615,8 +616,11 @@ impl std::error::Error for MalformedSkip {}
 #[derive(Debug, Clone)]
 pub struct Working<F = Disk> {
     filesystem: F,
-    /// The folder this is, which is also where `history/cache/` is found.
+    /// The folder this is.
     root: PathBuf,
+    /// Where the catalogue of what the folder hashed to is kept, or `None`
+    /// where the host named nowhere and nothing is kept (decision 0078).
+    cache: Option<PathBuf>,
     files: BTreeMap<String, PathBuf>,
     /// Which tracked paths are links, and what each points at.
     ///
@@ -634,8 +638,8 @@ pub struct Working<F = Disk> {
     stamps: BTreeMap<String, Stamp>,
     /// The digest of each tracked file, once anything has asked for it.
     ///
-    /// Seeded from `history/cache/working.txt` with the entries the stamps
-    /// above allow, and filled in by reading for everything else. Behind a
+    /// Seeded from `working.txt` in the cache directory with the entries the
+    /// stamps above allow, and filled in by reading for everything else. Behind a
     /// cell because a working copy is read through a shared reference while it
     /// answers questions about itself — the same reason the store's own reads
     /// are.
@@ -662,6 +666,17 @@ impl Working<Disk> {
         Self::read_on(Disk, root, skipped)
     }
 
+    /// The same, keeping what it hashed in `cache`.
+    ///
+    /// [`Working::read_caching_on`] says what `cache` has to be.
+    pub fn read_caching(
+        root: &Path,
+        skipped: &Skipped,
+        cache: impl AsRef<Path>,
+    ) -> Result<Self, WorkingError> {
+        Self::read_caching_on(Disk, root, skipped, cache)
+    }
+
     /// A folder nothing walked, for the acts that do not consult one.
     ///
     /// Decision 0059's reword restates every fact its predecessor stated and
@@ -679,6 +694,7 @@ impl<F: Filesystem> Working<F> {
         Self {
             filesystem,
             root: root.to_path_buf(),
+            cache: None,
             files: BTreeMap::new(),
             links: BTreeMap::new(),
             stamps: BTreeMap::new(),
@@ -706,7 +722,43 @@ impl<F: Filesystem> Working<F> {
     /// [`WorkingError::Io`] — a directory that cannot be read is not a fact
     /// about the folder, it is not knowing, and a walk that collected it would
     /// describe a folder while quietly missing part of it.
+    ///
+    /// Every file is hashed where a question needs its digest, since nothing
+    /// is kept from one walk to the next: [`Working::read_caching_on`] keeps
+    /// what it hashed.
     pub fn read_on(filesystem: F, root: &Path, skipped: &Skipped) -> Result<Self, WorkingError> {
+        Self::read_with(filesystem, root, skipped, None)
+    }
+
+    /// The same, keeping what it hashed in `cache` on the same filesystem.
+    ///
+    /// Decision 0078, on the terms [`Store::open_caching_on`] states for a
+    /// store's caches, and the same directory as the store's is the one to
+    /// give it: [`Store::cache_directory`] says which that is. What is kept is
+    /// the size and modification time each file had when it was hashed, which
+    /// is true of this device's copy of the folder and no other.
+    ///
+    /// [`Store::open_caching_on`]: crate::store::Store::open_caching_on
+    /// [`Store::cache_directory`]: crate::store::Store::cache_directory
+    pub fn read_caching_on(
+        filesystem: F,
+        root: &Path,
+        skipped: &Skipped,
+        cache: impl AsRef<Path>,
+    ) -> Result<Self, WorkingError> {
+        let cache = cache.as_ref().to_path_buf();
+        // A cache inside the folder would be walked, or skipped as part of
+        // the store, and carried by any sync of either.
+        let cache = (!cache.starts_with(root)).then_some(cache);
+        Self::read_with(filesystem, root, skipped, cache)
+    }
+
+    fn read_with(
+        filesystem: F,
+        root: &Path,
+        skipped: &Skipped,
+        cache: Option<PathBuf>,
+    ) -> Result<Self, WorkingError> {
         let mut found = Found::default();
         walk(&filesystem, root, "", skipped, &mut found)?;
         // Decision 0043: what the last command hashed, kept only where the
@@ -714,10 +766,14 @@ impl<F: Filesystem> Working<F> {
         // filesystem that reports neither hands back nothing here, and every
         // digest below is worked out by reading — which is what every command
         // did before this existed.
-        let digests = catalogue::believed(&filesystem, &root.join(STORE_DIR), &found.stamps);
+        let digests = match &cache {
+            Some(cache) => catalogue::believed(&filesystem, cache, &found.stamps),
+            None => BTreeMap::new(),
+        };
         Ok(Self {
             filesystem,
             root: root.to_path_buf(),
+            cache,
             files: found.files,
             links: found.links,
             stamps: found.stamps,
@@ -814,9 +870,9 @@ impl<F: Filesystem> Working<F> {
     /// changed* is a comparison of digests, and the digest the store already
     /// states is on the other side of it.
     ///
-    /// Answered from `history/cache/working.txt` where the directory says the
-    /// file has not been written to since that digest was taken, and by
-    /// reading the file otherwise — in pieces where the filesystem offers
+    /// Answered from the catalogue in the cache directory where the directory
+    /// says the file has not been written to since that digest was taken, and
+    /// by reading the file otherwise — in pieces where the filesystem offers
     /// them, so a photograph costs a buffer rather than its own size. Which of
     /// the two happened changes how long this took and nothing else.
     pub fn digest(&self, path: &str) -> Result<RevisionId, WorkingError> {
@@ -921,23 +977,21 @@ impl<F: Filesystem> Working<F> {
     /// Called once, by whatever has finished asking — the catalogue is
     /// rewritten whole, and a caller that wrote it after every question would
     /// be quadratic in the size of the folder. Nothing is reported: a folder
-    /// on a read-only filesystem and a `cache/` somebody deleted mid-command
+    /// on a read-only filesystem and a cache somebody deleted mid-command
     /// are both conditions under which describing a folder must still succeed,
     /// and nothing was lost, because nothing here was information.
     ///
     /// A folder that learned nothing writes nothing, so a `status` on a folder
-    /// nobody has touched leaves `cache/` exactly as it found it.
+    /// nobody has touched leaves the cache exactly as it found it.
     pub fn remember(&self) {
         let known = self.known.borrow();
+        let Some(cache) = &self.cache else {
+            return;
+        };
         if !known.learned || self.stamps.is_empty() {
             return;
         }
-        catalogue::write(
-            &self.filesystem,
-            &self.root.join(STORE_DIR),
-            &known.digests,
-            &self.stamps,
-        );
+        catalogue::write(&self.filesystem, cache, &known.digests, &self.stamps);
     }
 
     /// Whether one tracked file can be run, or `None` where this filesystem

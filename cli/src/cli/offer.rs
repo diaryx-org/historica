@@ -10,7 +10,7 @@
 use std::io::Write as _;
 use std::path::Path;
 
-use historica::store::{HEADER_FILE, STORE_DIR, Store};
+use historica::store::{HEADER_FILE, STORE_DIR};
 
 use super::{Failure, printing};
 
@@ -56,7 +56,7 @@ pub fn offer(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
             copy.display()
         )));
     }
-    let store = Store::open(&root)?;
+    let store = super::cache::open(&root)?;
 
     // The directory's own name, which is the prefix a fetcher resolves against
     // the manifest beside it. Canonical, so that `historica offer .` writes the

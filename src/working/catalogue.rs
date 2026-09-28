@@ -6,10 +6,11 @@
 //! fifty-megabyte photograph reads and hashes fifty megabytes to be told
 //! nothing has changed, on every command, forever.
 //!
-//! A catalogue is the way out. It lives in `history/cache/working.txt`, it
-//! holds one line per tracked path — the digest of that file's bytes, and the
-//! size and modification time the directory reported at the moment those bytes
-//! were hashed — and it is believed **per entry**, on the condition that the
+//! A catalogue is the way out. It lives in `working.txt`, in the cache
+//! directory the host names (decision 0078); it holds one line per tracked
+//! path — the digest of that file's bytes, and the size and modification time
+//! the directory reported at the moment those bytes were hashed — and it is
+//! believed **per entry**, on the condition that the
 //! directory still reports the same size and the same modification time. An
 //! entry that matches supplies a digest without the file being opened.
 //! Everything else — a path the catalogue does not name, a size that moved, a
@@ -53,9 +54,8 @@ use std::path::Path;
 
 use crate::core::RevisionId;
 use crate::fs::{Filesystem, Stamp, nanoseconds};
-use crate::store::CACHE_DIR;
 
-/// What `cache/` calls this catalogue.
+/// What the cache calls this catalogue.
 ///
 /// A fixed name rather than a digest, for decision 0036's reason: a catalogue
 /// is not content and there is nothing to look it up by. It is still
@@ -89,14 +89,14 @@ struct Held {
 /// missing exactly the files they touched.
 pub(super) fn believed<F: Filesystem + ?Sized>(
     files: &F,
-    store: &Path,
+    cache: &Path,
     stamps: &BTreeMap<String, Stamp>,
 ) -> BTreeMap<String, RevisionId> {
     let empty = BTreeMap::new();
     if stamps.is_empty() {
         return empty;
     }
-    let path = store.join(CACHE_DIR).join(CATALOGUE_FILE);
+    let path = cache.join(CATALOGUE_FILE);
     // The catalogue's own write time, read from the same directory that
     // reports every entry's. A filesystem that will not say loses the
     // catalogue rather than the rule, which is the safe half of the trade.
@@ -178,23 +178,23 @@ fn parse(text: &str) -> BTreeMap<String, Held> {
 /// Write down what this pass knows, and say nothing about whether it worked.
 ///
 /// Decision 0035's rule, unchanged: a folder on a read-only filesystem, a full
-/// disk, and a `cache/` somebody deleted mid-command are all conditions under
+/// disk, and a cache somebody deleted mid-command are all conditions under
 /// which reading a folder must still succeed. Nothing is lost when this fails
 /// — the next command hashes the files, as this one just did.
 pub(super) fn write<F: Filesystem + ?Sized>(
     files: &F,
-    store: &Path,
+    cache: &Path,
     digests: &BTreeMap<String, RevisionId>,
     stamps: &BTreeMap<String, Stamp>,
 ) {
-    let _ = files.create_directory(&store.join(CACHE_DIR));
+    let _ = files.create_directory(cache);
     let _ = files.write(
-        &store.join(CACHE_DIR).join(CATALOGUE_FILE),
+        &cache.join(CATALOGUE_FILE),
         render(digests, stamps).as_bytes(),
     );
 }
 
-/// One catalogue as the bytes `cache/` holds.
+/// One catalogue as the bytes the cache holds.
 fn render(digests: &BTreeMap<String, RevisionId>, stamps: &BTreeMap<String, Stamp>) -> String {
     let mut text = String::from(CATALOGUE_HEADER);
     text.push('\n');

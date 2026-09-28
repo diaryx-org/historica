@@ -1,4 +1,5 @@
-//! `history/cache/`, held to the one promise decision 0003 makes about it.
+//! The caches the command line keeps for a store, held to the one promise
+//! decision 0003 makes about them.
 //!
 //! > Binary indexes and snapshots may eventually exist as disposable caches,
 //! > but deleting every cache must lose neither information nor meaning.
@@ -17,11 +18,17 @@ fn scratch(test: &str) -> PathBuf {
     let path = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("cache-{test}"));
     let _ = fs::remove_dir_all(&path);
     fs::create_dir_all(&path).expect("a scratch directory");
+    // What an earlier run of the same test kept, which is not this run's.
+    let _ = fs::remove_dir_all(cache_of(&path));
     path
 }
 
 fn run(directory: &Path, arguments: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_historica"))
+        .env(
+            "HISTORICA_CACHE_DIR",
+            concat!(env!("CARGO_TARGET_TMPDIR"), "/caches"),
+        )
         .arg("-C")
         .arg(directory)
         .args(arguments)
@@ -76,8 +83,16 @@ fn recorded(test: &str) -> PathBuf {
     directory
 }
 
+/// Where the command line keeps the caches of the store in `directory`: one
+/// directory per store below the base these tests name, called by the digest
+/// of the path the store was found at (decision 0078).
 fn cache_of(directory: &Path) -> PathBuf {
-    directory.join("history/cache")
+    let store = directory
+        .canonicalize()
+        .expect("the folder")
+        .join("history");
+    let named = historica::format::digest(store.as_os_str().as_encoded_bytes()).to_string();
+    Path::new(concat!(env!("CARGO_TARGET_TMPDIR"), "/caches")).join(&named[..16])
 }
 
 /// Every entry in `cache/`: a file named by a digest, and nothing else.
@@ -846,4 +861,34 @@ fn set_modified(path: &Path, when: std::time::SystemTime) {
 /// `shasum -a 256`, for planting an entry that is honestly named.
 fn sha256_hex(bytes: &[u8]) -> String {
     historica::format::digest(bytes).to_string()
+}
+
+/// Decision 0078 keeps a store's caches outside it, which a store does not
+/// outlive: a folder deleted and made again at the same path finds the
+/// catalogue its predecessor kept, naming bytes the new store never held. A
+/// writer that believed its `yes` would leave those bytes unwritten and the
+/// revision naming them unreadable.
+#[test]
+fn a_store_made_again_where_one_was_takes_nothing_from_its_cache() {
+    let directory = recorded("made-again");
+    assert!(
+        cache_of(&directory).join("operations.txt").is_file(),
+        "the first store kept no catalogue, so this tests nothing"
+    );
+    fs::remove_dir_all(&directory).expect("deleting the folder");
+    fs::create_dir_all(&directory).expect("the folder again");
+    assert!(run(&directory, &["init"]).status.success());
+
+    // The same file as the first store's first revision, so the same bytes
+    // the kept catalogue says are held.
+    let text: String = (1..=12)
+        .map(|line| match line {
+            1 => "line 1, as revision 0 left it\n".to_owned(),
+            _ => format!("line {line}\n"),
+        })
+        .collect();
+    fs::write(directory.join("notes.txt"), &text).expect("writing the file");
+    stdout(&directory, &["record", "-m", "again"]);
+    assert_eq!(stdout(&directory, &["cat", "head", "notes.txt"]), text);
+    assert!(stdout(&directory, &["check"]).ends_with("nothing to report\n"));
 }

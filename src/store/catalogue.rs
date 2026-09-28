@@ -10,7 +10,7 @@
 //!
 //! A catalogue is the other half. It says, for every file under
 //! `operations/`, the digest of its bytes and — for a forgetting document —
-//! the digest it forgets. It is kept in `cache/`, it is disposable, and it is
+//! the digest it forgets. It is kept in the cache, it is disposable, and it is
 //! believed under exactly one condition: **the set of paths it names is the
 //! set of paths the directory now holds**. That condition is checked by a
 //! directory walk, which lists names without opening anything, and the store
@@ -31,7 +31,7 @@
 //! forgetting one. That inference is the store's own rule — documents are
 //! immutable, written with `create_new`, and never overwritten — and `check`,
 //! which builds its catalogue by reading the directory and never from
-//! `cache/`, is the command that holds a store to it.
+//! the cache, is the command that holds a store to it.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -40,11 +40,9 @@ use crate::core::RevisionId;
 use crate::format::{self, OperationDocument, ResolutionDocument, digest};
 use crate::fs::Filesystem;
 
-use super::{
-    CACHE_DIR, OPERATION_SUFFIXES, OPERATIONS_DIR, StoreError, claims, platform_file, walk,
-};
+use super::{OPERATION_SUFFIXES, OPERATIONS_DIR, StoreError, claims, platform_file, walk};
 
-/// What `cache/` calls the catalogue.
+/// What the cache calls the catalogue.
 ///
 /// A fixed name rather than a digest, which is the one way this differs from
 /// every other entry 0035 describes: a catalogue is not content and there is
@@ -63,7 +61,7 @@ const CATALOGUE_FILE: &str = "operations.txt";
 /// `-2` because what `-` means moved. A `-1` catalogue built by a pass says
 /// `-` for every resolution, a forgetting one included, where this version
 /// says what it forgets; believing that `-` would hide the stand-in from every
-/// reader that takes `cache/` as it stands.
+/// reader that takes the cache as it stands.
 const CATALOGUE_HEADER: &str = "historica-catalogue-2";
 
 /// One file under `operations/`, as the catalogue holds it.
@@ -231,7 +229,7 @@ impl Catalogue {
     }
 }
 
-/// What `cache/` says, with nothing asked of the directory.
+/// What the cache says, with nothing asked of the directory.
 ///
 /// The pass below proves a held catalogue by walking the directory and
 /// comparing path sets, which is what makes it safe to believe about what
@@ -250,10 +248,8 @@ impl Catalogue {
 /// complies before it writes, and a store holding both at once is the state
 /// `check` reports as `Resurrected` — with `check` itself refusing every
 /// cached answer there is.
-pub(super) fn cached<F: Filesystem + ?Sized>(files: &F, root: &Path) -> Option<Catalogue> {
-    let bytes = files
-        .read(&root.join(CACHE_DIR).join(CATALOGUE_FILE))
-        .ok()?;
+pub(super) fn cached<F: Filesystem + ?Sized>(files: &F, cache: &Path) -> Option<Catalogue> {
+    let bytes = files.read(&cache.join(CATALOGUE_FILE)).ok()?;
     let text = String::from_utf8(bytes).ok()?;
     let mut rest = text.as_str();
     let header = rest.split('\n').next()?;
@@ -333,15 +329,16 @@ pub(super) struct Pass {
     pub(super) filings: Vec<(RevisionId, Located)>,
 }
 
-/// Catalogue `operations/`, taking what `cache/` already knows where it can.
+/// Catalogue `operations/`, taking what the cache already knows where it can.
 ///
-/// `cached` is false for the one caller that must not take it: `check` exists
-/// to do the work rather than to have the answer, and a catalogue is an
-/// answer.
+/// `cache` is the directory the host gave the store for its caches, and
+/// `None` where it gave none — and for the one caller that must not take one:
+/// `check` exists to do the work rather than to have the answer, and a
+/// catalogue is an answer.
 pub(super) fn read<F: Filesystem + ?Sized>(
     files: &F,
     root: &Path,
-    cached: bool,
+    cache: Option<&Path>,
 ) -> Result<Pass, StoreError> {
     // The directory as it stands, which is names and no contents. This is the
     // walk the store performed anyway, and it is what every belief below is
@@ -351,10 +348,9 @@ pub(super) fn read<F: Filesystem + ?Sized>(
     // and not a fault. Nothing reads it, so nothing catalogues it.
     here.retain(|path| !platform_file(path));
 
-    let held = if cached {
-        held_catalogue(files, root)
-    } else {
-        BTreeMap::new()
+    let held = match cache {
+        Some(cache) => held_catalogue(files, cache),
+        None => BTreeMap::new(),
     };
     // Whether this pass learned anything the held catalogue did not already
     // say. A store nobody has written to since the last read is the common
@@ -362,7 +358,7 @@ pub(super) fn read<F: Filesystem + ?Sized>(
     // bytes for no change at all — on every command.
     let mut accounted = 0usize;
     // Whether it read a forgetting document the held catalogue did not name,
-    // which is what makes the states in `cache/` suspect: below.
+    // which is what makes the states in the cache suspect: below.
     let mut arrived = false;
 
     let mut catalogue = Catalogue::default();
@@ -449,7 +445,7 @@ pub(super) fn read<F: Filesystem + ?Sized>(
     }
     catalogue.index();
 
-    // A state in `cache/` is named by the digest of the file it holds, which
+    // A state in the cache is named by the digest of the file it holds, which
     // is the digest the unredacted document states, so a reader takes it
     // before asking whether anything forgets what produced it. `forget`,
     // `receive` and `fetch` clear the states when they destroy an original.
@@ -458,8 +454,10 @@ pub(super) fn read<F: Filesystem + ?Sized>(
     // first seen here, so the states go here, and before the catalogue that
     // would stop the next pass seeing it arrive. With no catalogue held,
     // every forgetting document is one it did not name.
-    if cached && arrived {
-        super::clear_states(files, root);
+    if let Some(cache) = cache
+        && arrived
+    {
+        super::clear_states(files, cache);
     }
 
     // Written when the directory and the held catalogue disagreed: a path
@@ -468,8 +466,10 @@ pub(super) fn read<F: Filesystem + ?Sized>(
     // document — a `record` that rewrote the whole catalogue per document
     // would be quadratic in the size of the store — which is decision 0077;
     // this is where a store written by something else is caught up.
-    if cached && (accounted != held.len() || accounted != catalogue.at.len()) {
-        write(files, root, &catalogue);
+    if let Some(cache) = cache
+        && (accounted != held.len() || accounted != catalogue.at.len())
+    {
+        write(files, cache, &catalogue);
     }
     Ok(Pass {
         catalogue,
@@ -479,7 +479,7 @@ pub(super) fn read<F: Filesystem + ?Sized>(
     })
 }
 
-/// What `cache/` says, by path, or nothing at all.
+/// What the cache says, by path, or nothing at all.
 ///
 /// Every failure is silence. A catalogue that will not read, will not parse,
 /// or was written by a version that spelled it differently is a catalogue
@@ -487,9 +487,9 @@ pub(super) fn read<F: Filesystem + ?Sized>(
 /// directory.
 fn held_catalogue<F: Filesystem + ?Sized>(
     files: &F,
-    root: &Path,
+    cache: &Path,
 ) -> BTreeMap<PathBuf, (RevisionId, Option<RevisionId>)> {
-    let Ok(bytes) = files.read(&root.join(CACHE_DIR).join(CATALOGUE_FILE)) else {
+    let Ok(bytes) = files.read(&cache.join(CATALOGUE_FILE)) else {
         return BTreeMap::new();
     };
     let Ok(text) = std::str::from_utf8(&bytes) else {
@@ -539,24 +539,21 @@ fn parse(text: &str) -> BTreeMap<PathBuf, (RevisionId, Option<RevisionId>)> {
 /// Write the catalogue back, and say nothing about whether it worked.
 ///
 /// 0035's rule, unchanged: a store on a read-only filesystem, a full disk,
-/// and a `cache/` somebody deleted mid-command are all conditions under which
+/// and a cache somebody deleted mid-command are all conditions under which
 /// reading a file must still succeed. Nothing is lost when this fails — the
 /// next reader walks the directory, as this one just did.
-pub(super) fn write<F: Filesystem + ?Sized>(files: &F, root: &Path, catalogue: &Catalogue) {
+pub(super) fn write<F: Filesystem + ?Sized>(files: &F, cache: &Path, catalogue: &Catalogue) {
     // Replaced rather than created: a catalogue is the one mutable file in
-    // `cache/`, and 0026 makes replacement atomic, so a reader never meets
+    // the cache, and 0026 makes replacement atomic, so a reader never meets
     // half of one. A half-read catalogue would be discarded anyway; this
     // means it never has to be.
-    let _ = files.create_directory(&root.join(CACHE_DIR));
-    let _ = files.write(
-        &root.join(CACHE_DIR).join(CATALOGUE_FILE),
-        render(catalogue).as_bytes(),
-    );
+    let _ = files.create_directory(cache);
+    let _ = files.write(&cache.join(CATALOGUE_FILE), render(catalogue).as_bytes());
 }
 
-/// One catalogue as the bytes `cache/` holds.
+/// One catalogue as the bytes the cache holds.
 ///
-/// A catalogue taken from `cache/` and added to by a writer (decision 0077)
+/// A catalogue taken from the cache and added to by a writer (decision 0077)
 /// is its held lines and the writer's entries together, a writer's entry for
 /// a digest replacing the held line for it.
 fn render(catalogue: &Catalogue) -> String {

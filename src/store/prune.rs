@@ -115,7 +115,7 @@ impl<F: Filesystem> Store<F> {
 
     /// Remove what decision 0013 says may go, and nothing else.
     ///
-    /// `cache/` is not this command's business: it is disposable by decision
+    /// The cache is not this command's business: it is disposable by decision
     /// 0003 and removable with `rm -r`, and a command that deleted both would
     /// blur the one distinction 0013 exists to keep.
     pub fn prune(&mut self) -> Result<Pruned, StoreError> {
@@ -135,7 +135,7 @@ impl<F: Filesystem> Store<F> {
         // The payload index maps digests to paths that may just have gone;
         // it is derived, so it is rebuilt on next need rather than repaired.
         self.forget_catalogue();
-        // So is `cache/`, and pruning has just deleted content some of it may
+        // So is the cache, and pruning has just deleted content some of it may
         // hold. Nothing there is reported, because nothing there is lost.
         self.clear_cache();
         for directory in [REVISIONS_DIR, OPERATIONS_DIR] {

@@ -389,7 +389,7 @@ impl<F: Filesystem> Store<F> {
             self.catalogue_mut()?.remove(target);
         }
         self.forget_catalogue();
-        // What `cache/` derived from the destroyed bytes goes with them, as
+        // What the cache derived from the destroyed bytes goes with them, as
         // it does for `forget`: a state is found by the digest the unredacted
         // document states, so one kept from before would go on being read
         // in place of the redaction.

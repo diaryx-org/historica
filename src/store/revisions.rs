@@ -82,9 +82,9 @@ use crate::core::RevisionId;
 use crate::format::{self, digest};
 use crate::fs::{Filesystem, Stamp, nanoseconds};
 
-use super::{CACHE_DIR, REVISION_SUFFIXES, REVISIONS_DIR, StoreError, files_claiming};
+use super::{REVISION_SUFFIXES, REVISIONS_DIR, StoreError, files_claiming};
 
-/// What `cache/` calls this file.
+/// What the cache calls this file.
 ///
 /// A fixed name rather than a digest, for 0036's reason: it is not content and
 /// there is nothing to look it up by. Still disposable, still ignored where it
@@ -120,24 +120,24 @@ struct Entry {
     bytes: Vec<u8>,
 }
 
-/// Read every revision document, taking what `cache/` already holds.
+/// Read every revision document, taking what the cache already holds.
 ///
-/// `cached` is false for the one caller that must not take it: `check` exists
-/// to do the work rather than to have the answer.
+/// `cache` is the directory the host gave the store for its caches, and
+/// `None` where it gave none — and for the one caller that must not take one:
+/// `check` exists to do the work rather than to have the answer.
 pub(super) fn load<F: Filesystem + ?Sized>(
     files: &F,
     root: &Path,
-    cached: bool,
+    cache: Option<&Path>,
 ) -> Result<BTreeMap<RevisionId, super::Document>, StoreError> {
     // The directory as it stands, which is names and no contents. This is the
     // walk opening performed anyway, and it is what every belief below is
     // checked against.
     let paths = files_claiming(files, root, REVISIONS_DIR, &REVISION_SUFFIXES)?;
 
-    let (held, written) = if cached {
-        held_documents(files, root)
-    } else {
-        (BTreeMap::new(), None)
+    let (held, written) = match cache {
+        Some(cache) => held_documents(files, cache),
+        None => (BTreeMap::new(), None),
     };
 
     let mut documents = BTreeMap::new();
@@ -225,8 +225,10 @@ pub(super) fn load<F: Filesystem + ?Sized>(
 
     // Written when this pass and the file disagreed: a path it had to open, or
     // one the file named and the directory has since lost.
-    if cached && (!opened.is_empty() || taken.len() != held.len()) {
-        write(files, root, &held, &taken, &opened);
+    if let Some(cache) = cache
+        && (!opened.is_empty() || taken.len() != held.len())
+    {
+        write(files, cache, &held, &taken, &opened);
     }
     Ok(documents)
 }
@@ -261,17 +263,20 @@ fn believed<'a>(
     Some(entry)
 }
 
-/// What `cache/` holds, by path, and when it was written.
+/// What the cache holds, by path, and when it was written.
 ///
 /// Every failure is silence, and silence is a store that opens its documents.
 fn held_documents<F: Filesystem + ?Sized>(
     files: &F,
-    root: &Path,
+    cache: &Path,
 ) -> (BTreeMap<PathBuf, Held>, Option<i128>) {
-    let path = root.join(CACHE_DIR).join(HELD_FILE);
-    // The file's own write time, read from the same directory that reports
-    // every entry's. A filesystem that will not say loses the cache rather
-    // than the rule, which is the safe half of the trade.
+    let path = cache.join(HELD_FILE);
+    // The file's own write time, read from the same filesystem that reports
+    // every entry's — which is why a store's caches are kept on the
+    // filesystem it was opened on, and why decision 0078 asks a host for a
+    // directory whose clock is the store's. A filesystem that will not say
+    // loses the cache rather than the rule, which is the safe half of the
+    // trade.
     let written = files
         .stamp(&path)
         .ok()
@@ -360,12 +365,12 @@ fn split_line(bytes: &[u8]) -> Option<(&[u8], &[u8])> {
 /// Write down what this pass read, and say nothing about whether it worked.
 ///
 /// 0035's rule, unchanged: a store on a read-only filesystem, a full disk, and
-/// a `cache/` somebody deleted mid-command are all conditions under which
+/// a cache somebody deleted mid-command are all conditions under which
 /// reading a store must still succeed. Nothing is lost when this fails — the
 /// next command opens the documents, as this one just did.
 fn write<F: Filesystem + ?Sized>(
     files: &F,
-    root: &Path,
+    cache: &Path,
     held: &BTreeMap<PathBuf, Held>,
     taken: &[&Path],
     opened: &[Entry],
@@ -373,14 +378,11 @@ fn write<F: Filesystem + ?Sized>(
     // Replaced rather than created: 0026 makes replacement atomic, so a reader
     // never meets half of one. A half-read file would be discarded anyway;
     // this means it never has to be.
-    let _ = files.create_directory(&root.join(CACHE_DIR));
-    let _ = files.write(
-        &root.join(CACHE_DIR).join(HELD_FILE),
-        &render(held, taken, opened),
-    );
+    let _ = files.create_directory(cache);
+    let _ = files.write(&cache.join(HELD_FILE), &render(held, taken, opened));
 }
 
-/// This pass as the bytes `cache/` holds.
+/// This pass as the bytes the cache holds.
 ///
 /// What was believed comes back out of `held`, unchanged and uncopied until
 /// here; what was opened comes from this pass. Ordered by path, so that two

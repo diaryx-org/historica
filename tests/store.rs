@@ -64,13 +64,71 @@ fn init_creates_the_layout_and_open_finds_it() {
     let store = Store::init(&root).expect("a new store");
     assert!(store.is_empty());
 
-    for directory in ["revisions", "operations", "names", "cache"] {
+    for directory in ["revisions", "operations", "names", "skipped"] {
         assert!(root.join(directory).is_dir(), "{directory} should exist");
     }
+    // Decision 0078: a cache is the host's, and kept outside the store.
+    assert!(
+        !root.join("cache").exists(),
+        "init made a cache in the store"
+    );
     let header = fs::read_to_string(root.join("historica.txt")).expect("the header");
     assert_eq!(header.lines().next(), Some("historica"));
     assert!(header.contains("Identity comes from content"), "{header}");
     assert!(Store::init(&root).is_err(), "twice is an error");
+}
+
+/// Decision 0078: a store keeps its caches in the directory its host names,
+/// and in itself never. One opened with nowhere named keeps nothing at all.
+#[test]
+fn a_store_keeps_its_caches_where_the_host_says_and_nowhere_else() {
+    let (root, _) = corpus_store("caching-where-told");
+    let cache = root.parent().expect("the folder").join("elsewhere/cache");
+
+    let store = Store::open_caching(&root, &cache).expect("a store that caches");
+    assert_eq!(store.cache_directory(), Some(cache.as_path()));
+    assert!(
+        cache.join("revisions.txt").is_file(),
+        "opening read the revisions and kept nothing of them"
+    );
+    let again = Store::open_caching(&root, &cache).expect("the store again");
+    assert_eq!(again.len(), store.len());
+
+    let plain = Store::open(&root).expect("a store that caches nothing");
+    assert_eq!(plain.cache_directory(), None);
+    assert_eq!(plain.len(), store.len());
+    assert!(
+        !root.join("cache").exists(),
+        "a cache was kept in the store"
+    );
+
+    // A cache inside the store is one a sync would carry, so it is not kept.
+    let inside = root.join("mine");
+    let store = Store::open_caching(&root, &inside).expect("the store");
+    assert_eq!(store.cache_directory(), None);
+    assert!(!inside.exists(), "a cache was kept inside the store");
+}
+
+/// A store written before decision 0078 kept its caches in `cache/`, where a
+/// sync carries them to devices they were never true for — and where one may
+/// hold a file as it read before something here was forgotten. Opening such a
+/// store deletes it; `check`, which writes nothing, leaves it.
+#[test]
+fn a_cache_a_store_kept_in_itself_is_deleted_when_it_opens() {
+    let (root, _) = corpus_store("legacy-cache");
+    let legacy = root.join("cache");
+    fs::create_dir_all(&legacy).expect("a cache of the old kind");
+    let state = b"secret\n";
+    fs::write(legacy.join(digest(state).to_string()), state).expect("a state");
+    fs::write(legacy.join("operations.txt"), "historica-catalogue-2\n").expect("a catalogue");
+    fs::write(legacy.join("README.txt"), "derived\n").expect("its note");
+
+    let report = Store::check(&root);
+    assert!(report.is_ok(), "{report:?}");
+    assert!(legacy.is_dir(), "`check` deleted something");
+
+    Store::open(&root).expect("the store");
+    assert!(!legacy.exists(), "opening left the old cache in the store");
 }
 
 #[test]

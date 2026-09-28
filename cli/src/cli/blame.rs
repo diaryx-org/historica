@@ -26,7 +26,6 @@ use historica::core::{FileId, RevisionId};
 use historica::replay::State;
 use historica::store::Store;
 use historica::tree::{Kind, Tree};
-use historica::working::Working;
 
 use super::diff::laid;
 use super::{Failure, locate, printing, render, span, target};
@@ -66,7 +65,7 @@ pub fn blame_command(base: &Path, arguments: Vec<String>) -> Result<u8, Failure>
     }
 
     let root = locate(base)?;
-    let store = Store::open(&root)?;
+    let store = super::cache::open(&root)?;
 
     // 0001's disjoint alphabets again, and for 0037's reason: one argument is
     // a target or a path because nothing else could name either, and `path:`
@@ -145,7 +144,7 @@ fn folder(store: &Store, root: &Path, spelling: &str) -> Result<Vec<Row>, Failur
     let repository = root
         .parent()
         .ok_or_else(|| Failure::error("this store has no repository around it"))?;
-    let working = Working::read(repository, store.skipped()).map_err(Failure::error)?;
+    let working = super::cache::working(repository, store).map_err(Failure::error)?;
 
     let head = target::the_head(store)?;
     let tree = match head {

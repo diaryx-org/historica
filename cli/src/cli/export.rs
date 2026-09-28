@@ -48,7 +48,7 @@ pub fn export(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
         )));
     }
 
-    let store = Store::open(&root)?;
+    let store = super::cache::open(&root)?;
     // Decision 0042: the default is the head, and divergence refuses with the
     // heads described — which is what `head` already means everywhere else a
     // target is typed, so this is that answer rather than a second one.

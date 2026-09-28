@@ -7,9 +7,7 @@
 use std::io::Write as _;
 use std::path::PathBuf;
 
-use historica::store::Store;
 use historica::update::{UpdateError, apply, plan};
-use historica::working::Working;
 
 use super::{Failure, printing, target};
 
@@ -34,7 +32,7 @@ pub fn update(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
         }
     }
 
-    let store = Store::open(&root)?;
+    let store = super::cache::open(&root)?;
     let repository = root
         .parent()
         .ok_or_else(|| Failure::error("this store has no repository around it"))?
@@ -58,7 +56,7 @@ pub fn update(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
         }
     };
 
-    let working = Working::read(&repository, store.skipped()).map_err(Failure::error)?;
+    let working = super::cache::working(&repository, &store).map_err(Failure::error)?;
 
     let update = plan(&store, &working, &repository, &target).map_err(|error| match error {
         UpdateError::NotAHead { target, heads } => Failure::error(format!(

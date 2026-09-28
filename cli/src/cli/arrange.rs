@@ -17,7 +17,7 @@
 use std::io::{self, Write as _};
 use std::path::Path;
 
-use historica::store::{Arrangement, Filed, Placement, Store, Tally};
+use historica::store::{Arrangement, Filed, Placement, Tally};
 
 use super::Failure;
 
@@ -25,7 +25,7 @@ use super::Failure;
 pub fn arrange(root: &Path, dry_run: bool, placement: Placement) -> Result<u8, Failure> {
     // Opening first means a store that does not parse is refused before
     // anything is renamed, and refused in the parser's own words.
-    let mut store = Store::open(root)?;
+    let mut store = super::cache::open(root)?;
     let done = if dry_run {
         store.arrangement(placement)
     } else {

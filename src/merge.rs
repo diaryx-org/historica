@@ -4,7 +4,7 @@
 //! stored artifacts are operations and their causal edges, and the structure
 //! that resolves concurrency is built during a walk of that graph and thrown
 //! away at the end. Nothing here is written to disk, which is what lets
-//! `cache/` be genuinely disposable rather than nominally so.
+//! the cache be genuinely disposable rather than nominally so.
 //!
 //! The walk works like this. Every revision is an event, and its operations
 //! are stated against the state at its parents — so replaying an event needs

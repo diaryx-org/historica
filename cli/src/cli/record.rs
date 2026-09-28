@@ -129,7 +129,7 @@ pub fn record(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
         kinds.state(path, *kind);
     }
 
-    let mut store = Store::open(&root)?;
+    let mut store = super::cache::open(&root)?;
     let repository = root
         .parent()
         .ok_or_else(|| Failure::error("this store has no repository around it"))?
@@ -171,7 +171,7 @@ pub fn record(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
         perform(&repository, from, to)?;
     }
 
-    let working = Working::read(&repository, store.skipped()).map_err(Failure::error)?;
+    let working = super::cache::working(&repository, &store).map_err(Failure::error)?;
 
     // A kind is a fact about a file, so a path with no file under it has
     // nothing to be a fact about. Said here rather than passed over, because
@@ -299,7 +299,7 @@ pub fn amend(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
 
     no_statement_of_a_plan("amend", dry_run, fields)?;
 
-    let mut store = Store::open(&root)?;
+    let mut store = super::cache::open(&root)?;
     let repository = root
         .parent()
         .ok_or_else(|| Failure::error("this store has no repository around it"))?
@@ -333,7 +333,7 @@ pub fn amend(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
     // for a walk of the folder to find.
     let working = match rewording {
         true => Working::unread(&repository),
-        false => Working::read(&repository, store.skipped()).map_err(Failure::error)?,
+        false => super::cache::working(&repository, &store).map_err(Failure::error)?,
     };
     let mut platform = Platform;
 
@@ -494,7 +494,7 @@ pub fn abandon(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8,
 
     no_statement_of_a_plan("abandon", dry_run, fields)?;
 
-    let mut store = Store::open(&root)?;
+    let mut store = super::cache::open(&root)?;
     let repository = root
         .parent()
         .ok_or_else(|| Failure::error("this store has no repository around it"))?
@@ -637,7 +637,7 @@ pub fn carry(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
 
     no_statement_of_a_plan("carry", dry_run, fields)?;
 
-    let mut store = Store::open(&root)?;
+    let mut store = super::cache::open(&root)?;
     let target = match &named {
         Some(spelling) => Some(target::resolve(&store, spelling)?),
         None => None,
@@ -749,7 +749,7 @@ pub fn carry(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
 pub fn merge(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
     let spellings: Vec<String> = arguments;
 
-    let store = Store::open(&root)?;
+    let store = super::cache::open(&root)?;
     let repository = root
         .parent()
         .ok_or_else(|| Failure::error("this store has no repository around it"))?

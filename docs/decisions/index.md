@@ -886,6 +886,14 @@ depend on each other in.
   which every reader resolves and `check` notes. A removal still walks. The
   record went from 115 ms to 33 ms at 2,000 revisions.
 
+- [0078 — Where a cache is kept](0078-where-a-cache-is-kept.md)
+  A store holds no cache: a sync carried one to devices it was never true
+  for, where a kept state could print a line the store had forgotten. The
+  host names a directory per store, a store opened without one keeps
+  nothing, and a `cache/` left in a store is deleted when it opens. A writer
+  now hashes the file a catalogue's `yes` points at, since a cache can
+  outlive the store it was kept for.
+
 Not a decision, but the evaluation one of them rests on:
 [`docs/loro.md`](../loro.md) — the initial Loro evaluation, and the conditions
 that would reverse it.

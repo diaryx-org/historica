@@ -24,6 +24,10 @@ fn scratch(test: &str) -> PathBuf {
 
 fn run(directory: &Path, arguments: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_historica"))
+        .env(
+            "HISTORICA_CACHE_DIR",
+            concat!(env!("CARGO_TARGET_TMPDIR"), "/caches"),
+        )
         .arg("-C")
         .arg(directory)
         .args(arguments)
@@ -209,21 +213,11 @@ fn an_export_is_a_repository_a_stranger_can_open() {
     // `.tmp` files stay out of their history.
     write(&copy, "theirs.tmp", "an editor's dropping\n");
     assert!(!out(&copy, &["status"]).contains("theirs.tmp"));
-    // A cache is nobody's, so none of the exporter's travels. What the copy
-    // has in `cache/` is what it wrote for itself on the way: the note `init`
-    // leaves, the catalogue saying where in its *own* `operations/` each
-    // digest sits, decision 0043's catalogue of its *own* folder, and 0058's
-    // copy of its *own* revision documents. A cached state is a file named by
-    // a digest, and there are none — the copy has read nobody's files.
-    let cache = walk(&copy.join("history/cache"));
+    // A cache is nobody's, so none of the exporter's travels, and decision
+    // 0078 keeps the copy's own outside it: a store holds no cache at all.
     assert!(
-        cache.iter().all(|name| {
-            name == "README.txt"
-                || name == "operations.txt"
-                || name == "working.txt"
-                || name == "revisions.txt"
-        }),
-        "the exporter's cache travelled: {cache:?}"
+        !copy.join("history/cache").exists(),
+        "a cache was kept in the copy"
     );
 
     // Decision 0021: the copy explains itself to whoever opens it.
@@ -1228,16 +1222,10 @@ fn a_bookmark_made_in_the_copy_gives_way_to_the_origins() {
         "a bookmark the origin does not state stayed in the copy: {names}"
     );
 
-    // `cache/` likewise: it is nobody's, and the copy's own is its own.
-    let cache = walk(&copy.join("history/cache"));
+    // `cache/` likewise: it is nobody's, and a store holds none.
     assert!(
-        cache.iter().all(|name| {
-            name == "README.txt"
-                || name == "operations.txt"
-                || name == "working.txt"
-                || name == "revisions.txt"
-        }),
-        "the exporter's cache travelled: {cache:?}"
+        !copy.join("history/cache").exists(),
+        "a cache was kept in the copy"
     );
     assert!(out(&copy, &["check"]).ends_with("nothing to report\n"));
 }

@@ -116,9 +116,10 @@ is also the whole of the plugin surface, by decision 0053: a tool built on
 historica is an ordinary crate depending on it, and a fact the API does not
 expose is a change to historica rather than a hole opened from outside.
 
-Three things are outside both. `history/cache/` is disposable by decision 0003
-and its contents are nobody's interface — deleting it changes how long a
-command takes and nothing else. The exact wording a command prints is not an
+Three things are outside both. A store's caches are disposable by decision
+0003, kept outside it where the host says by decision 0078, and their contents
+are nobody's interface — deleting them changes how long a command takes and
+nothing else. The exact wording a command prints is not an
 API, though what it has to say is, since a person reads it and 0021 makes that
 a design constraint. And `xtask` is this repository's CI rather than a
 published thing, which is what `publish = false` says.

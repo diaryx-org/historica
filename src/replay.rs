@@ -61,7 +61,7 @@ pub fn creation(text: &str) -> Option<OperationDocument> {
 ///
 /// Items are lines, terminator included, because decision 0007 makes the item
 /// a line. A state is derived and disposable: every one of them is replayable
-/// from the operations that produced it, which is what lets `cache/` be
+/// from the operations that produced it, which is what lets the cache be
 /// genuinely deletable rather than nominally so.
 #[cfg_attr(verus_keep_ghost, verus_verify)]
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -996,7 +996,7 @@ mod tests {
     #[test]
     fn an_operation_document_is_the_authority_and_the_file_is_the_cache() {
         // Replaying the same chain twice produces the same bytes, which is the
-        // whole claim `cache/` rests on.
+        // whole claim the cache rests on.
         let chain = [
             document(&["insert 0", "+first", "+second"]),
             document(&["delete 1 1", "-second", "insert 2", "+edited"]),

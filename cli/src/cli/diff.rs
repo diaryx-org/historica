@@ -28,7 +28,6 @@ use historica::format::{Mode, digest};
 use historica::replay::State;
 use historica::store::{Content, Store};
 use historica::tree::{Kind, Tree};
-use historica::working::Working;
 use similar::{Algorithm, DiffOp, capture_diff_slices};
 
 use super::{Failure, locate, printing, target};
@@ -85,7 +84,7 @@ pub fn diff_command(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> 
     }
 
     let root = locate(base)?;
-    let store = Store::open(&root)?;
+    let store = super::cache::open(&root)?;
 
     // One argument is a target or a path, and 0001's disjoint alphabets are
     // what decide which without guessing: `diff notes.md` is the folder's own
@@ -415,7 +414,7 @@ fn folder(
         .parent()
         .ok_or_else(|| Failure::error("this store has no repository around it"))?
         .to_path_buf();
-    let working = Working::read(&repository, store.skipped()).map_err(Failure::error)?;
+    let working = super::cache::working(&repository, store).map_err(Failure::error)?;
 
     let tree = match left {
         Some(id) => store.tree(&id).map_err(Failure::error)?,

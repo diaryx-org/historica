@@ -197,6 +197,9 @@ impl Filesystem for Memory {
 type MemoryStore = Store<Arc<Memory>>;
 
 const ROOT: &str = "/nowhere";
+/// Where a caching store keeps what it has read: somewhere the host owns,
+/// outside the store and the folder both (decision 0078).
+const CACHE: &str = "/caches/nowhere";
 const AUTHOR: &str = "Adam Harris <adam@example.com>";
 
 /// Put a file in the working copy, which here is just the map.
@@ -794,7 +797,7 @@ fn describe<F: Filesystem>(
 ///
 /// Decision 0043's whole claim, made countable. The first survey hashes the
 /// photograph because nothing has ever said what it holds; the second is
-/// answered out of `history/cache/working.txt`, because the directory reports
+/// answered out of `working.txt` in the cache directory, because the directory reports
 /// the same size and the same modification time it reported then — and reports
 /// them without the file being opened.
 #[test]
@@ -814,13 +817,13 @@ fn a_folder_nobody_has_touched_is_not_read_a_second_time() {
         .expect("a picture");
     let root = record_at(&files, &mut store, Vec::new(), "a picture");
 
-    let working = Working::read_on(files.clone(), Path::new(ROOT), store.skipped())
+    let working = Working::read_caching_on(files.clone(), Path::new(ROOT), store.skipped(), CACHE)
         .expect("the folder in memory");
     let first = describe(&store, &working, vec![root]);
     let reads = files.reads_of("photo.png");
     assert!(reads > 0, "the first pass has to read it");
 
-    let working = Working::read_on(files.clone(), Path::new(ROOT), store.skipped())
+    let working = Working::read_caching_on(files.clone(), Path::new(ROOT), store.skipped(), CACHE)
         .expect("the folder again");
     assert_eq!(describe(&store, &working, vec![root]), first);
     assert_eq!(
@@ -834,7 +837,7 @@ fn a_folder_nobody_has_touched_is_not_read_a_second_time() {
     files
         .write(&photograph, &[0u8, 1, 2, 0, 255, 4])
         .expect("editing the picture");
-    let working = Working::read_on(files.clone(), Path::new(ROOT), store.skipped())
+    let working = Working::read_caching_on(files.clone(), Path::new(ROOT), store.skipped(), CACHE)
         .expect("the folder once more");
     let said = describe(&store, &working, vec![root]);
     assert!(said.contains("edited [\"photo.png\"]"), "{said}");
@@ -871,24 +874,24 @@ fn a_filesystem_that_reports_no_stamp_answers_alike_and_writes_no_catalogue() {
         "a filesystem with nothing to report must say so rather than guess"
     );
 
-    let working = Working::read_on(plain.clone(), Path::new(ROOT), store.skipped())
+    let working = Working::read_caching_on(plain.clone(), Path::new(ROOT), store.skipped(), CACHE)
         .expect("the folder in memory");
     let said = describe(&store, &working, vec![root]);
     // Twice, because a folder that reads the same twice is the property, and
     // because the second pass is where a catalogue would have been consulted.
-    let working = Working::read_on(plain.clone(), Path::new(ROOT), store.skipped())
+    let working = Working::read_caching_on(plain.clone(), Path::new(ROOT), store.skipped(), CACHE)
         .expect("the folder again");
     assert_eq!(describe(&store, &working, vec![root]), said);
     assert!(said.contains("edited []"), "nothing differs: {said}");
 
-    // And nothing was written to `cache/` about a folder nothing can be
+    // And nothing was written to the cache about a folder nothing can be
     // believed about: a catalogue no reader could ever check is a file with no
     // reason to exist.
     let held = plain.held.lock().expect("the lock");
     assert!(
         !held
             .files
-            .contains_key(&Path::new(ROOT).join("history/cache/working.txt")),
+            .contains_key(&Path::new(CACHE).join("working.txt")),
         "a filesystem that reports no stamp wrote a catalogue anyway"
     );
 }
@@ -1123,16 +1126,16 @@ fn a_content_read_does_not_list_the_directory_the_catalogue_places_it_in() {
         .expect("the file")
         .0;
 
-    // One read first, for the answer to compare against. Recording kept the
-    // catalogue as each revision landed (decision 0077), so this read pays
-    // for nothing either; `a_record_lists_nothing_its_catalogue_already_names`
-    // is where that is held.
-    let opened = Store::open_on(files.clone(), Path::new(ROOT).join("history")).expect("the store");
+    // One read first, for the answer to compare against, and to catalogue
+    // what a store that cached nothing recorded.
+    let opened = Store::open_caching_on(files.clone(), Path::new(ROOT).join("history"), CACHE)
+        .expect("the store");
     let first = opened.content(&second, &file).expect("the content");
     drop(opened);
 
     let listings = files.listings_under("history/operations");
-    let opened = Store::open_on(files.clone(), Path::new(ROOT).join("history")).expect("the store");
+    let opened = Store::open_caching_on(files.clone(), Path::new(ROOT).join("history"), CACHE)
+        .expect("the store");
     assert_eq!(
         opened.content(&second, &file).expect("the content"),
         first,
@@ -1169,17 +1172,18 @@ fn a_record_lists_nothing_its_catalogue_already_names() {
         .expect("the working copy");
     let history = Path::new(ROOT).join("history");
     let notes = Path::new(ROOT).join("notes.md");
-    let mut store = Store::init_on(files.clone(), &history).expect("a new store");
+    Store::init_on(files.clone(), &history).expect("a new store");
+    let mut store = Store::open_caching_on(files.clone(), &history, CACHE).expect("the store");
     files.write(&notes, b"First thought.\n").expect("a journal");
     let first = record_at(&files, &mut store, Vec::new(), "a journal");
     drop(store);
 
     // A later command, as every command is: a store opened afresh, over a
-    // `cache/` the last one kept.
+    // cache the last one kept.
     files
         .write(&notes, b"First thought.\nSecond thought.\n")
         .expect("a second thought");
-    let mut store = Store::open_on(files.clone(), &history).expect("the store");
+    let mut store = Store::open_caching_on(files.clone(), &history, CACHE).expect("the store");
     let listings = files.listings_under("history/operations");
     let second = record_at(&files, &mut store, vec![first], "a second thought");
     assert_eq!(
@@ -1189,7 +1193,7 @@ fn a_record_lists_nothing_its_catalogue_already_names() {
     );
     drop(store);
 
-    let store = Store::open_on(files.clone(), &history).expect("the store");
+    let store = Store::open_caching_on(files.clone(), &history, CACHE).expect("the store");
     let file = *store
         .tree(&second)
         .expect("a tree")
@@ -1241,12 +1245,17 @@ fn bytes_the_catalogue_does_not_name_are_filed_again_and_only_noted() {
         .keys()
         .next()
         .expect("the file");
+    drop(store);
+    // A store that caches, whose first read catalogues what the recording
+    // left.
+    let store = Store::open_caching_on(memory.clone(), Path::new(ROOT).join("history"), CACHE)
+        .expect("the store");
     let before = store.content(&second, &file).expect("the content");
     drop(store);
 
-    // A catalogue that does not name the document: what `cache/` holds when
+    // A catalogue that does not name the document: what the cache holds when
     // the document arrived by a copy rather than through a writer.
-    let catalogue = Path::new(ROOT).join("history/cache/operations.txt");
+    let catalogue = Path::new(CACHE).join("operations.txt");
     let text = String::from_utf8(memory.read(&catalogue).expect("a kept catalogue")).expect("text");
     let wanted = edited.to_string();
     let stale: String = text
@@ -1262,8 +1271,8 @@ fn bytes_the_catalogue_does_not_name_are_filed_again_and_only_noted() {
         .write(&catalogue, stale.as_bytes())
         .expect("a stale catalogue");
 
-    let mut store =
-        Store::open_on(memory.clone(), Path::new(ROOT).join("history")).expect("the store");
+    let mut store = Store::open_caching_on(memory.clone(), Path::new(ROOT).join("history"), CACHE)
+        .expect("the store");
     let files_before = memory.count();
     let filed = store
         .insert_operation_at(

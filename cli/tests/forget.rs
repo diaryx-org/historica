@@ -23,8 +23,32 @@ fn scratch(test: &str) -> PathBuf {
     path
 }
 
+/// Where the command line keeps the caches of the store in `directory`: one
+/// directory per store below the base these tests name, called by the digest
+/// of the path the store was found at (decision 0078).
+fn cache_of(directory: &Path) -> PathBuf {
+    let store = directory
+        .canonicalize()
+        .expect("the folder")
+        .join("history");
+    let named = historica::format::digest(store.as_os_str().as_encoded_bytes()).to_string();
+    Path::new(concat!(env!("CARGO_TARGET_TMPDIR"), "/caches")).join(&named[..16])
+}
+
+/// A folder of its own for one store, with nothing kept for it by an earlier
+/// run of the same test.
+fn folder(path: PathBuf) -> PathBuf {
+    fs::create_dir_all(&path).expect("a folder");
+    let _ = fs::remove_dir_all(cache_of(&path));
+    path
+}
+
 fn run(directory: &Path, arguments: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_historica"))
+        .env(
+            "HISTORICA_CACHE_DIR",
+            concat!(env!("CARGO_TARGET_TMPDIR"), "/caches"),
+        )
         .arg("-C")
         .arg(directory)
         .args(arguments)
@@ -513,16 +537,9 @@ fn copy_new(from: &Path, to: &Path) {
     }
 }
 
-/// Everything in `cache/` but its note, which a cache may always lose.
+/// Everything the command line keeps for the store in `directory`.
 fn empty_cache(directory: &Path) {
-    for entry in fs::read_dir(directory.join("history/cache"))
-        .expect("the cache")
-        .filter_map(Result::ok)
-    {
-        if entry.file_name() != "README.txt" {
-            fs::remove_file(entry.path()).expect("an entry");
-        }
-    }
+    let _ = fs::remove_dir_all(cache_of(directory));
 }
 
 /// Decisions 0014 and 0050: a stand-in a sync brings in beside the
@@ -533,7 +550,7 @@ fn empty_cache(directory: &Path) {
 #[test]
 fn a_stand_in_beside_a_held_resolution_is_read_on_every_reading() {
     let base = scratch("resolution-beside");
-    let here = base.join("here");
+    let here = folder(base.join("here"));
     fs::create_dir_all(&here).expect("a repository");
     assert!(run(&here, &["init"]).status.success());
     write(&here, "f.md", "a\nb\n");
@@ -557,7 +574,7 @@ fn a_stand_in_beside_a_held_resolution_is_read_on_every_reading() {
 
     // Forgotten in a copy, and the copy's new files brought back beside the
     // originals they forget.
-    let elsewhere = base.join("elsewhere");
+    let elsewhere = folder(base.join("elsewhere"));
     copy_tree(&here, &elsewhere);
     out(&elsewhere, &["forget", &left, "f.md", "--lines", "3"]);
     copy_new(
@@ -587,7 +604,7 @@ fn a_stand_in_beside_a_held_resolution_is_read_on_every_reading() {
     // A catalogue in `cache/` that says the resolution's stand-in forgets
     // nothing, as one a pass wrote before this was fixed does, is not
     // believed about it.
-    let catalogue = here.join("history/cache/operations.txt");
+    let catalogue = cache_of(&here).join("operations.txt");
     let held = fs::read_to_string(&catalogue).expect("the catalogue the reads kept");
     let mut old = String::from("historica-catalogue-1\n");
     for line in held.lines().skip(1) {
@@ -626,7 +643,7 @@ fn a_long_history_read_once(directory: &Path) -> (String, String) {
         last = digest_in(&out(directory, &["record", "-m", &format!("edit {edit}")]));
     }
     assert_eq!(out(directory, &["cat", &last, "f.md"]), "secret\nv20\n");
-    let states = fs::read_dir(directory.join("history/cache"))
+    let states = fs::read_dir(cache_of(directory))
         .expect("the cache")
         .filter_map(Result::ok)
         .filter(|entry| {
@@ -651,9 +668,9 @@ fn a_long_history_read_once(directory: &Path) -> (String, String) {
 #[test]
 fn receiving_a_forget_takes_no_state_kept_from_before_it() {
     let base = scratch("receive-states");
-    let here = base.join("here");
+    let here = folder(base.join("here"));
     let (first, last) = a_long_history_read_once(&here);
-    let elsewhere = base.join("elsewhere");
+    let elsewhere = folder(base.join("elsewhere"));
     copy_tree(&here, &elsewhere);
     out(&elsewhere, &["forget", &first, "f.md", "--lines", "1"]);
 
@@ -674,10 +691,10 @@ fn receiving_a_forget_takes_no_state_kept_from_before_it() {
 #[test]
 fn a_forget_a_sync_brings_takes_no_state_kept_from_before_it() {
     let base = scratch("sync-states");
-    let here = base.join("here");
+    let here = folder(base.join("here"));
     let (first, last) = a_long_history_read_once(&here);
-    copy_tree(&here.join("history/cache"), &base.join("states"));
-    let elsewhere = base.join("elsewhere");
+    copy_tree(&cache_of(&here), &base.join("states"));
+    let elsewhere = folder(base.join("elsewhere"));
     copy_tree(&here, &elsewhere);
     out(&elsewhere, &["forget", &first, "f.md", "--lines", "1"]);
     copy_new(
@@ -693,9 +710,9 @@ fn a_forget_a_sync_brings_takes_no_state_kept_from_before_it() {
     // A pass with no catalogue held cannot tell which forgetting documents
     // are new, so it takes every one as new: the state from before the sync,
     // put back, goes again.
-    let catalogue = here.join("history/cache/operations.txt");
+    let catalogue = cache_of(&here).join("operations.txt");
     let held = fs::read_to_string(&catalogue).expect("the catalogue");
-    copy_new(&base.join("states"), &here.join("history/cache"));
+    copy_new(&base.join("states"), &cache_of(&here));
     fs::write(&catalogue, "historica-catalogue-1\n").expect("a catalogue from another version");
     out(&here, &["offer", "."]);
     assert_eq!(out(&here, &["cat", &last, "f.md"]), "\\ forgotten\nv20\n");

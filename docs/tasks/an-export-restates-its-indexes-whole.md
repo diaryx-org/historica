@@ -1,13 +1,19 @@
 ---
 title: An export restates its indexes whole
-description: One snapshot of a one-file change adds two content files to a published copy and rewrites three files that grow with the history — the offer and the two catalogues under `cache/` — so a consumer that ships a copy one remote object per file pays for the history on every publish
+description: One snapshot of a one-file change adds two content files to a published copy and rewrote three files that grow with the history — the offer and, until decision 0078, the two catalogues under `cache/` — so a consumer that ships a copy one remote object per file pays for the history on every publish
 status: open
 created: 2026-09-23
-updated: 2026-09-23
+updated: 2026-09-28
 part_of: "[Tasks](tasks.md)"
 ---
 
 # An export restates its indexes whole
+
+**Update.** [0078](../decisions/0078-where-a-cache-is-kept.md) took the first
+of the shapes below: a store holds no cache, so the copy an export writes has
+no `cache/` and a publish rewrites the offer alone. The cost that shape names
+is now paid, since an export onto an existing copy reads it in full on each
+run. What is left is the offer, and the third bullet of *Done when*.
 
 A snapshot is inherently two new files: the revision document, and the one
 file in `operations/` that says what it did to the file that changed. Both

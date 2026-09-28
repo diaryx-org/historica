@@ -544,6 +544,20 @@ None of it is a lint: a name that differs is usually a person filing their own
 history, which `check` has no business calling a fault, and every fault `check`
 does report it finds in content.
 
+### Where what a command read is kept
+
+Decision 0078. A command keeps what it read so the next one need not read it
+again — files as they stood at a revision, and catalogues of `revisions/`,
+`operations/` and the folder — and keeps it outside the store, because a sync
+would carry anything in the store to devices it was never true for. Each store
+gets a directory of its own below a base, named by the digest of the store's
+path: `--cache-dir <dir>` before the command, or `HISTORICA_CACHE_DIR`, or
+`XDG_CACHE_HOME/historica`, or `~/Library/Caches/historica` on macOS and
+`~/.cache/historica` elsewhere. Deleting any of it costs time and nothing
+else. A store moved to another path starts with nothing kept, and a `cache/`
+inside a store, where earlier releases kept all this, is deleted when the
+store opens.
+
 ## A command this one does not have
 
 A word the table above does not hold is looked for on `PATH` as

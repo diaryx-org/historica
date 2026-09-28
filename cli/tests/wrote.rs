@@ -30,6 +30,10 @@ fn scratch(test: &str) -> PathBuf {
 
 fn run(directory: &Path, arguments: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_historica"))
+        .env(
+            "HISTORICA_CACHE_DIR",
+            concat!(env!("CARGO_TARGET_TMPDIR"), "/caches"),
+        )
         .arg("-C")
         .arg(directory)
         .args(arguments)

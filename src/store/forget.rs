@@ -483,7 +483,7 @@ impl<F: Filesystem> Store<F> {
         }
         // The payload index maps digests to paths that may just have gone.
         self.forget_catalogue();
-        // Decision 0014 destroys bytes, and `cache/` is where copies of them
+        // Decision 0014 destroys bytes, and the cache is where copies of them
         // would be. Everything there is replayable, so this loses nothing
         // that forgetting was not meant to take.
         self.clear_cache();

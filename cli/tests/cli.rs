@@ -20,6 +20,10 @@ fn scratch(test: &str) -> PathBuf {
 /// Run the binary against `directory`, as `-C` does.
 fn run(directory: &Path, arguments: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_historica"))
+        .env(
+            "HISTORICA_CACHE_DIR",
+            concat!(env!("CARGO_TARGET_TMPDIR"), "/caches"),
+        )
         .arg("-C")
         .arg(directory)
         .args(arguments)
@@ -99,9 +103,11 @@ fn init_makes_the_layout_and_refuses_to_make_it_twice() {
     let made = stdout(&directory, &["init"]);
     assert!(made.starts_with("made a store at "), "{made}");
 
-    for entry in ["revisions", "operations", "names", "cache"] {
+    for entry in ["revisions", "operations", "names", "skipped"] {
         assert!(directory.join("history").join(entry).is_dir(), "{entry}");
     }
+    // Decision 0078: what a command keeps is the machine's, not the store's.
+    assert!(!directory.join("history/cache").exists());
     // Decision 0021: the first line is the format, and the rest of the file
     // tells whoever opens the folder what they are looking at.
     let header = fs::read_to_string(directory.join("history/historica.txt")).expect("the header");
@@ -109,13 +115,7 @@ fn init_makes_the_layout_and_refuses_to_make_it_twice() {
     assert_eq!(lines.next(), Some("historica"));
     assert!(header.contains("Identity comes from content"), "{header}");
     assert!(header.contains("revisions/"), "{header}");
-    assert!(header.contains("cache/"), "{header}");
-    let cache_note =
-        fs::read_to_string(directory.join("history/cache/README.txt")).expect("the cache note");
-    assert!(
-        cache_note.contains("Everything in this directory is derived"),
-        "{cache_note}"
-    );
+    assert!(!header.contains("cache/"), "{header}");
     let skipped =
         fs::read_to_string(directory.join("history/skipped/README.txt")).expect("the rule note");
     assert!(
@@ -2731,6 +2731,10 @@ fn repository(test: &str) -> PathBuf {
 /// Run with an author stated, which is how a script records (decision 0010).
 fn recorded(directory: &Path, arguments: &[&str]) -> Output {
     Command::new(env!("CARGO_BIN_EXE_historica"))
+        .env(
+            "HISTORICA_CACHE_DIR",
+            concat!(env!("CARGO_TARGET_TMPDIR"), "/caches"),
+        )
         .arg("-C")
         .arg(directory)
         .args(arguments)
@@ -3507,6 +3511,10 @@ fn recording_without_an_author_refuses_and_says_where_to_say_so() {
     write(&directory, "a.md", "one\n");
 
     let refused = Command::new(env!("CARGO_BIN_EXE_historica"))
+        .env(
+            "HISTORICA_CACHE_DIR",
+            concat!(env!("CARGO_TARGET_TMPDIR"), "/caches"),
+        )
         .arg("-C")
         .arg(&directory)
         .args(["record", "-m", "Anonymous"])

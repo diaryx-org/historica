@@ -1,6 +1,6 @@
 ---
 title: A forget a sync brings is read only after a pass
-description: A forgetting document that a file-copying sync puts beside the original it forgets is not seen by a reader that takes the catalogue in `cache/` as it stands, so the forgotten text is shown until something makes the store read `operations/` — and nothing a reader does on its own need ever do that
+description: A forgetting document that a file-copying sync puts beside the original it forgets is not seen by a reader that takes its cached catalogue as it stands, so the forgotten text is shown until something makes the store read `operations/` — and nothing a reader does on its own need ever do that
 status: open
 created: 2026-09-28
 updated: 2026-09-28
@@ -15,7 +15,7 @@ copies files — rsync, Syncthing, iCloud, `cp -n` — and 0014 says the
 redaction survives it: *a redaction that could be undone by transport is not
 one*. A sync that copies and deletes nothing brings the forgetting document in
 beside the original. [0049](../decisions/0049-what-a-lookup-does-not-prove.md)
-lets a reader take `cache/operations.txt` as it stands, reasoning that holding
+lets a reader take the cached `operations.txt` as it stands, reasoning that holding
 the original's bytes means nothing has redacted them, because `forget`
 destroys them and `receive` complies before it writes. A sync is the one way
 that reasoning fails, and 0049 names the result, the state `check` reports as
@@ -23,7 +23,7 @@ that reasoning fails, and 0049 names the result, the state `check` reports as
 
 What they show is the original. `fix(store): a forget that arrives clears the
 states read before it` makes the window end at the next pass over
-`operations/`: the pass reads the stand-in, clears `cache/`'s states, and
+`operations/`: the pass reads the stand-in, clears the cached states, and
 records it in the catalogue. What starts that pass is a digest the catalogue
 cannot place, `offer`, or a writer with no catalogue. A reader in a store
 nobody writes to, or one whose new documents are all found where their
@@ -50,7 +50,8 @@ cd here && historica cat head f.md && historica check
 ```
 
 `cat` prints `secret`, and `check` prints the resurrection note. Run
-`historica offer .` (or delete `history/cache/operations.txt`) and `cat`
+`historica offer .` (or delete the cache directory, decision
+[0078](../decisions/0078-where-a-cache-is-kept.md)) and `cat`
 prints `\ forgotten`.
 
 ## Where the stand-ins are
@@ -91,11 +92,11 @@ Rejected:
 
 ## Done when
 
-- Decision 0078 is written, accepting the looks above or saying why the window
+- A decision is written, accepting the looks above or saying why the window
   stays, and 0049's reasoning about held originals names the sync case.
 - If accepted, a test in `cli/tests/forget.rs` runs the repro above with only
   a reader after the sync: `cat` prints `\ forgotten` with no `offer`, no
-  miss, and `cache/` as the last command left it. The same holds for a payload
+  miss, and the cache as the last command left it. The same holds for a payload
   forgotten whole.
 - The commit carries a `Behavioural-change:` trailer: readers apply a
   forgetting document a sync brings on the first command after it arrives.

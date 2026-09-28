@@ -16,11 +16,12 @@ use historica::store::{
     Bookmark, Content, Extent, Forgetting, HEADER_FILE, MutableConflict, Name, Placement,
     STORE_DIR, Store, StoreError,
 };
-use historica::working::{Pattern, Rule, SKIPPED_DIR, Scope, Working};
+use historica::working::{Pattern, Rule, SKIPPED_DIR, Scope};
 use historica::wrote::{self, Line, Statement};
 
 mod arrange;
 mod blame;
+mod cache;
 mod diff;
 #[cfg(feature = "dispatch")]
 mod dispatch;
@@ -59,7 +60,7 @@ const FETCHING: &str = "  fetch <url> [--join-unrelated] [--fields]
 const FETCHING: &str = "";
 
 const COMMANDS: &str = "\
-usage: historica [-C <dir>] <command> [<arguments>]
+usage: historica [-C <dir>] [--cache-dir <dir>] <command> [<arguments>]
 
 reading a store
   status [--onto <target>] [--merge <target>]
@@ -226,6 +227,11 @@ document is one read away. having written nothing is the header and no lines,
 which is what lets a wrapper do nothing at all, and it is what a command that
 failed leaves behind too, with the exit code saying so. `--dry-run --fields` is
 refused: a plan is not on disk.
+
+what a command has read is kept outside the store, so the next one need not
+read it again, in a directory per store below --cache-dir, or
+$HISTORICA_CACHE_DIR, or $XDG_CACHE_HOME/historica, or ~/Library/Caches/historica
+on macOS and ~/.cache/historica elsewhere. deleting any of it loses nothing.
 ";
 
 /// The last paragraph, in a build that can reach a program beside this one.
@@ -321,6 +327,7 @@ fn no_statement_of_a_plan(command: &str, dry_run: bool, fields: bool) -> Result<
 pub fn run(arguments: impl IntoIterator<Item = String>) -> Result<u8, Failure> {
     let mut arguments = arguments.into_iter();
     let mut base: Option<PathBuf> = None;
+    let mut cache_dir: Option<PathBuf> = None;
 
     let command = loop {
         let Some(argument) = arguments.next() else {
@@ -332,6 +339,12 @@ pub fn run(arguments: impl IntoIterator<Item = String>) -> Result<u8, Failure> {
                     .next()
                     .ok_or_else(|| Failure::usage("`-C` wants a directory"))?;
                 base = Some(PathBuf::from(directory));
+            }
+            "--cache-dir" => {
+                let directory = arguments
+                    .next()
+                    .ok_or_else(|| Failure::usage("`--cache-dir` wants a directory"))?;
+                cache_dir = Some(PathBuf::from(directory));
             }
             "-h" | "--help" | "help" => {
                 return printing(|out| out.write_all(usage().as_bytes()));
@@ -347,6 +360,7 @@ pub fn run(arguments: impl IntoIterator<Item = String>) -> Result<u8, Failure> {
     };
 
     let rest: Vec<String> = arguments.collect();
+    cache::init(cache_dir);
     // Decision 0074: a command asked for a statement leaves one behind even
     // when it stops. Asked here rather than in each command because the point
     // is to cover the paths a command has no answer for — an I/O failure part
@@ -541,7 +555,7 @@ fn prune(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
         ));
     }
 
-    let mut store = Store::open(&root)?;
+    let mut store = cache::open(&root)?;
     let pruned = if dry_run {
         store.prunable()?
     } else {
@@ -608,7 +622,9 @@ fn receive(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     no_statement_of_a_plan("receive", dry_run, fields)?;
     let source = source.ok_or_else(|| Failure::usage("`receive` wants a source directory"))?;
     let root = locate(base)?;
-    let mut here = Store::open(root)?;
+    let mut here = cache::open(&root)?;
+    // Read and never written, and perhaps on a drive this machine sees once:
+    // nothing is kept for it.
     let there = Store::open(named(base, &source))?;
 
     if dry_run {
@@ -886,7 +902,7 @@ fn status(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     }
 
     let root = locate(base)?;
-    let store = Store::open(&root)?;
+    let store = cache::open(&root)?;
     let repository = root
         .parent()
         .ok_or_else(|| Failure::error("this store has no repository around it"))?
@@ -896,7 +912,7 @@ fn status(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     // folder somebody typed `mv` in shows an `added` and a `dropped` — and the
     // suggestion beside them is where the survey says it noticed.
     let parents = target::parents(&store, onto.as_deref(), &joining)?;
-    let working = Working::read(&repository, store.skipped()).map_err(Failure::error)?;
+    let working = cache::working(&repository, &store).map_err(Failure::error)?;
     // The whole folder: `status` says how the folder and the store differ, and
     // a report of some of that difference is a report a person has to
     // remember the shape of.
@@ -1724,7 +1740,7 @@ fn usable(value: &str) -> Result<String, Failure> {
 
 /// Open the store containing `base`.
 fn open(base: &Path) -> Result<Store, Failure> {
-    Ok(Store::open(locate(base)?)?)
+    Ok(cache::open(&locate(base)?)?)
 }
 
 /// The store a person pointed `check` at.

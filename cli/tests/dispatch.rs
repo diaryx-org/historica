@@ -32,6 +32,10 @@ fn program(at: &Path, name: &str, body: &str) -> PathBuf {
 fn run(directory: &Path, path: &Path, arguments: &[&str]) -> Output {
     let inherited = std::env::var("PATH").unwrap_or_default();
     Command::new(env!("CARGO_BIN_EXE_historica"))
+        .env(
+            "HISTORICA_CACHE_DIR",
+            concat!(env!("CARGO_TARGET_TMPDIR"), "/caches"),
+        )
         .arg("-C")
         .arg(directory)
         .args(arguments)

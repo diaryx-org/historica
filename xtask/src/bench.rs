@@ -133,7 +133,7 @@ pub fn bench(sh: &Sh, args: &[&str]) -> Result<()> {
         ("check", vec!["check"]),
     ];
 
-    // Twice, because the question this exists to answer is what `cache/` is
+    // Twice, because the question this exists to answer is what the cache is
     // worth. Emptied first so the cold column is honestly cold — decision 0035
     // makes that a supported thing to do to a store, which is the other half
     // of what is being demonstrated. The commands then fill it as they go,
@@ -197,6 +197,9 @@ struct Recording {
 struct Bench<'a> {
     binary: &'a Path,
     root: PathBuf,
+    /// Where the binary keeps what it reads, beside the store rather than in
+    /// it (decision 0078), and this run's own rather than the machine's.
+    cache: PathBuf,
     shape: &'a Shape,
 }
 
@@ -206,15 +209,19 @@ impl<'a> Bench<'a> {
         // a build artifact, and a 15 MB store under `target/` is one `cargo
         // clean` away from being a surprise either way.
         let root = std::env::temp_dir().join("historica-bench");
-        if root.exists() {
-            std::fs::remove_dir_all(&root)
-                .map_err(|e| format!("could not clear {}: {e}", root.display()))?;
+        let cache = std::env::temp_dir().join("historica-bench-cache");
+        for directory in [&root, &cache] {
+            if directory.exists() {
+                std::fs::remove_dir_all(directory)
+                    .map_err(|e| format!("could not clear {}: {e}", directory.display()))?;
+            }
         }
         std::fs::create_dir_all(&root)
             .map_err(|e| format!("could not create {}: {e}", root.display()))?;
         Ok(Bench {
             binary,
             root,
+            cache,
             shape,
         })
     }
@@ -287,35 +294,25 @@ impl<'a> Bench<'a> {
         std::fs::write(&path, text).map_err(|e| format!("could not write {}: {e}", path.display()))
     }
 
-    /// Empty `cache/`, as a person is entitled to.
+    /// Empty the cache, as a person is entitled to.
     fn clear_cache(&self) -> Result<()> {
-        let directory = self.root.join("history/cache");
-        let Ok(entries) = std::fs::read_dir(&directory) else {
-            return Ok(());
-        };
-        for entry in entries {
-            let path = entry
-                .map_err(|e| format!("could not read an entry: {e}"))?
-                .path();
-            if path.is_file() {
-                std::fs::remove_file(&path)
-                    .map_err(|e| format!("could not remove {}: {e}", path.display()))?;
+        match std::fs::remove_dir_all(&self.cache) {
+            Err(e) if e.kind() != std::io::ErrorKind::NotFound => {
+                Err(format!("could not clear {}: {e}", self.cache.display()))
             }
+            _ => Ok(()),
         }
-        Ok(())
     }
 
-    /// How much disk `cache/` is using.
+    /// How much disk the cache is using.
     fn cache_size(&self) -> Result<String> {
-        Self::shown(Self::bytes_under(&self.root.join("history/cache"))?)
+        Self::shown(Self::bytes_under(&self.cache)?)
     }
 
-    /// The store's size, as `du -sh` would say it — the cache excluded, since
-    /// it is reported beside this rather than folded into it.
+    /// The store's size, as `du -sh` would say it. The cache is reported
+    /// beside this, and is not in the store to fold into it.
     fn size(&self) -> Result<String> {
-        let history = self.root.join("history");
-        let bytes = Self::bytes_under(&history)? - Self::bytes_under(&history.join("cache"))?;
-        Self::shown(bytes)
+        Self::shown(Self::bytes_under(&self.root.join("history"))?)
     }
 
     /// Every byte of every file under one directory, at any depth.
@@ -358,7 +355,7 @@ impl<'a> Bench<'a> {
 
     /// The fastest of `runs` runs of one command.
     ///
-    /// Emptying `cache/` between runs rather than once before them is the
+    /// Emptying the cache between runs rather than once before them is the
     /// whole of what makes the cold column cold: the first run fills it, and
     /// the fastest of the rest would otherwise be a cached run wearing the
     /// other column's label.
@@ -391,6 +388,7 @@ impl<'a> Bench<'a> {
     /// `status` to a terminal is not part of what is being timed.
     fn output(&self, args: &[&str]) -> Result<String> {
         let output = Command::new(self.binary)
+            .env("HISTORICA_CACHE_DIR", &self.cache)
             .args(args)
             .current_dir(&self.root)
             .output()

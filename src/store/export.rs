@@ -21,7 +21,8 @@
 //! Every ancestor of the target, every operation document, resolution and
 //! payload those revisions name, and every forgetting document that touches
 //! any of it — decision 0014 always travels, or a copy would resurrect what a
-//! redaction destroyed. Not `cache/`, which is nobody's. `historica.txt` and
+//! redaction destroyed. Not a cache, which is nobody's and, by decision 0078,
+//! not in the store to carry. `historica.txt` and
 //! `format.txt` are written fresh, because decision 0021 promises the copy
 //! explains itself to whoever opens it.
 //!
@@ -106,8 +107,10 @@
 //! folder holds, and 0030 asked afterwards would call the exporter's own last
 //! output somebody's unrecorded work.
 //!
-//! Two things the copy holds are not the exporter's to touch. `cache/` is
-//! neither written nor removed, which is 0042 unchanged. Nor is a reserved
+//! Two things the copy holds are not the exporter's to touch. A `cache/`,
+//! which a copy made before decision 0078 may hold, is neither written nor
+//! removed here, which is 0042 unchanged — opening the copy removes it, as
+//! opening any store does. Nor is a reserved
 //! travelling directory: decision 0054 makes the update add-only there,
 //! because `travels-and-unions` is a class whose whole justification is that a
 //! name historica cannot read needs no merge rule — and deleting such a file
@@ -927,7 +930,7 @@ impl<F: Filesystem> Store<F> {
         for directory in [REVISIONS_DIR, OPERATIONS_DIR] {
             super::prune::remove_empty_directories(copy.filesystem(), &root.join(directory))?;
         }
-        // Decision 0014's promise is that bytes are *gone*, so what `cache/`
+        // Decision 0014's promise is that bytes are *gone*, so what the cache
         // derived from them goes too. `forget` and `prune` clear it for this
         // reason, and an export that destroyed or withdrew anything is the
         // third command with something to destroy.

@@ -21,7 +21,7 @@ use std::io::Write as _;
 use std::path::Path;
 use std::time::Duration;
 
-use historica::store::{Source, Store, Unreachable};
+use historica::store::{Source, Unreachable};
 use historica::wrote::{Line, Statement};
 
 use super::{Failure, locate, printing, render};
@@ -57,7 +57,7 @@ pub fn fetch(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     })?;
     let (root, manifest) = addressed(&url)?;
 
-    let mut store = Store::open(locate(base)?)?;
+    let mut store = super::cache::open(&locate(base)?)?;
     let source = Web::at(&root)?;
     let fetched = store
         .fetch(&source, &manifest, join_unrelated)

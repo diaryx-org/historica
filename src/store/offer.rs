@@ -110,7 +110,7 @@
 //!
 //! `operations/` is measured through decision 0036's catalogue, which already
 //! holds a digest and a forgetting relationship per file and reads only what
-//! `cache/` cannot account for — the property that keeps a history with
+//! the cache cannot account for — the property that keeps a history with
 //! photographs in it from being hashed end to end on every publish. What that
 //! catalogue is keyed by is a digest, so it collapses two files holding one
 //! set of bytes to one path; the pass that *builds* it does not, and this
@@ -122,7 +122,7 @@
 //! revision rather than one per file per revision, so the directory is the
 //! small half of the store by construction — the store reads all of it at
 //! `open` already, and what `open` does not keep is *where* each one is, which
-//! is one walk away. A second index in `cache/` would buy back the hashing of
+//! is one walk away. A second index in the cache would buy back the hashing of
 //! the cheapest files in the store and cost a second thing that can be stale.
 //!
 //! One claim here is believed rather than read, and it is the catalogue's:
@@ -139,7 +139,7 @@
 //! `status` have, and the publisher redirects it — conventionally to
 //! `offer.txt` beside the exported directory, written last, after `export` has
 //! left a consistent copy. What the store may still refresh while producing it
-//! is `cache/`, exactly as every other reading command does, which decision
+//! is the cache, exactly as every other reading command does, which decision
 //! 0035 makes disposable and 0036 makes silent about failing.
 //!
 //! [`Travel::TravelsAndUnions`]: super::Travel::TravelsAndUnions
@@ -470,12 +470,13 @@ impl<F: Filesystem> Store<F> {
     /// hashes every arriving file regardless — so there is nothing here for a
     /// check to protect.
     pub fn offer(&self, prefix: &str) -> Result<Offer, StoreError> {
-        // Decision 0036's pass, which reads only what `cache/` cannot account
+        // Decision 0036's pass, which reads only what the cache cannot account
         // for — and taken one entry per file rather than one per digest, since
         // an offer is a listing of a directory rather than a lookup.
         let mut payloads: Vec<Offered> = Vec::new();
         let mut documents: Vec<Offered> = Vec::new();
-        for (id, filed) in catalogue::read(&self.files, &self.root, self.cached)?.filings {
+        for (id, filed) in catalogue::read(&self.files, &self.root, self.cache.as_deref())?.filings
+        {
             let entry = Offered {
                 kind: match filed.document {
                     true => OfferKind::Operation,
