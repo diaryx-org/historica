@@ -5197,6 +5197,83 @@ fn abandoning_refuses_a_fork_and_a_rewritten_revision() {
 }
 
 #[test]
+fn a_squash_of_a_run_is_one_revision_holding_the_tip() {
+    let directory = repository("squash-run");
+    write(&directory, "notes.md", "Kept.\n");
+    let base = out(recorded(&directory, &["record", "-m", "Keep this"]));
+    write(&directory, "notes.md", "Kept.\nA half\n");
+    out(recorded(&directory, &["record", "-m", ""]));
+    write(&directory, "notes.md", "Kept.\nA half-sentence.\n");
+    out(recorded(&directory, &["record", "-m", ""]));
+    write(
+        &directory,
+        "notes.md",
+        "Kept.\nA half-sentence, finished.\n",
+    );
+    out(recorded(&directory, &["record", "-m", "Finish it"]));
+
+    let range = format!("{}..head", digest_in(&base));
+    let planned = out(recorded(&directory, &["squash", &range, "--dry-run"]));
+    assert_eq!(planned.matches("would squash ").count(), 3, "{planned}");
+
+    let said = out(recorded(&directory, &["squash", &range]));
+    assert_eq!(said.matches("squashed ").count(), 3, "{said}");
+    assert_eq!(
+        stdout(&directory, &["cat", "head", "notes.md"]),
+        "Kept.\nA half-sentence, finished.\n"
+    );
+    // Two revisions, as a person reads it: the base, and the squash on it,
+    // which kept the only message the run had.
+    // Superseded revisions stay, marked, until `prune`.
+    let log = stdout(&directory, &["log", "--fields"]);
+    let current = log
+        .lines()
+        .skip(1)
+        .filter(|line| !line.contains("superseded"));
+    assert_eq!(current.count(), 2, "{log}");
+    let head = stdout(&directory, &["show", "head"]);
+    assert!(head.contains("Finish it"), "{head}");
+    // The folder already holds the squash, so there is nothing to update and
+    // the store is one `check` accepts.
+    let status = stdout(&directory, &["status"]);
+    assert!(!status.contains("edited"), "{status}");
+    stdout(&directory, &["check"]);
+}
+
+#[test]
+fn a_squash_refuses_a_run_of_one_and_work_on_its_middle() {
+    let directory = repository("squash-refusals");
+    write(&directory, "notes.md", "Base.\n");
+    let base = out(recorded(&directory, &["record", "-m", "Base"]));
+    write(&directory, "notes.md", "Base.\nMiddle.\n");
+    let middle = out(recorded(&directory, &["record", "-m", "Middle"]));
+    write(&directory, "notes.md", "Base.\nMiddle.\nTip.\n");
+    let tip = out(recorded(&directory, &["record", "-m", "Tip"]));
+
+    let said = refused(&directory, &["squash", "head"]);
+    assert!(said.contains("names one revision"), "{said}");
+    let said = refused(
+        &directory,
+        &["squash", &format!("{}..head", digest_in(&middle))],
+    );
+    assert!(said.contains("holds one revision"), "{said}");
+
+    write(&directory, "notes.md", "Base.\nMiddle.\nElsewhere.\n");
+    out(recorded(
+        &directory,
+        &["record", "-m", "Elsewhere", "--onto", &digest_in(&middle)],
+    ));
+    let said = refused(
+        &directory,
+        &[
+            "squash",
+            &format!("{}..{}", digest_in(&base), digest_in(&tip)),
+        ],
+    );
+    assert!(said.contains("in the middle of the run"), "{said}");
+}
+
+#[test]
 fn a_change_bookmark_follows_abandoned_work_to_the_tombstone() {
     let directory = repository("abandon-bookmark");
     write(&directory, "notes.md", "First.\n");

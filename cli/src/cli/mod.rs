@@ -142,6 +142,12 @@ writing a store
                            abandons the one revision and carries what stood
                            on it onto the tombstone, so the work above
                            survives the work beneath it
+  squash <base>..<tip> [-m <message>] [--dry-run] [--fields]
+                           supersede the run between them with one revision
+                           on the base that states what the tip holds. it
+                           reads no folder, so work standing on the tip is
+                           carried across, verbatim; with no -m the run's
+                           own messages are kept, in order
   carry [<target>] [--onto <destination>] [--dry-run] [--fields]
                            restate work against a different parent. with no
                            --onto that parent is the rewrite the store
@@ -399,6 +405,7 @@ pub fn run(arguments: impl IntoIterator<Item = String>) -> Result<u8, Failure> {
         "record" => record::record(&base, locate(&base)?, rest),
         "amend" => record::amend(locate(&base)?, rest),
         "abandon" => record::abandon(&base, locate(&base)?, rest),
+        "squash" => record::squash(locate(&base)?, rest),
         "carry" => record::carry(locate(&base)?, rest),
         "prune" => prune(&base, rest),
         "receive" => receive(&base, rest),
@@ -452,8 +459,8 @@ pub fn run(arguments: impl IntoIterator<Item = String>) -> Result<u8, Failure> {
 ///
 /// `merge` is not among them: it reads the store and writes the folder, so
 /// every statement it could make would be the empty one.
-const STATING: [&str; 9] = [
-    "record", "amend", "abandon", "carry", "prune", "forget", "name", "receive", "fetch",
+const STATING: [&str; 10] = [
+    "record", "amend", "abandon", "squash", "carry", "prune", "forget", "name", "receive", "fetch",
 ];
 
 /// `init [<dir>]` — write the layout decision 0006 settled on.

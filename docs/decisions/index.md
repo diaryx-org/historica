@@ -921,6 +921,14 @@ depend on each other in.
   of materialising the file. 137 ms. Nothing is kept, and `check` walks every
   step.
 
+- [0082 — Squashing a run into one revision](0082-squashing-a-run.md)
+  A writer that records every few seconds, or a device that raced itself,
+  leaves a history of half-sentences and the same sentence twice. `squash
+  <base>..<tip>` writes one revision on the base stating what the tip holds,
+  worked out from the two trees rather than the folder, and supersedes the
+  run. A new change; the run's author, first moment and messages. Work on
+  the tip is carried verbatim; work on the middle is refused.
+
 Not a decision, but the evaluation one of them rests on:
 [`docs/loro.md`](../loro.md) — the initial Loro evaluation, and the conditions
 that would reverse it.

@@ -1280,6 +1280,23 @@ fn record_folder(
     parents: Vec<RevisionId>,
     message: &str,
 ) -> historica::record::Recorded {
+    record_folder_by(
+        store,
+        base,
+        parents,
+        message,
+        "Adam Harris <adam@example.com>",
+    )
+}
+
+/// [`record_folder`], by somebody else.
+fn record_folder_by(
+    store: &mut Store,
+    base: &Path,
+    parents: Vec<RevisionId>,
+    message: &str,
+    author: &str,
+) -> historica::record::Recorded {
     use historica::record::{Clock as _, Platform, Recording, Restriction, record};
     use historica::working::Working;
 
@@ -1290,7 +1307,7 @@ fn record_folder(
         &working,
         &Recording {
             parents,
-            author: "Adam Harris <adam@example.com>".to_owned(),
+            author: author.to_owned(),
             when: platform.now().expect("a clock"),
             message: message.to_owned(),
             moves: Vec::new(),
@@ -1583,6 +1600,198 @@ fn abandoning_wants_a_reason_and_a_run_that_is_a_line() {
         abandon(&mut store, &abandoning(root.revision, "why"), &mut Platform),
         Err(RecordError::Forked { .. })
     ));
+}
+
+/// Squash a run in the library, as the CLI does, with the clock and the
+/// random source the platform gives.
+fn squash_run(
+    store: &mut Store,
+    base: RevisionId,
+    tip: RevisionId,
+    message: Option<&str>,
+) -> Result<historica::record::squash::Squashed, historica::record::RecordError> {
+    use historica::record::squash::{Squashing, squash};
+    use historica::record::{Clock as _, Platform};
+
+    let mut platform = Platform;
+    squash(
+        store,
+        &Squashing {
+            base,
+            tip,
+            message: message.map(str::to_owned),
+            reviser: "Adam Harris <adam@example.com>".to_owned(),
+            revised: platform.now().expect("a clock"),
+        },
+        &mut platform,
+    )
+}
+
+/// Every file at a revision, by path, as its bytes: what two revisions have
+/// to agree on to hold the same folder.
+fn folder_at(store: &Store, revision: &RevisionId) -> Vec<(String, String)> {
+    let tree = store.tree(revision).expect("a tree");
+    let mut files: Vec<(String, String)> = tree
+        .entries()
+        .map(|(file, entry)| {
+            let held = match entry.payload {
+                Some(payload) => format!("bytes {payload}"),
+                None => store.content(revision, file).expect("content").text(),
+            };
+            (entry.path.clone(), held)
+        })
+        .collect();
+    files.sort();
+    files
+}
+
+/// Decision 0082. A run with a split and the merge that joined it — two
+/// lines through one page, the shape a device racing itself leaves — is one
+/// revision after a squash: it stands on the base, holds exactly what the tip
+/// held, and supersedes every revision of the run, whose changes are then
+/// squashed away (0001's `Abandoned`).
+#[test]
+fn a_squash_states_the_tip_once_and_supersedes_the_run() {
+    let base = scratch("squash-library");
+    let mut store = Store::init(base.join("history")).expect("a new store");
+
+    fs::write(base.join("day.md"), "Morning.\n").expect("a file");
+    fs::write(base.join("old.md"), "Going.\n").expect("a file");
+    fs::write(base.join("photo.bin"), [0xff, 0x00, 0x01]).expect("bytes");
+    let root = record_folder(&mut store, &base, Vec::new(), "Begin");
+
+    fs::write(base.join("day.md"), "Morning. It rained\n").expect("typing");
+    let left = record_folder(&mut store, &base, vec![root.revision], "");
+    fs::write(base.join("day.md"), "Morning. It rained all day\n").expect("typing");
+    let right = record_folder(&mut store, &base, vec![root.revision], "");
+    // Joined by a sync, which names itself so that every device writes the
+    // same merge: the work is still one author's.
+    fs::write(base.join("day.md"), "Morning. It rained all day.\n").expect("joined");
+    let joined = record_folder_by(
+        &mut store,
+        &base,
+        vec![left.revision, right.revision],
+        "Join",
+        "Sync <merge@example.com>",
+    );
+    fs::remove_file(base.join("old.md")).expect("a deletion");
+    fs::write(base.join("new.md"), "Arrived.\n").expect("an addition");
+    fs::write(base.join("photo.bin"), [0xff, 0x00, 0x02]).expect("new bytes");
+    let tip = record_folder(&mut store, &base, vec![joined.revision], "Tidy");
+
+    let squashed = squash_run(&mut store, root.revision, tip.revision, None).expect("a squash");
+
+    assert_eq!(squashed.superseded.len(), 4);
+    assert_eq!(
+        folder_at(&store, &squashed.revision),
+        folder_at(&store, &tip.revision),
+        "the squash holds what the tip held"
+    );
+    let document = store
+        .get(&squashed.revision)
+        .expect("readable")
+        .expect("held")
+        .clone();
+    assert_eq!(document.parents, BTreeSet::from([root.revision]));
+    assert_eq!(document.author, "Adam Harris <adam@example.com>");
+    assert_eq!(
+        document.message, "Join\n\nTidy",
+        "the run's messages, in order"
+    );
+
+    let history = store.history();
+    let current: Vec<_> = history
+        .heads()
+        .difference(&history.superseded())
+        .copied()
+        .collect();
+    assert_eq!(current, vec![squashed.revision]);
+    for change in [left.change, right.change, joined.change, tip.change] {
+        assert!(matches!(
+            history.change_state(&change),
+            ChangeState::Abandoned
+        ));
+    }
+    assert!(Store::check(store.root()).is_ok());
+}
+
+/// What stood on the tip is carried onto the squash in the same act, and
+/// holds what it held; a change bookmark on the squashed work follows it.
+#[test]
+fn a_squash_carries_what_stood_on_the_tip() {
+    let base = scratch("squash-carry-library");
+    let mut store = Store::init(base.join("history")).expect("a new store");
+
+    fs::write(base.join("day.md"), "One.\n").expect("a file");
+    let root = record_folder(&mut store, &base, Vec::new(), "Begin");
+    fs::write(base.join("day.md"), "One.\nTwo.\n").expect("typing");
+    let middle = record_folder(&mut store, &base, vec![root.revision], "");
+    fs::write(base.join("day.md"), "One.\nTwo.\nThree.\n").expect("typing");
+    let tip = record_folder(&mut store, &base, vec![middle.revision], "");
+    fs::write(base.join("day.md"), "One.\nTwo.\nThree.\nTomorrow.\n").expect("more");
+    let later = record_folder(&mut store, &base, vec![tip.revision], "Tomorrow");
+    store
+        .set_name("draft", Name::Change(tip.change))
+        .expect("a bookmark");
+
+    let squashed =
+        squash_run(&mut store, root.revision, tip.revision, Some("The day")).expect("a squash");
+
+    let [step] = squashed.carried.steps.as_slice() else {
+        panic!(
+            "one revision carried, not {:?}",
+            squashed.carried.steps.len()
+        );
+    };
+    assert_eq!(step.predecessor, later.revision);
+    assert_eq!(
+        folder_at(&store, &step.revision),
+        folder_at(&store, &later.revision)
+    );
+    assert_eq!(squashed.advanced, vec!["draft".to_owned()]);
+    assert!(Store::check(store.root()).is_ok());
+}
+
+#[test]
+fn a_squash_refuses_what_it_cannot_state_as_one_revision() {
+    use historica::record::RecordError;
+
+    let base = scratch("squash-refusals-library");
+    let mut store = Store::init(base.join("history")).expect("a new store");
+
+    fs::write(base.join("day.md"), "One.\n").expect("a file");
+    let root = record_folder(&mut store, &base, Vec::new(), "Begin");
+    fs::write(base.join("day.md"), "One.\nTwo.\n").expect("typing");
+    let middle = record_folder(&mut store, &base, vec![root.revision], "");
+    fs::write(base.join("day.md"), "One.\nTwo.\nThree.\n").expect("typing");
+    let tip = record_folder(&mut store, &base, vec![middle.revision], "");
+    fs::write(base.join("day.md"), "One.\nTwo.\nElsewhere.\n").expect("a branch");
+    let branch = record_folder(&mut store, &base, vec![middle.revision], "Elsewhere");
+
+    // A range of one is the revision itself.
+    assert!(matches!(
+        squash_run(&mut store, middle.revision, tip.revision, None),
+        Err(RecordError::NothingToSquash { .. })
+    ));
+    // A base the tip does not stand on.
+    assert!(matches!(
+        squash_run(&mut store, branch.revision, tip.revision, None),
+        Err(RecordError::NotBehind { .. })
+    ));
+    // Work standing on the middle of the run, from outside it.
+    assert!(matches!(
+        squash_run(&mut store, root.revision, tip.revision, None),
+        Err(RecordError::StandsInside { revision, .. }) if revision == middle.revision
+    ));
+    // A run squashed once cannot be squashed again.
+    fs::write(base.join("day.md"), "One.\nTwo.\nElsewhere, later.\n").expect("typing");
+    let later = record_folder(&mut store, &base, vec![branch.revision], "");
+    squash_run(&mut store, middle.revision, later.revision, None).expect("the branch");
+    assert!(matches!(
+        squash_run(&mut store, middle.revision, later.revision, None),
+        Err(RecordError::AlreadyRewritten { .. })
+    ));
+    assert!(Store::check(store.root()).is_ok());
 }
 
 /// What a power cut in the middle of a capture leaves is a store `check`

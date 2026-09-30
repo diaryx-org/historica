@@ -230,6 +230,30 @@ fn abandon_states_the_tombstone_and_leaves_what_it_superseded_alone() {
 }
 
 #[test]
+fn squash_states_the_revision_it_wrote() {
+    let directory = started("squash");
+    let stack = out(&directory, &["log", "--fields"]);
+    let root = stack
+        .lines()
+        .last()
+        .and_then(|line| line.split(' ').next())
+        .expect("the root")
+        .to_owned();
+    fs::write(directory.join("notes/one.md"), "one, again\n").expect("a change");
+    out(&directory, &["record", "-m", "the second"]);
+    fs::write(directory.join("notes/one.md"), "one, again and again\n").expect("a change");
+    out(&directory, &["record", "-m", "the third"]);
+
+    let said = out(
+        &directory,
+        &["squash", &format!("{root}..head"), "--fields"],
+    );
+    let statement = held_to(&directory, &said);
+    assert_eq!(revisions_of(&statement).len(), 1, "the squash: {said}");
+    assert!(gone_in(&statement).is_empty(), "{said}");
+}
+
+#[test]
 fn carry_states_every_revision_it_restated() {
     let directory = started("carry");
     fs::write(directory.join("notes/one.md"), "one, again\n").expect("a change");

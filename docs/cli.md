@@ -382,6 +382,24 @@ contested span. The refusal names the work still standing on what is being
 abandoned, which is the fact a person wants before they mean it, and the
 store is left as it was found.
 
+### `squash`
+
+Decision [0082](decisions/0082-squashing-a-run.md): `squash <base>..<tip>`
+writes one revision standing on the base that holds exactly what the tip
+holds, and supersedes the run between them — the half-sentences an autosave
+left, or two lines through one sentence and the merge that kept both. It is
+worked out from the two trees in the store rather than from the folder, so a
+run with later work standing on it can be squashed, and that work is carried
+onto the squash in the same act, verbatim, since the files beneath it did not
+change. Work standing on the middle of the run is refused by name, because
+its base is half of what is being squashed.
+
+The squash mints a change, so every change in the run is squashed, and keeps
+what describes the work: the run's author — one, or a refusal naming them —
+the moment its earliest revision was recorded, and `-m` or else the run's own
+messages, in order. `--dry-run` names the run and what would be carried. What
+it supersedes stays where it was until `prune`.
+
 ### `carry`
 
 The rewriting half's wall — restating a descendant's operations against a

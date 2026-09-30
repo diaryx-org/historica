@@ -11,6 +11,7 @@ use historica::core::{FileId, RevisionId};
 use historica::format::{self, Mode};
 use historica::fs::{Disk, Filesystem as _};
 use historica::record::carry::Carrying;
+use historica::record::squash::{Squashing, squash as squash_run, squash_plan};
 use historica::record::{
     Abandoning, Amendment, Clock, Kinds, Platform, Recording, Restriction,
     abandon as abandon_revision, abandonment_plan, amend as amend_revision, amendment_plan,
@@ -584,6 +585,147 @@ pub fn abandon(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8,
         }
         // Decision 0013: abandoning is the graph and pruning is disk, and a
         // person should hear the difference from the command that sits on it.
+        writeln!(
+            out,
+            "what it supersedes is still here; `historica prune` is what removes it"
+        )
+    })
+}
+
+/// `squash <base>..<tip> [-m <message>] [--dry-run] [--fields]`.
+///
+/// Decision 0082: one revision standing on `<base>` that states what `<tip>`
+/// holds and supersedes everything between them. It needs no folder — the
+/// two trees are in the store — so it squashes a run with work standing on
+/// top of it, and carries that work across in the same act. With no `-m` the
+/// run's own messages are kept, in order; a squash of work nobody described
+/// may say nothing, as the work did.
+pub fn squash(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
+    let mut message: Option<String> = None;
+    let mut named: Option<String> = None;
+    let mut dry_run = false;
+    let mut fields = false;
+
+    let mut arguments = arguments.into_iter();
+    while let Some(argument) = arguments.next() {
+        match argument.as_str() {
+            "-m" | "--message" => {
+                message = Some(
+                    arguments
+                        .next()
+                        .ok_or_else(|| Failure::usage("`-m` wants a value"))?,
+                );
+            }
+            "-n" | "--dry-run" => dry_run = true,
+            "--fields" => fields = true,
+            other if other.starts_with('-') => {
+                return Err(Failure::usage(format!(
+                    "`{other}` is not an argument `squash` takes"
+                )));
+            }
+            other if named.is_none() => named = Some(other.to_owned()),
+            other => {
+                return Err(Failure::usage(format!(
+                    "`squash` squashes one run of work, and `{other}` is a second"
+                )));
+            }
+        }
+    }
+    let Some(spelling) = named else {
+        return Err(Failure::usage(
+            "`squash` wants the run, as `<base>..<tip>`: what the tip has \
+             behind it that the base does not becomes one revision on the base",
+        ));
+    };
+
+    no_statement_of_a_plan("squash", dry_run, fields)?;
+
+    let mut store = super::cache::open(&root)?;
+    let repository = root
+        .parent()
+        .ok_or_else(|| Failure::error("this store has no repository around it"))?
+        .to_path_buf();
+    let (base, tip) = match target::reach(&store, &spelling)? {
+        target::Reach::Between { from, to } => (from, to),
+        target::Reach::From(_) => {
+            return Err(Failure::usage(format!(
+                "`{spelling}` names one revision, and a squash is of a run: \
+                 name where it starts from too, as `<base>..{spelling}`"
+            )));
+        }
+    };
+
+    if dry_run {
+        let run = squash_plan(&store, &base, &tip).map_err(Failure::error)?;
+        let carrying = standing_on(&store, &tip);
+        return printing(|out| {
+            for id in &run {
+                writeln!(out, "would squash {}", target::spelled(&store, id))?;
+            }
+            writeln!(
+                out,
+                "one revision on {} would state what {} holds",
+                target::spelled(&store, &base),
+                target::spelled(&store, &tip)
+            )?;
+            for id in &carrying {
+                writeln!(out, "would carry {}", id.abbreviate(12))?;
+            }
+            Ok(())
+        });
+    }
+
+    let reviser = identity::author_for(&repository).map_err(Failure::error)?;
+    let mut platform = Platform;
+    let revised = platform.now().map_err(Failure::error)?;
+    warn_about_the_clock(&store, &revised);
+
+    let squashed = squash_run(
+        &mut store,
+        &Squashing {
+            base,
+            tip,
+            message,
+            reviser,
+            revised,
+        },
+        &mut platform,
+    )
+    .map_err(Failure::error)?;
+
+    if fields {
+        let mut statement = Statement::new();
+        statement.revision(squashed.revision);
+        for step in &squashed.carried.steps {
+            statement.revision(step.revision);
+        }
+        for name in &squashed.advanced {
+            statement.name(name);
+        }
+        return printing(|out| render::wrote(out, &statement));
+    }
+
+    printing(|out| {
+        for id in &squashed.superseded {
+            writeln!(out, "squashed {}", id.abbreviate(12))?;
+        }
+        writeln!(
+            out,
+            "into {} ({})",
+            squashed.revision.abbreviate(12),
+            squashed.change.abbreviate(8)
+        )?;
+        for name in &squashed.advanced {
+            writeln!(out, "{name} -> {}", squashed.change.abbreviate(8))?;
+        }
+        for step in &squashed.carried.steps {
+            writeln!(
+                out,
+                "carried {} to {}",
+                step.predecessor.abbreviate(12),
+                step.revision.abbreviate(12)
+            )?;
+        }
         writeln!(
             out,
             "what it supersedes is still here; `historica prune` is what removes it"

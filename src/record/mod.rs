@@ -33,6 +33,7 @@ use crate::working::{Working, WorkingError};
 pub mod carry;
 pub mod identity;
 pub mod source;
+pub mod squash;
 
 #[cfg(feature = "disk")]
 pub use identity::author_for;
@@ -2402,6 +2403,42 @@ pub enum RecordError {
         /// The merge revision in the run.
         revision: RevisionId,
     },
+    /// A squash whose base the tip does not stand on. Decision 0082.
+    NotBehind {
+        /// The base named.
+        base: RevisionId,
+        /// The tip named.
+        tip: RevisionId,
+    },
+    /// A squash whose range holds fewer than two revisions, which is a
+    /// revision stated as itself.
+    NothingToSquash {
+        /// The tip named.
+        tip: RevisionId,
+    },
+    /// Work standing on a revision in the middle of a run to squash.
+    StandsInside {
+        /// The revision in the run.
+        revision: RevisionId,
+        /// What stands on it from outside the run.
+        standing: Vec<RevisionId>,
+    },
+    /// A run to squash recorded by more than one author, which one revision
+    /// cannot say.
+    SeveralAuthors {
+        /// Each author, as the run spells them.
+        authors: Vec<String>,
+    },
+    /// A file of bytes the tip leaves undecided between two payloads.
+    UndecidedBytes {
+        /// Where it sits.
+        path: String,
+    },
+    /// A file whose lines a squash would state, some of them forgotten.
+    SquashesForgotten {
+        /// Where it sits.
+        path: String,
+    },
     /// A merge whose contested files still hold what the renderer wrote.
     Unresolved {
         /// Each file, and how many marker lines still stand in it.
@@ -2682,6 +2719,51 @@ impl fmt::Display for RecordError {
                  that work out of the ancestry too; abandon up to the merge, \
                  or the other line first",
                 revision.abbreviate(12)
+            ),
+            RecordError::NotBehind { base, tip } => write!(
+                f,
+                "{} does not stand on {}, so there is no run between them to \
+                 squash; name a base the tip has behind it, as `<base>..<tip>`",
+                tip.abbreviate(12),
+                base.abbreviate(12)
+            ),
+            RecordError::NothingToSquash { tip } => write!(
+                f,
+                "the range ending at {} holds one revision, and a squash of one \
+                 would state it as itself; `amend` rewrites a single revision",
+                tip.abbreviate(12)
+            ),
+            RecordError::StandsInside { revision, standing } => write!(
+                f,
+                "{} is in the middle of the run, and work outside it stands on \
+                 it; squashing would take that work's base out from under it, \
+                 so squash up to where it branches, or carry it off first:{}",
+                revision.abbreviate(12),
+                standing
+                    .iter()
+                    .map(|id| format!("\n  {}", id.abbreviate(12)))
+                    .collect::<String>()
+            ),
+            RecordError::SeveralAuthors { authors } => write!(
+                f,
+                "the run was recorded by {} authors, and one revision names \
+                 one; squash each author's part on its own:{}",
+                authors.len(),
+                authors
+                    .iter()
+                    .map(|author| format!("\n  {author}"))
+                    .collect::<String>()
+            ),
+            RecordError::UndecidedBytes { path } => write!(
+                f,
+                "the tip leaves {path} undecided between two versions, and a \
+                 squash would have to pick one; record which it is first"
+            ),
+            RecordError::SquashesForgotten { path } => write!(
+                f,
+                "part of {path} was forgotten within the run, and a squash would \
+                 have to state lines whose bytes are gone; squash up to the \
+                 forgetting, or from after it"
             ),
             RecordError::EmptiedByMerge { paths } => write!(
                 f,
