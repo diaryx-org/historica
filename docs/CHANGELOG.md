@@ -57,6 +57,13 @@ _No commits since the last tag._
 
 <!-- git-cliff:end -->
 
+## v1.0.0-rc.7 — 2026-09-30
+
+### Added
+
+- **record** — squash a run of revisions into one, from the two trees ([`ea5791e`](https://github.com/diaryx-org/historica/commit/ea5791eaa373565963453a4d0d1b60b476d94bca))
+
+
 ## v1.0.0-rc.6 — 2026-09-28
 
 ### Added
