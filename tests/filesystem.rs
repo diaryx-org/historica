@@ -532,6 +532,7 @@ fn a_filesystem_that_models_no_modes_records_none_and_erases_none() {
         edited: BTreeMap::new(),
         text: BTreeMap::new(),
         bytes: BTreeMap::new(),
+        sizes: BTreeMap::new(),
         extensions: BTreeMap::new(),
         message: "make it runnable".to_owned(),
     };
@@ -612,6 +613,7 @@ fn a_folder_that_models_no_links_refuses_rather_than_inventing_one() {
         edited: BTreeMap::new(),
         text: BTreeMap::new(),
         bytes: BTreeMap::new(),
+        sizes: BTreeMap::new(),
         extensions: BTreeMap::new(),
         message: "point at the month".to_owned(),
     };

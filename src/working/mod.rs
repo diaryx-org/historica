@@ -911,11 +911,19 @@ impl<F: Filesystem> Working<F> {
     /// rule for a caller that is about to act on the answer: a catalogue that
     /// was wrong about a file is corrected by the read it caused.
     pub fn reread_digest(&self, path: &str) -> Result<RevisionId, WorkingError> {
+        self.reread_measured(path).map(|(found, _)| found)
+    }
+
+    /// [`Working::reread_digest`], and how many bytes the read found.
+    ///
+    /// Decision 0083: what `record` states on a `bytes` line, both numbers
+    /// taken from the one pass so they describe the same bytes.
+    pub fn reread_measured(&self, path: &str) -> Result<(RevisionId, u64), WorkingError> {
         let on_disk = self.regular(path)?;
-        let found = crate::fs::digest_of(&self.filesystem, on_disk)
+        let (found, size) = crate::fs::measure_of(&self.filesystem, on_disk)
             .map_err(|error| WorkingError::io(on_disk, error))?;
         self.correct(path, found);
-        Ok(found)
+        Ok((found, size))
     }
 
     /// What kind of file this is and what it hashes to, in one pass.
@@ -931,14 +939,28 @@ impl<F: Filesystem> Working<F> {
     /// `Some(bytes)` is a file of lines, with its content; `None` is a file of
     /// bytes, whose content is on disk and stays there.
     pub fn sniff(&self, path: &str) -> Result<(RevisionId, Option<Vec<u8>>), WorkingError> {
+        self.sniff_measured(path)
+            .map(|(found, _, text)| (found, text))
+    }
+
+    /// [`Working::sniff`], and how many bytes the pass found.
+    ///
+    /// Decision 0083: a file that turns out to be bytes is stated with its
+    /// size, counted in the same pass as the digest it is stated beside.
+    pub fn sniff_measured(
+        &self,
+        path: &str,
+    ) -> Result<(RevisionId, u64, Option<Vec<u8>>), WorkingError> {
         let on_disk = self.regular(path)?;
         let mut hasher = crate::format::Hasher::new();
         let mut sniff = TextSniff::default();
+        let mut size = 0u64;
         let streamed = self
             .filesystem
             .read_in_pieces(on_disk, &mut |piece| {
                 hasher.update(piece);
                 sniff.take(piece);
+                size += piece.len() as u64;
             })
             .map_err(|error| WorkingError::io(on_disk, error))?;
         if streamed.is_none() {
@@ -948,10 +970,11 @@ impl<F: Filesystem> Working<F> {
                 .map_err(|error| WorkingError::io(on_disk, error))?;
             hasher.update(&held);
             sniff.take(&held);
+            size = held.len() as u64;
         }
         let found = hasher.finish();
         self.correct(path, found);
-        Ok((found, sniff.finish()))
+        Ok((found, size, sniff.finish()))
     }
 
     /// One file's text, and the digest this read found its bytes to have.

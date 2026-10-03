@@ -929,6 +929,14 @@ depend on each other in.
   run. A new change; the run's author, first moment and messages. Work on
   the tip is carried verbatim; work on the middle is refused.
 
+- [0083 — A file of bytes says how big it is](0083-a-file-of-bytes-says-how-big-it-is.md)
+  A copy holding a photograph's history without the photograph could say
+  which payload a file holds and not how big it is. `bytes <file> <digest>
+  <size>` states it, counted by `record` in the read that takes the digest,
+  carried by the tree, restated by a squash and held to the bytes by
+  `check`. A two-word line still reads and knows no size. An older reader
+  refuses the three-word line, which is the price.
+
 Not a decision, but the evaluation one of them rests on:
 [`docs/loro.md`](../loro.md) — the initial Loro evaluation, and the conditions
 that would reverse it.

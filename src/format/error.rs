@@ -150,6 +150,12 @@ pub enum ParseErrorKind {
         /// The value as spelled in the file.
         found: String,
     },
+    /// A `bytes` line's size was not a number spelled the one way `write`
+    /// spells it: decimal digits, no leading zero, within 64 bits.
+    MalformedSize {
+        /// The value as spelled in the file.
+        found: String,
+    },
     /// A timestamp was not `YYYY-MM-DDThh:mm:ss±hh:mm`.
     MalformedTimestamp {
         /// The value as spelled in the file.
@@ -407,6 +413,12 @@ impl fmt::Display for ParseErrorKind {
                 ),
                 key => write!(f, "a revision states `{key}`; add the line"),
             },
+            MalformedSize { found } => write!(
+                f,
+                "`bytes` says how many bytes its payload holds, and `{found}` is \
+                 not a size: decimal digits, with no sign and no leading zero; \
+                 `wc -c` on the file you mean prints the right one"
+            ),
             MalformedChangeId { found } => write!(
                 f,
                 "`{found}` is not a change ID: {} characters of `k` to `z`, \

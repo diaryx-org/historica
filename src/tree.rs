@@ -73,6 +73,13 @@ pub struct Entry {
     /// `None` only where concurrent revisions each stated one: 0008 calls that
     /// a divergence to report, and refuses to pick a winner.
     pub payload: Option<RevisionId>,
+    /// How many bytes that payload holds, as the line stating it says.
+    ///
+    /// Decision 0083. `None` wherever [`Entry::payload`] is, and also for a
+    /// payload stated by a `bytes` line written before sizes were — so a
+    /// reader that wants a size for such a file asks the bytes, where it
+    /// holds them, and has no answer where it does not.
+    pub size: Option<u64>,
     /// What a link points at, per decision 0040.
     ///
     /// `Some` for every [`Kind::Link`] file and `None` for every other, since
@@ -180,6 +187,7 @@ impl Tree {
             // added with `bytes` is bytes; anything else is lines, an empty
             // file included.
             let payload = revision.bytes.get(file).copied();
+            let size = revision.sizes.get(file).copied();
             // Decision 0040: a `link` beside the `add` is the third kind, and
             // it is fixed here for the same reason the other two are — a file
             // whose kind could change would give `edit` a parent that is a
@@ -195,6 +203,7 @@ impl Tree {
                         (None, None) => Kind::Lines,
                     },
                     payload,
+                    size,
                     target,
                     // Decision 0034: a file created executable states `add`
                     // and `mode` together, and a file that states no `mode`
@@ -320,7 +329,12 @@ impl Tree {
                         kind: entry.kind,
                     });
                 }
-                Some(entry) => entry.payload = Some(*payload),
+                Some(entry) => {
+                    entry.payload = Some(*payload);
+                    // A line without a size says nothing about the new
+                    // payload's, whatever the old one's was.
+                    entry.size = revision.sizes.get(file).copied();
+                }
                 None => {
                     return Err(TreeError::Unknown {
                         key: "bytes",
@@ -543,6 +557,9 @@ pub fn merge<'a>(events: impl IntoIterator<Item = Event<'a>>) -> Result<MergedTr
         for (file, payload) in &document.bytes {
             let held = facts.entry(*file).or_default();
             held.wholes.push((event.revision, *payload));
+            if let Some(size) = document.sizes.get(file) {
+                held.sizes.insert(event.revision, *size);
+            }
             held.touches.push(event.revision);
         }
         for (file, target) in &document.links {
@@ -640,6 +657,10 @@ pub fn merge<'a>(events: impl IntoIterator<Item = Event<'a>>) -> Result<MergedTr
                 .collect();
         current.sort();
         current.dedup();
+        let size = match current.as_slice() {
+            [(revision, _)] => held.sizes.get(revision).copied(),
+            _ => None,
+        };
         let payload = match current.len() {
             0 => None,
             1 => Some(current[0].1),
@@ -701,6 +722,7 @@ pub fn merge<'a>(events: impl IntoIterator<Item = Event<'a>>) -> Result<MergedTr
             path,
             kind,
             payload,
+            size,
             target,
             mode,
         };
@@ -887,6 +909,9 @@ struct Facts {
     added: Vec<RevisionId>,
     /// `bytes`, with the payload each stated.
     wholes: Vec<(RevisionId, RevisionId)>,
+    /// The size each of those `bytes` lines stated, by the revision stating
+    /// it, where it stated one (0083).
+    sizes: BTreeMap<RevisionId, u64>,
     /// `mode`, with the value each stated.
     modes: Vec<(RevisionId, Mode)>,
     /// `link`, with the target each stated.

@@ -504,6 +504,15 @@ pub struct RevisionDocument {
     /// Decisions 0008 and 0017: such a file never merges, and two concurrent
     /// `bytes` lines for one file are a divergence to report.
     pub bytes: BTreeMap<FileId, RevisionId>,
+    /// How many bytes each payload `bytes` names holds, where the line says.
+    ///
+    /// Decision 0083: the third word of a `bytes` line, so that a copy which
+    /// holds the history of a photograph without the photograph can still say
+    /// how big it is. Every key is a key of [`bytes`](Self::bytes) — the size
+    /// is written on that file's line and nowhere else, so a size for a file
+    /// this revision states no payload for is not written at all. Absent for
+    /// every line written before the size was, and for those only.
+    pub sizes: BTreeMap<FileId, u64>,
     /// What each link this revision states points at.
     ///
     /// Decision 0040: stated by the revision that adds the file, where `text`
@@ -568,7 +577,10 @@ impl RevisionDocument {
             out.push_str(&format!("text {file} {payload}\n"));
         }
         for (file, payload) in &self.bytes {
-            out.push_str(&format!("bytes {file} {payload}\n"));
+            match self.sizes.get(file) {
+                Some(size) => out.push_str(&format!("bytes {file} {payload} {size}\n")),
+                None => out.push_str(&format!("bytes {file} {payload}\n")),
+            }
         }
         for (file, target) in &self.links {
             out.push_str(&format!("link {file} {target}\n"));
@@ -890,6 +902,7 @@ impl<'a> Parser<'a> {
         let mut edited: BTreeMap<FileId, RevisionId> = BTreeMap::new();
         let mut text: BTreeMap<FileId, RevisionId> = BTreeMap::new();
         let mut bytes: BTreeMap<FileId, RevisionId> = BTreeMap::new();
+        let mut sizes: BTreeMap<FileId, u64> = BTreeMap::new();
         let mut links: BTreeMap<FileId, LinkTarget> = BTreeMap::new();
         let mut extensions: BTreeMap<String, String> = BTreeMap::new();
 
@@ -992,6 +1005,16 @@ impl<'a> Parser<'a> {
                     };
                     let (file, named) = split_entry(&value, at, key)?;
                     let file = parse_file_id(file, at)?;
+                    // Decision 0083: a payload stated whole may say how big it
+                    // is, as a third word. Only `bytes` has one; on `edit` and
+                    // `text` a second space is a malformed digest, as it was.
+                    let named = match named.split_once(' ') {
+                        Some((named, size)) if key == "bytes" => {
+                            sizes.insert(file, parse_size(size, at)?);
+                            named
+                        }
+                        _ => named,
+                    };
                     let named = parse_digest(named, at, key)?;
                     let into = match key {
                         "edit" => &mut edited,
@@ -1176,6 +1199,7 @@ impl<'a> Parser<'a> {
             edited,
             text,
             bytes,
+            sizes,
             links,
             extensions,
             message,
@@ -1350,6 +1374,26 @@ fn parse_change_id(value: &str, at: usize) -> Result<ChangeId, ParseError> {
             },
         )
     })
+}
+
+/// A size, in the one spelling `write` produces: decimal digits, with no sign,
+/// no separator and no leading zero, so that `write(parse(bytes)) == bytes`
+/// holds for a size as it does for everything else on the line.
+fn parse_size(value: &str, at: usize) -> Result<u64, ParseError> {
+    let canonical = !value.is_empty()
+        && value.bytes().all(|byte| byte.is_ascii_digit())
+        && (value == "0" || !value.starts_with('0'));
+    canonical
+        .then(|| value.parse().ok())
+        .flatten()
+        .ok_or_else(|| {
+            ParseError::new(
+                at,
+                ParseErrorKind::MalformedSize {
+                    found: value.to_owned(),
+                },
+            )
+        })
 }
 
 fn parse_digest(value: &str, at: usize, key: &'static str) -> Result<RevisionId, ParseError> {

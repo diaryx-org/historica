@@ -257,6 +257,7 @@ pub fn squash<F: Filesystem>(
         edited: content.edited.clone(),
         text: content.text.clone(),
         bytes: content.bytes.clone(),
+        sizes: content.sizes.clone(),
         // A header another tool wrote describes the revision it was written
         // on, and a squash of several is none of them. 0065 forbids dropping
         // what this writer cannot read from a revision it *restates*; a
@@ -291,7 +292,7 @@ pub fn squash<F: Filesystem>(
             // Bytes the tip already names, by digest: the store holds them
             // under the revision that brought them, or they are held
             // elsewhere, and either way there is nothing to write.
-            Change::Whole(_) | Change::Resolution(_) => {}
+            Change::Whole { .. } | Change::Resolution(_) => {}
         }
     }
     // Decision 0059 plans a rewrite's carries before anything is written, and
@@ -412,7 +413,16 @@ fn stating<F: Filesystem>(
                     path: is.path.clone(),
                 })?;
                 if was.and_then(|was| was.payload) != Some(payload) {
-                    plan.edited.insert(*file, Change::Whole(payload));
+                    // Decision 0083: the size the tip's tree states, which
+                    // is none where the line that brought the payload
+                    // predates sizes — restated as found, never guessed.
+                    plan.edited.insert(
+                        *file,
+                        Change::Whole {
+                            payload,
+                            size: is.size,
+                        },
+                    );
                 }
             }
             Kind::Lines => {

@@ -55,7 +55,8 @@ pub enum Change {
     Resolution(ResolutionDocument),
     /// The lines a file is created with, which `text` names.
     Created(Vec<u8>),
-    /// A file's whole content, which `bytes` names — by digest.
+    /// A file's whole content, which `bytes` names — by digest, and by size
+    /// where the size is known.
     ///
     /// Decision 0067: the payload is named rather than carried, because a
     /// survey of a folder of photographs would otherwise hold every one of
@@ -64,7 +65,17 @@ pub enum Change {
     /// the moment it files them. A `text` payload beside it keeps its bytes,
     /// since decision 0007's items are its lines and every one of them is
     /// about to be named.
-    Whole(RevisionId),
+    ///
+    /// Decision 0083: the size is counted in the read that took the digest,
+    /// so `record` always knows it. `None` is a file of bytes stated from a
+    /// tree whose own `bytes` line predates sizes, which `squash` restates as
+    /// it found it.
+    Whole {
+        /// The payload's digest.
+        payload: RevisionId,
+        /// How many bytes it holds.
+        size: Option<u64>,
+    },
 }
 
 /// What one file's state on disk means for the file set.
@@ -852,11 +863,20 @@ fn survey_laid<F: Filesystem>(
             // three does the least reading that answers it — a stated `bytes`
             // never accumulates the file, and a stated `lines` reads it as
             // text, which is also where a file that is not UTF-8 is refused.
-            let (found, text) = match kinds.stated(path) {
-                None => working.sniff(path)?,
-                Some(Kind::Whole) => (working.digest(path)?, None),
+            //
+            // Decision 0083 adds the size to the bytes half, counted in the
+            // same pass, which is why a stated `bytes` reads the file rather
+            // than taking a catalogued digest: a file nobody has recorded is
+            // almost never catalogued, and a digest without its size is half
+            // of what the line will say.
+            let (found, size, text) = match kinds.stated(path) {
+                None => working.sniff_measured(path)?,
+                Some(Kind::Whole) => {
+                    let (found, size) = working.reread_measured(path)?;
+                    (found, size, None)
+                }
                 Some(Kind::Lines) => match working.text_and_digest(path) {
-                    Ok((text, found)) => (found, Some(text.into_bytes())),
+                    Ok((text, found)) => (found, 0, Some(text.into_bytes())),
                     Err(WorkingError::NotText { .. }) => {
                         return Err(RecordError::StatedNotLines { path: path.clone() });
                     }
@@ -868,7 +888,13 @@ fn survey_laid<F: Filesystem>(
             // Decision 0017: valid UTF-8 with no NUL is lines and everything
             // else is bytes, sniffed once, here, and never again.
             let Some(bytes) = text else {
-                survey.edited.insert(path.clone(), Change::Whole(found));
+                survey.edited.insert(
+                    path.clone(),
+                    Change::Whole {
+                        payload: found,
+                        size: Some(size),
+                    },
+                );
                 continue;
             };
             // A file being created states its lines outright rather than as an
@@ -917,11 +943,17 @@ fn survey_laid<F: Filesystem>(
             // states nothing. Decision 0067: the read is a hash of the pieces,
             // so a changed photograph is settled without a copy of it existing
             // anywhere but on disk.
-            let found = working.reread_digest(path)?;
+            let (found, size) = working.reread_measured(path)?;
             if recorded == Some(found) {
                 continue;
             }
-            survey.edited.insert(path.clone(), Change::Whole(found));
+            survey.edited.insert(
+                path.clone(),
+                Change::Whole {
+                    payload: found,
+                    size: Some(size),
+                },
+            );
             continue;
         }
 
@@ -1560,6 +1592,7 @@ pub fn record<F: Filesystem>(
         edited: content.edited.clone(),
         text: content.text.clone(),
         bytes: content.bytes.clone(),
+        sizes: content.sizes.clone(),
         // Decision 0065: what the caller states on another tool's behalf, which
         // this writer no more understands than a reader does.
         extensions: recording.extensions.clone(),
@@ -1758,6 +1791,7 @@ fn rewrite<F: Filesystem>(
         edited: content.edited.clone(),
         text: content.text.clone(),
         bytes: content.bytes.clone(),
+        sizes: content.sizes.clone(),
         // 0023 carries the advisory headers forward: this writer cannot read
         // them, and dropping what it cannot read is the failure 0020 calls the
         // worst available. `rewriting` put the predecessor's here.
@@ -2090,6 +2124,7 @@ pub fn abandon<F: Filesystem>(
         edited: BTreeMap::new(),
         text: BTreeMap::new(),
         bytes: BTreeMap::new(),
+        sizes: BTreeMap::new(),
         extensions: BTreeMap::new(),
         message: abandoning.message.clone(),
     };
@@ -2176,6 +2211,8 @@ struct Content {
     text: BTreeMap<FileId, RevisionId>,
     /// The payload each whole file names, which `bytes` spells.
     bytes: BTreeMap<FileId, RevisionId>,
+    /// How big each of those payloads is, where that is known (0083).
+    sizes: BTreeMap<FileId, u64>,
     /// What is to be filed under the revision's directory, with its path.
     filings: Vec<naming::Filing>,
 }
@@ -2185,6 +2222,7 @@ fn content_of(plan: &Plan) -> Content {
         edited: BTreeMap::new(),
         text: BTreeMap::new(),
         bytes: BTreeMap::new(),
+        sizes: BTreeMap::new(),
         filings: Vec::new(),
     };
     for (file, held) in &plan.edited {
@@ -2192,14 +2230,19 @@ fn content_of(plan: &Plan) -> Content {
             Change::Operations(document) => digest(&document.write()),
             Change::Resolution(document) => digest(&document.write()),
             Change::Created(payload) => digest(payload),
-            Change::Whole(payload) => *payload,
+            Change::Whole { payload, .. } => *payload,
         };
         match held {
             // Decision 0032: an `edit` line names either grammar, because
             // both say what the file is at this revision.
             Change::Operations(_) | Change::Resolution(_) => content.edited.insert(*file, held_id),
             Change::Created(_) => content.text.insert(*file, held_id),
-            Change::Whole(_) => content.bytes.insert(*file, held_id),
+            Change::Whole { size, .. } => {
+                if let Some(size) = size {
+                    content.sizes.insert(*file, *size);
+                }
+                content.bytes.insert(*file, held_id)
+            }
         };
         if let Some(path) = plan.paths.get(file) {
             content.filings.push(naming::Filing {
@@ -2249,7 +2292,7 @@ fn file_content<F: Filesystem>(
             Change::Created(payload) => {
                 store.insert_payload_at(payload, &name(&digest(payload)))?;
             }
-            Change::Whole(payload) => {
+            Change::Whole { payload, .. } => {
                 // Where the folder holds it, in the folder's own spelling —
                 // decision 0033's reason, and the walk already found it.
                 let at = plan

@@ -729,12 +729,31 @@ pub fn digest_of<F: Filesystem + ?Sized>(
     files: &F,
     path: &Path,
 ) -> io::Result<crate::core::RevisionId> {
+    measure_of(files, path).map(|(found, _)| found)
+}
+
+/// The digest of a file's bytes and how many there were, from one read.
+///
+/// [`digest_of`], counting as it hashes. Decision 0083 states a payload's size
+/// beside its digest, and a size taken from this pass describes exactly the
+/// bytes the digest does — where a stat taken beside the read could describe
+/// a file that changed between the two.
+pub fn measure_of<F: Filesystem + ?Sized>(
+    files: &F,
+    path: &Path,
+) -> io::Result<(crate::core::RevisionId, u64)> {
     let mut hasher = crate::format::Hasher::new();
-    let streamed = files.read_in_pieces(path, &mut |piece| hasher.update(piece))?;
+    let mut size = 0u64;
+    let streamed = files.read_in_pieces(path, &mut |piece| {
+        hasher.update(piece);
+        size += piece.len() as u64;
+    })?;
     if streamed.is_none() {
-        hasher.update(&files.read(path)?);
+        let held = files.read(path)?;
+        hasher.update(&held);
+        size = held.len() as u64;
     }
-    Ok(hasher.finish())
+    Ok((hasher.finish(), size))
 }
 
 /// Write a file from pieces, buffering only where a filesystem takes files

@@ -706,6 +706,7 @@ pub fn plan<F: Filesystem>(store: &Store<F>, carrying: &Carrying) -> Result<Carr
             edited,
             text: previous.text.clone(),
             bytes: previous.bytes.clone(),
+            sizes: previous.sizes.clone(),
             extensions: previous.extensions.clone(),
             message: previous.message.clone(),
         };

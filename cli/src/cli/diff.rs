@@ -375,10 +375,14 @@ fn recorded(
         if pair.differs() {
             // Measured only for what is shown: finding a stored payload
             // hashes it, and most files on either side of a comparison differ
-            // in nothing.
+            // in nothing. Decision 0083: a `bytes` line that states its size
+            // is asked first, which costs nothing and answers for a payload
+            // held elsewhere.
             pair.sizes = (
-                stored_size(store, pair.before.as_ref()),
-                stored_size(store, pair.after.as_ref()),
+                was.and_then(|entry| entry.size)
+                    .or_else(|| stored_size(store, pair.before.as_ref())),
+                now.and_then(|entry| entry.size)
+                    .or_else(|| stored_size(store, pair.after.as_ref())),
             );
             pairs.push(pair);
         }

@@ -835,9 +835,10 @@ impl Held {
 ///
 /// Decision 0017: lines that merge, or one payload whole. Decision 0067 is why
 /// the second of those is a name rather than a run of bytes — a revision
-/// document says `bytes <file> <digest>` and never more than that, so this
-/// says exactly what the document says, and the bytes are asked of the store
-/// by whoever actually wants them.
+/// document says `bytes <file> <digest>`, and since 0083 how big it is, and
+/// never the bytes themselves, so this names the payload and the bytes are
+/// asked of the store by whoever actually wants them. The size is the tree's
+/// to say: [`crate::tree::Entry::size`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Content {
     /// A file of lines, as the operation chain leaves it.

@@ -233,6 +233,21 @@ pub enum Finding {
         /// A revision that names it.
         named_by: RevisionId,
     },
+    /// A `bytes` line stating a size its payload does not have.
+    ///
+    /// An error, as [`Finding::FilenameLies`] is: decision 0083's size is a
+    /// claim about bytes this store holds and has just counted, and a copy
+    /// that does not hold them believes the line.
+    SizeLies {
+        /// The payload.
+        payload: RevisionId,
+        /// The revision whose line states the size.
+        named_by: RevisionId,
+        /// What the line says.
+        stated: u64,
+        /// What the payload holds.
+        actual: u64,
+    },
     /// A revision that could not be applied to its parent's file set.
     TreeDisagrees {
         /// The revision that would not apply.
@@ -361,6 +376,7 @@ impl Finding {
             | Finding::TreeDisagrees { .. }
             | Finding::ContentDisagrees { .. }
             | Finding::PayloadNotText { .. }
+            | Finding::SizeLies { .. }
             | Finding::ResolvedWithoutDisagreement { .. }
             | Finding::MalformedSkipped { .. }
             | Finding::RuleCoversTracked { .. }
@@ -536,6 +552,17 @@ impl fmt::Display for Finding {
                 f,
                 "{} names {} as text and it is not UTF-8, \
                  so no operation document could ever quote a line of it",
+                named_by.abbreviate(12),
+                payload.abbreviate(12)
+            ),
+            Finding::SizeLies {
+                payload,
+                named_by,
+                stated,
+                actual,
+            } => write!(
+                f,
+                "{} says {} holds {stated} bytes and it holds {actual}",
                 named_by.abbreviate(12),
                 payload.abbreviate(12)
             ),
@@ -832,7 +859,9 @@ pub(super) fn check<F: Filesystem + ?Sized>(files: &F, root: &Path) -> Report {
         }
     }
 
-    let (operations, resolutions, forgotten, payloads) = check_operations(files, root, &mut report);
+    let (operations, resolutions, forgotten, payloads, payload_sizes) =
+        check_operations(files, root, &mut report);
+    check_sizes(&documents, &payload_sizes, &mut report);
     check_replay(
         files,
         &documents,
@@ -990,6 +1019,7 @@ type Stored = (
     BTreeMap<RevisionId, ResolutionDocument>,
     BTreeMap<RevisionId, ForgottenPayload>,
     BTreeMap<RevisionId, PathBuf>,
+    BTreeMap<RevisionId, u64>,
 );
 
 fn check_operations<F: Filesystem + ?Sized>(files: &F, root: &Path, report: &mut Report) -> Stored {
@@ -1002,6 +1032,9 @@ fn check_operations<F: Filesystem + ?Sized>(files: &F, root: &Path, report: &mut
     let mut resolutions = BTreeMap::new();
     let mut forgotten = BTreeMap::new();
     let mut payloads: BTreeMap<RevisionId, PathBuf> = BTreeMap::new();
+    // Decision 0083: how many bytes each held payload is, counted from the
+    // read that hashed it, for the `bytes` lines that state a size.
+    let mut payload_sizes: BTreeMap<RevisionId, u64> = BTreeMap::new();
     let mut files_by_digest: BTreeMap<RevisionId, Vec<PathBuf>> = BTreeMap::new();
 
     for path in found.files {
@@ -1046,6 +1079,7 @@ fn check_operations<F: Filesystem + ?Sized>(files: &F, root: &Path, report: &mut
             // and nothing that can be malformed. Its only claim is its digest,
             // and the bytes are dropped here rather than held: a store with a
             // film in it must not be read into memory to be checked.
+            payload_sizes.insert(id, bytes.len() as u64);
             payloads.insert(id, path);
             continue;
         }
@@ -1091,7 +1125,7 @@ fn check_operations<F: Filesystem + ?Sized>(files: &F, root: &Path, report: &mut
             });
         }
     }
-    (documents, resolutions, forgotten, payloads)
+    (documents, resolutions, forgotten, payloads, payload_sizes)
 }
 
 /// Hold every revision to the tree and the files it claims to have edited.
@@ -1101,6 +1135,33 @@ fn check_operations<F: Filesystem + ?Sized>(files: &F, root: &Path, report: &mut
 /// concurrent history is checked all the way through its merges. The tree
 /// comes from [`crate::tree::merge`] and every file from [`crate::merge`],
 /// which is the same machinery a person materialising the store would get.
+/// Decision 0083: every size a `bytes` line states, against the payload it
+/// names where this store holds it. A payload held elsewhere has nothing here
+/// to count, and the line is what the copy goes on.
+fn check_sizes(
+    documents: &BTreeMap<RevisionId, RevisionDocument>,
+    held: &BTreeMap<RevisionId, u64>,
+    report: &mut Report,
+) {
+    for (id, document) in documents {
+        for (file, stated) in &document.sizes {
+            let Some(named) = document.bytes.get(file) else {
+                continue;
+            };
+            if let Some(actual) = held.get(named)
+                && actual != stated
+            {
+                report.push(Finding::SizeLies {
+                    payload: *named,
+                    named_by: *id,
+                    stated: *stated,
+                    actual: *actual,
+                });
+            }
+        }
+    }
+}
+
 fn check_replay<F: Filesystem + ?Sized>(
     files: &F,
     documents: &BTreeMap<RevisionId, RevisionDocument>,

@@ -88,8 +88,11 @@ in this order, and repeated ones are sorted by the value that follows them:
                                   this revision did to that file.
   text <file ID> <digest>         the payload in `operations/` an added file
                                   arrives as, read as lines.
-  bytes <file ID> <digest>        the payload that is a file's whole content,
-                                  which has no lines and never merges.
+  bytes <file ID> <digest> <size>
+                                  the payload that is a file's whole content,
+                                  which has no lines and never merges, and how
+                                  many bytes it holds. A line written before
+                                  sizes were stops at the digest.
   link <file ID> <target>         where a link points, stated by the revision
                                   that adds it — where `text` or `bytes` would
                                   have stated content — and restated by any
