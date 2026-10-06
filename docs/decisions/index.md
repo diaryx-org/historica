@@ -937,6 +937,14 @@ depend on each other in.
   `check`. A two-word line still reads and knows no size. An older reader
   refuses the three-word line, which is the price.
 
+- [0084 — A store further down the folder](0084-a-store-further-down.md)
+  A folder holding another working copy recorded that copy's `history/` as
+  content, so every revision the inner store wrote was a change outside it.
+  A `history/` holding `historica.txt` below the root is now a store: not
+  walked, not tracked, no rule needed. The folder it sits in is still
+  content. A file the tree already holds inside one is refused rather than
+  dropped, and `update` will not write into one.
+
 Not a decision, but the evaluation one of them rests on:
 [`docs/loro.md`](../loro.md) — the initial Loro evaluation, and the conditions
 that would reverse it.

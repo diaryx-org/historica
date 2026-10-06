@@ -6751,3 +6751,79 @@ fn carry_names_its_target_and_dry_run_writes_nothing() {
     let checked = stdout(&here, &["check"]);
     assert!(checked.contains("historica carry"), "{checked}");
 }
+
+#[test]
+fn a_store_further_down_is_not_recorded_and_its_folder_is() {
+    // Decision 0084, from the case that asked for it: a library holding a
+    // copy of a book somebody else wrote, and the book keeping a history of
+    // its own. The library records the book's chapters, since its folder
+    // holds them, and never the book's store.
+    let library = repository("nested-store-recorded");
+    write(&library, "journal/today.md", "an entry\n");
+    let book = library.join("book");
+    fs::create_dir_all(&book).expect("the book's folder");
+    out(recorded(&book, &["init"]));
+    write(&book, "chapter-1.md", "In the beginning\n");
+    out(recorded(&book, &["record", "-m", "The text as received"]));
+
+    let status = out(recorded(&library, &["status"]));
+    assert!(status.contains("book/chapter-1.md"), "{status}");
+    assert!(!status.contains("book/history"), "{status}");
+
+    out(recorded(&library, &["record", "-m", "Start a library"]));
+    let files = out(recorded(&library, &["files", &head_of(&library)]));
+    assert!(files.contains("book/chapter-1.md"), "{files}");
+    assert!(files.contains("journal/today.md"), "{files}");
+    assert!(!files.contains("book/history"), "{files}");
+
+    // Each store goes on recording its own folder, and the book's revisions
+    // arriving later are still not the library's content.
+    write(&book, "chapter-1.md", "In the beginning, corrected\n");
+    out(recorded(&book, &["record", "-m", "A typo"]));
+    let status = out(recorded(&library, &["status"]));
+    assert!(status.contains("book/chapter-1.md"), "{status}");
+    assert!(!status.contains("book/history"), "{status}");
+
+    // Naming the book's store is naming something this history does not
+    // observe, and saying so names the store.
+    let said = refused(&library, &["record", "book/history", "-m", "x"]);
+    assert!(said.contains("another working copy's store"), "{said}");
+    assert!(said.contains("book/history"), "{said}");
+}
+
+#[test]
+fn a_folder_only_called_history_is_recorded_like_any_other() {
+    // `discover`'s rule, read from the other side: a directory is a store
+    // when it holds `historica.txt`, not because of its name.
+    let directory = repository("nested-history-folder");
+    write(&directory, "family/history/1850.md", "a census\n");
+    out(recorded(&directory, &["record", "-m", "Start"]));
+    let files = out(recorded(&directory, &["files", &head_of(&directory)]));
+    assert!(files.contains("family/history/1850.md"), "{files}");
+}
+
+#[test]
+fn a_tracked_file_inside_a_store_further_down_is_refused_rather_than_dropped() {
+    // Only a history recorded before decision 0084 can hold one: here a
+    // folder called `history` is recorded, and then becomes a store.
+    let directory = repository("nested-store-tracked");
+    write(&directory, "book/history/notes.md", "kept\n");
+    out(recorded(&directory, &["record", "-m", "Start"]));
+    write(&directory, "book/history/historica.txt", "historica\n");
+
+    let said = refused(&directory, &["record", "-m", "x"]);
+    assert!(said.contains("another working copy's store"), "{said}");
+    assert!(
+        said.contains("book/history/notes.md (in book/history)"),
+        "{said}"
+    );
+    let said = refused(&directory, &["status"]);
+    assert!(said.contains("book/history/notes.md"), "{said}");
+
+    // Nor does `update` write a working file into it.
+    let planned = refused(&directory, &["update", &head_of(&directory), "--dry-run"]);
+    assert!(
+        planned.contains("into the store at book/history"),
+        "{planned}"
+    );
+}
