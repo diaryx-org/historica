@@ -839,6 +839,12 @@ pub(crate) fn plan_at<F: Filesystem, G: Filesystem>(
                 "it would write a working file into the store".to_owned(),
             );
         }
+        if let Some(nested) = working.store_holding(path) {
+            refuse(
+                path,
+                format!("it would write a working file into the store at {nested}"),
+            );
+        }
         if store.skipped().skips(path) {
             refuse(
                 path,

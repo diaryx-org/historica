@@ -216,7 +216,9 @@ historica receive --fields ../other | historica-minisign verify --complete
 The writer [0010](decisions/0010-writer.md) and
 [0011](decisions/0011-working-copy.md) specify. The folder beside the store is
 what it is given: everything in it tracked except what `history/skipped/`
-names.
+names. A store further down the folder — another working copy's `history/`,
+with its `historica.txt` — is not tracked either, and the files beside it are
+([0084](decisions/0084-a-store-further-down.md)).
 
 A change ID is 96 bits from the operating system, an author comes from a
 person's own configuration and is never guessed, and the time is the clock in
