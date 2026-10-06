@@ -57,6 +57,38 @@ _No commits since the last tag._
 
 <!-- git-cliff:end -->
 
+## v1.0.0-rc.8 — 2026-10-06
+
+### Added
+
+- **format** — a bytes line states how many bytes its payload holds ([`ef84f24`](https://github.com/diaryx-org/historica/commit/ef84f2496e4d22c763cb6018cdf95f7faef8f3b2))
+- **working** — leave a store further down the folder out of the record ([`6599296`](https://github.com/diaryx-org/historica/commit/6599296895f5e52293e5cec45902a2a746f7d245))
+
+### Behavioural changes
+
+- `record` writes `bytes <file> <digest> <size>` for every
+  file of bytes it states. A historica release before this one refuses such a
+  revision as a malformed digest on that line, so a store recorded by this
+  release cannot be read by an older one, and devices syncing revisions must
+  all upgrade.
+
+- `RevisionDocument` has a `sizes` field, so a struct
+  literal must state it (`BTreeMap::new()` for none). `record::Change::Whole`
+  is now `Whole { payload, size }`.
+
+- `historica check` reports `SizeLies`, an error, for a
+  `bytes` line whose stated size is not the length of the payload it names.
+
+- a stated `bytes` kind on a file being added reads the
+  file to count it, rather than taking a digest from the working catalogue.
+
+- A `history/` directory holding `historica.txt` below the
+  working copy's root is no longer walked or tracked, with no rule. The folder
+  it sits in is still recorded. A history that already tracks files inside
+  one now has `record` and `status` refuse with `TracksAnotherStore` instead
+  of recording them as deleted, and `update` refuses to write into one.
+
+
 ## v1.0.0-rc.7 — 2026-09-30
 
 ### Added
