@@ -24,7 +24,7 @@ use std::path::{Path, PathBuf};
 use crate::core::RevisionId;
 use crate::format::check_path;
 use crate::fs::{Disk, Entry, Filesystem, Stamp, read_to_string};
-use crate::store::STORE_DIR;
+use crate::store::{HEADER_FILE, STORE_DIR};
 
 mod catalogue;
 
@@ -645,6 +645,11 @@ pub struct Working<F = Disk> {
     /// are.
     known: RefCell<Known>,
     refused: Vec<(String, String)>,
+    /// Every directory below the root that is another working copy's store.
+    ///
+    /// Decision 0084: found by the walk, never descended, and never tracked,
+    /// for the reason this folder's own `history/` is not.
+    stores: Vec<String>,
 }
 
 /// What this pass knows about the folder's content, and whether it learned any
@@ -700,6 +705,7 @@ impl<F: Filesystem> Working<F> {
             stamps: BTreeMap::new(),
             known: RefCell::new(Known::default()),
             refused: Vec::new(),
+            stores: Vec::new(),
         }
     }
 
@@ -761,6 +767,7 @@ impl<F: Filesystem> Working<F> {
     ) -> Result<Self, WorkingError> {
         let mut found = Found::default();
         walk(&filesystem, root, "", skipped, &mut found)?;
+        found.stores.sort();
         // Decision 0043: what the last command hashed, kept only where the
         // directory still reports the size and the time it hashed it at. A
         // filesystem that reports neither hands back nothing here, and every
@@ -782,6 +789,7 @@ impl<F: Filesystem> Working<F> {
                 learned: false,
             }),
             refused: found.refused,
+            stores: found.stores,
         })
     }
 
@@ -793,6 +801,27 @@ impl<F: Filesystem> Working<F> {
     /// Every path the walk would not take, with the short reason.
     pub fn refused(&self) -> &[(String, String)] {
         &self.refused
+    }
+
+    /// Every directory below the root holding a store of its own, in order.
+    ///
+    /// Decision 0084: the folder that store sits in is another working copy,
+    /// and its files are this one's too, since this folder holds them. The
+    /// store is not: the walk did not go into it, and nothing here tracks,
+    /// writes or skips anything beneath it.
+    pub fn stores(&self) -> &[String] {
+        &self.stores
+    }
+
+    /// The store below the root that holds this path, if one does.
+    pub fn store_holding(&self, path: &str) -> Option<&str> {
+        self.stores
+            .iter()
+            .find(|store| {
+                path.strip_prefix(store.as_str())
+                    .is_some_and(|rest| rest.is_empty() || rest.starts_with('/'))
+            })
+            .map(String::as_str)
     }
 
     /// Every tracked path, in order, with where it is on disk.
@@ -1163,6 +1192,7 @@ struct Found {
     links: BTreeMap<String, Option<String>>,
     stamps: BTreeMap<String, Stamp>,
     refused: Vec<(String, String)>,
+    stores: Vec<String>,
 }
 
 /// One directory, then its subdirectories, in name order.
@@ -1215,6 +1245,19 @@ fn walk<F: Filesystem + ?Sized>(
         }
 
         if kind.is_directory() {
+            // Decision 0084: a store further down is another working copy's,
+            // and is not tracked here either. Its `historica.txt` is what
+            // makes it one, as it is for `discover`, so a folder that is only
+            // called `history` is walked like any other.
+            if !prefix.is_empty() && name_is_store(&path) {
+                let header = on_disk.join(HEADER_FILE);
+                let held = crate::fs::is_file(filesystem, &header)
+                    .map_err(|error| WorkingError::io(&header, error))?;
+                if held {
+                    found.stores.push(path);
+                    continue;
+                }
+            }
             if !skipped.skips_directory(&path) {
                 walk(filesystem, &on_disk, &path, skipped, found)?;
             }
@@ -1266,6 +1309,11 @@ fn walk<F: Filesystem + ?Sized>(
         found.files.insert(path, on_disk);
     }
     Ok(())
+}
+
+/// Whether the last component of a path spells the store's directory.
+fn name_is_store(path: &str) -> bool {
+    path.rsplit('/').next() == Some(STORE_DIR)
 }
 
 /// Why a working copy could not be read.

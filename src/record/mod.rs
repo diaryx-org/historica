@@ -682,6 +682,21 @@ fn survey_laid<F: Filesystem>(
         return Err(RecordError::SkipsTracked { paths: covered });
     }
 
+    // Decision 0084: a store further down the folder is not walked, so a file
+    // the tree holds inside one would survey as `dropped` for the same reason
+    // a skipped one would. Only a history written before that decision can
+    // hold such a file, and the person says what becomes of it.
+    let inside: Vec<(String, String)> = placed
+        .values()
+        .filter_map(|path| {
+            let store = working.store_holding(path)?;
+            Some((path.clone(), store.to_owned()))
+        })
+        .collect();
+    if !inside.is_empty() {
+        return Err(RecordError::TracksAnotherStore { paths: inside });
+    }
+
     // A named path nothing answers to. Asked of the folder, of the tree, and
     // of where the stated renames put things, so that `--move a=b` with both
     // named finds `a` in the tree and `b` in the folder — and a path a rule
@@ -689,6 +704,7 @@ fn survey_laid<F: Filesystem>(
     // different fixes.
     let mut absent: Vec<String> = Vec::new();
     let mut kept_out: Vec<String> = Vec::new();
+    let mut elsewhere: Vec<(String, String)> = Vec::new();
     for named in only.paths() {
         let known = working.iter().any(|(path, _)| beneath(named, path))
             || tree.files().any(|(_, path)| beneath(named, path))
@@ -696,11 +712,18 @@ fn survey_laid<F: Filesystem>(
         if known {
             continue;
         }
+        if let Some(store) = working.store_holding(named) {
+            elsewhere.push((named.clone(), store.to_owned()));
+            continue;
+        }
         if skipped.skips(named) || skipped.skips_directory(named) {
             kept_out.push(named.clone());
         } else {
             absent.push(named.clone());
         }
+    }
+    if !elsewhere.is_empty() {
+        return Err(RecordError::NamedInAnotherStore { paths: elsewhere });
     }
     if !kept_out.is_empty() {
         return Err(RecordError::NamedButSkipped { paths: kept_out });
@@ -2522,6 +2545,24 @@ pub enum RecordError {
         /// Each tracked path a rule covers.
         paths: Vec<String>,
     },
+    /// A path the tree holds inside another working copy's store.
+    ///
+    /// Decision 0084: the walk does not go into a store further down the
+    /// folder, so a tracked file there would survey as deleted. A history
+    /// written before that decision is the only one that can hold such a
+    /// file.
+    TracksAnotherStore {
+        /// Each tracked path, with the store it sits in.
+        paths: Vec<(String, String)>,
+    },
+    /// A named path inside another working copy's store.
+    ///
+    /// Decision 0084: that store belongs to the folder it sits in, and
+    /// naming a file of it here does not make it this history's to observe.
+    NamedInAnotherStore {
+        /// Each named path, with the store it sits in.
+        paths: Vec<(String, String)>,
+    },
     /// A named path neither the folder nor the history holds.
     NothingAtPath {
         /// Every path nothing answers to.
@@ -2910,6 +2951,39 @@ impl fmt::Display for RecordError {
                 paths
                     .iter()
                     .map(|path| format!("\n  {path}"))
+                    .collect::<String>()
+            ),
+            RecordError::TracksAnotherStore { paths } => write!(
+                f,
+                "history holds {} inside another working copy's store, which \
+                 this folder does not track; move that working copy's `{}/` \
+                 out of the folder, record the deletion, and move it back — \
+                 history holds what it holds, and `forget` is what removes \
+                 recorded content:{}",
+                if paths.len() == 1 {
+                    "a file".to_owned()
+                } else {
+                    format!("{} files", paths.len())
+                },
+                crate::store::STORE_DIR,
+                paths
+                    .iter()
+                    .map(|(path, store)| format!("\n  {path} (in {store})"))
+                    .collect::<String>()
+            ),
+            RecordError::NamedInAnotherStore { paths } => write!(
+                f,
+                "{} inside another working copy's store, which that copy \
+                 records and this one does not; record from that folder \
+                 instead:{}",
+                if paths.len() == 1 {
+                    "this path is"
+                } else {
+                    "these paths are"
+                },
+                paths
+                    .iter()
+                    .map(|(path, store)| format!("\n  {path} (in {store})"))
                     .collect::<String>()
             ),
             RecordError::NothingAtPath { paths } => write!(
