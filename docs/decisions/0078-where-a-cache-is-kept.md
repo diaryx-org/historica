@@ -35,7 +35,7 @@ carries the cache to every device, where it was never true.
   when it destroyed anything, and the copy's own catalogues were among the
   files that every publish rewrote.
 
-[prov](id:prov/1ch2991) reached the same answer for its write-ahead journal:
+[prov](id:dx5tskw57/1ch2991) reached the same answer for its write-ahead journal:
 state that belongs to one machine lives in a directory the host owns and
 nothing syncs, and the host says which.
 

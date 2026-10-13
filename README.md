@@ -1,5 +1,5 @@
 ---
-part_of: id:org/kv2bv2m
+part_of: id:dx4hxn744/kv2bv2m
 title: historica
 contents:
 - '[historica on diaryx.org](/www/index.md)'
@@ -10,6 +10,7 @@ contents:
 config: .config/prov.yaml
 registry: registry.yaml
 id: 1skvgz1
+slug: historica
 ---
 # Historica
 
