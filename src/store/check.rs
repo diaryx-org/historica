@@ -946,15 +946,21 @@ fn check_resolutions<F: Filesystem + ?Sized>(
                 continue;
             }
             let mut states = Vec::new();
+            let mut undelivered = false;
             for parent in &parents {
                 match store.replayed_content_of(parent, file) {
                     // A side whose history never mentions the file is not a
                     // side that disagrees about it.
                     Ok(None) => {}
                     Ok(Some(state)) => states.push(state),
-                    // Anything undelivered is already a finding of its own.
+                    // Anything undelivered is already a finding of its own,
+                    // and a note: a store a sync has half-filled (0003,
+                    // 0006). What the parents would agree about is not known
+                    // until it arrives, so neither half of the obligation
+                    // can be held yet — reading the side that did arrive as
+                    // the whole of it reported a resolution as needless.
                     Err(_) => {
-                        states.clear();
+                        undelivered = true;
                         break;
                     }
                 }
@@ -969,6 +975,7 @@ fn check_resolutions<F: Filesystem + ?Sized>(
                 // what a reader gets for it.
                 .is_some_and(|named| matches!(store.effective_resolution(named), Ok(Some(_))));
             match (differ, resolves) {
+                _ if undelivered => {}
                 (false, true) => report.push(Finding::ResolvedWithoutDisagreement {
                     revision: *revision,
                     file: *file,
@@ -1428,6 +1435,18 @@ fn check_replay<F: Filesystem + ?Sized>(
         }
 
         for file in edited {
+            // The fast path's third condition, held here too. A revision that
+            // names a document for this file which is not here is not a
+            // revision that left the file alone, and replaying it as one
+            // makes every descendant's quotes disagree with a state nobody
+            // wrote — an absence already reported, read as a contradiction.
+            let undelivered = reachable.iter().any(|(id, document)| {
+                (document.edited.contains_key(&file) || document.text.contains_key(&file))
+                    && !held.contains_key(&(*id, file))
+            });
+            if undelivered {
+                continue;
+            }
             let events: Vec<crate::merge::Event<'_>> = reachable
                 .iter()
                 .map(|(id, document)| {

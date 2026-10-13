@@ -370,6 +370,31 @@ fn a_keep_of_a_document_nothing_holds_is_a_note() {
     );
 }
 
+/// A parent's own document not having arrived is an absence, whatever stands
+/// on it. Found by `tests/simulation.rs`, which copies a store a few files at
+/// a time: `check` read the merge's obligation from the side that had
+/// arrived, called the resolution needless, and replayed the merge's walk
+/// as though the parent had left the file alone — two contradictions
+/// manufactured out of one note.
+#[test]
+fn a_parent_whose_document_has_not_arrived_is_a_note_and_nothing_more() {
+    let root = merged_root("merged-parent-undelivered");
+    fs::remove_file(root.join("operations/02-notes.ops.txt")).expect("the left side's edit");
+    let report = Store::check(&root);
+    assert!(
+        report.is_ok(),
+        "an undelivered document is ordinary, not a contradiction: {:#?}",
+        findings(&root)
+    );
+    assert!(
+        report
+            .notes()
+            .any(|finding| finding.to_string().contains("does not hold yet")),
+        "{:#?}",
+        findings(&root)
+    );
+}
+
 /// A run longer than the document it names has items is the store
 /// contradicting itself, and no amount of syncing fixes it.
 #[test]
