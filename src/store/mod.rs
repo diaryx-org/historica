@@ -4204,6 +4204,36 @@ fn check_header<F: Filesystem + ?Sized>(files: &F, root: &Path) -> Result<(), St
     }
 }
 
+#[cfg(test)]
+mod header_tests {
+    use super::{HeaderFault, read_header};
+
+    /// Decision 0069's gate, on any text at all: it answers, it opens only a
+    /// file whose first line is the preamble and whose block is empty, and
+    /// what it refuses it quotes, so the person holding it is told which line.
+    #[test]
+    fn the_header_opens_only_what_this_release_writes() {
+        bolero::check!().for_each(|input: &[u8]| {
+            let text = match input.split_first() {
+                Some((mode, rest)) if mode % 2 == 0 => {
+                    format!("historica\n{}", String::from_utf8_lossy(rest))
+                }
+                _ => String::from_utf8_lossy(input).into_owned(),
+            };
+            let mut lines = text.lines();
+            let (first, second) = (lines.next(), lines.next());
+            match read_header(&text) {
+                Ok(()) => {
+                    assert_eq!(first, Some(crate::format::PREAMBLE));
+                    assert!(matches!(second, None | Some("")), "{text:?}");
+                }
+                Err(HeaderFault::Format(found)) => assert_eq!(found, first.unwrap_or_default()),
+                Err(HeaderFault::Layout(found)) => assert_eq!(Some(found.as_str()), second),
+            }
+        });
+    }
+}
+
 /// What one of the store's directories holds, at any depth.
 ///
 /// Decision 0016: the walk recurses, so a person may arrange `operations/`

@@ -554,7 +554,11 @@ fn held_catalogue<F: Filesystem + ?Sized>(
 /// without a filesystem to hold it: this is a total function from a string to
 /// what the store will believe, and every way of failing returns nothing.
 fn parse(text: &str) -> BTreeMap<PathBuf, (RevisionId, Option<RevisionId>)> {
-    let mut lines = text.lines();
+    // Split on the one terminator [`render`] writes, as [`cached`] does.
+    // `str::lines` would also take a `\r` before it, and read the line for
+    // `operations/a\r` as a claim about `operations/a` — a different file,
+    // which a directory may hold beside it.
+    let mut lines = text.strip_suffix('\n').unwrap_or(text).split('\n');
     if lines.next() != Some(CATALOGUE_HEADER) {
         return BTreeMap::new();
     }
@@ -633,6 +637,15 @@ fn render(catalogue: &Catalogue) -> String {
         let Some(path) = filed.path.to_str() else {
             continue;
         };
+        // A newline would end the line early, and a filename may hold one —
+        // a walk of `operations/` returns whatever a sync or a person put
+        // there. Written, it discards the whole catalogue on every read, and
+        // the right next line could state a path and a forgetting nothing on
+        // disk does; left out, it costs one read, as `revisions.txt` and
+        // `working.txt` already have it.
+        if path.contains('\n') {
+            continue;
+        }
         let forgets = filed
             .forgets
             .map_or_else(|| "-".to_owned(), |target| target.to_string());
@@ -747,6 +760,179 @@ mod tests {
         assert_eq!(catalogue.forgetting(&target), [digest(b"second")]);
         catalogue.remove(&digest(b"second"));
         assert!(catalogue.forgetting(&target).is_empty());
+    }
+
+    /// A filename holding a newline is left out rather than written, and the
+    /// rest of the catalogue survives it. Written, its second half was a line
+    /// with no fields, which discarded the catalogue on every read after.
+    #[test]
+    fn a_path_with_a_newline_is_left_out_and_the_rest_survive() {
+        let mut catalogue = Catalogue::default();
+        catalogue.insert(digest(b"one"), filed("operations/a.ops.txt", None));
+        catalogue.insert(digest(b"two"), filed("operations/b\nc.ops.txt", None));
+
+        let held = parse(&render(&catalogue));
+        assert_eq!(
+            held,
+            BTreeMap::from([(
+                PathBuf::from("operations/a.ops.txt"),
+                (digest(b"one"), None)
+            )])
+        );
+    }
+
+    /// A filename ending in a carriage return is its own file, and its line
+    /// says nothing about the file without one, which may sit beside it.
+    #[test]
+    fn a_path_ending_in_a_carriage_return_is_not_its_neighbour() {
+        let target = digest(b"destroyed");
+        let mut catalogue = Catalogue::default();
+        catalogue.insert(
+            digest(b"stand-in"),
+            filed("operations/a.ops.txt\r", Some(target)),
+        );
+
+        let held = parse(&render(&catalogue));
+        assert_eq!(held.get(Path::new("operations/a.ops.txt")), None);
+        assert_eq!(
+            held.get(Path::new("operations/a.ops.txt\r")),
+            Some(&(digest(b"stand-in"), Some(target)))
+        );
+    }
+
+    /// A path as a directory may hold one, from bytes: components of the
+    /// characters a filename can carry and a line-oriented file cannot take for
+    /// granted, joined by `/`. Never `.`, `..`, or empty, which no walk
+    /// returns and which `Path` would compare equal to a shorter path.
+    fn path_from(bytes: &[u8]) -> PathBuf {
+        const PIECES: [&str; 14] = [
+            "a", "b", " ", "\r", "\n", "\t", "é", "e\u{301}", ".", "-", "#", "日本", "\u{85}", "\\",
+        ];
+        let mut path = String::from("operations/");
+        let mut component = String::new();
+        for byte in bytes {
+            match PIECES.get(usize::from(*byte) % (PIECES.len() + 1)) {
+                Some(piece) => component.push_str(piece),
+                None if !component.is_empty() && component != "." && component != ".." => {
+                    path.push_str(&component);
+                    path.push('/');
+                    component.clear();
+                }
+                None => {}
+            }
+        }
+        if component.is_empty() || component == "." || component == ".." {
+            component.push_str("x.ops.txt");
+        }
+        path.push_str(&component);
+        PathBuf::from(path)
+    }
+
+    /// One catalogue from a fuzzer's entries, every path and digest distinct
+    /// as a directory makes them.
+    fn catalogue_from(entries: &[(Vec<u8>, u8, Option<u8>)]) -> Catalogue {
+        let mut catalogue = Catalogue::default();
+        let mut paths = BTreeSet::new();
+        for (index, (path, forgets)) in entries
+            .iter()
+            .map(|(path, _, forgets)| (path, forgets))
+            .enumerate()
+        {
+            let path = path_from(path);
+            if !paths.insert(path.clone()) {
+                continue;
+            }
+            let id = digest(&index.to_le_bytes());
+            let forgets = forgets.map(|seed| digest(&[seed]));
+            catalogue.insert(
+                id,
+                Located {
+                    document: claims(&path, &OPERATION_SUFFIXES),
+                    path,
+                    forgets,
+                },
+            );
+        }
+        catalogue
+    }
+
+    /// Decisions 0035 and 0036: a catalogue is believed about where a digest
+    /// is and what it forgets, so every path a walk can return comes back as
+    /// the entry it was — or is left out, as one that is not UTF-8 is, and
+    /// costs the next reader one read. Both readers are held to it: the pass
+    /// reads by path, and a reader taking the cache as it stands by digest.
+    #[test]
+    fn every_entry_a_writer_keeps_comes_back_as_itself() {
+        let scratch = std::env::temp_dir().join(format!(
+            "historica-catalogue-round-trip-{}",
+            std::process::id()
+        ));
+        crate::fs::Disk
+            .create_directory(&scratch)
+            .expect("a scratch directory");
+        bolero::check!()
+            .with_type::<Vec<(Vec<u8>, u8, Option<u8>)>>()
+            .for_each(|entries| {
+                let catalogue = catalogue_from(entries);
+                let text = render(&catalogue);
+                let kept: Vec<(&RevisionId, &Located)> = catalogue
+                    .at
+                    .iter()
+                    .filter(|(_, filed)| !filed.path.to_string_lossy().contains('\n'))
+                    .collect();
+
+                let expected: BTreeMap<PathBuf, (RevisionId, Option<RevisionId>)> = kept
+                    .iter()
+                    .map(|(id, filed)| (filed.path.clone(), (**id, filed.forgets)))
+                    .collect();
+                assert_eq!(parse(&text), expected, "{text:?}");
+
+                crate::fs::Disk
+                    .write(&scratch.join(CATALOGUE_FILE), text.as_bytes())
+                    .expect("a catalogue written");
+                let Some(held) = cached(&crate::fs::Disk, &scratch) else {
+                    assert!(kept.is_empty(), "a rendered catalogue refused: {text:?}");
+                    return;
+                };
+                for (id, filed) in kept {
+                    assert_eq!(held.at(id).as_ref(), Some(filed), "{text:?}");
+                    if let Some(target) = filed.forgets {
+                        assert!(held.forgetting(&target).contains(id), "{text:?}");
+                    }
+                }
+            });
+        let _ = crate::fs::Disk.remove_file(&scratch.join(CATALOGUE_FILE));
+        let _ = crate::fs::Disk.remove_directory(&scratch);
+    }
+
+    /// The other half of 0036's bargain: a catalogue nobody wrote is
+    /// discarded or read, and what is read is only ever what a line of it
+    /// states, whole. Garbage may make the store read its directory; it may
+    /// never make the store believe a path or a forgetting the file does not
+    /// spell out.
+    #[test]
+    fn a_catalogue_believes_only_what_a_line_states() {
+        let id = digest(b"one");
+        let seed = format!("{CATALOGUE_HEADER}\n{id} - operations/a b.ops.txt\n{id} {id} x\n");
+        bolero::check!().for_each(|input: &[u8]| {
+            // Half the time the fuzzer's bytes follow a well-formed catalogue,
+            // so that a line can go wrong after lines that went right.
+            let text = match input.split_first() {
+                Some((mode, rest)) if mode % 2 == 0 => {
+                    format!("{seed}{}", String::from_utf8_lossy(rest))
+                }
+                _ => String::from_utf8_lossy(input).into_owned(),
+            };
+            let stated: BTreeSet<&str> = text.split('\n').collect();
+            for (path, (id, forgets)) in parse(&text) {
+                let forgets = forgets.map_or_else(|| "-".to_owned(), |target| target.to_string());
+                let line = format!("{id} {forgets} {}", path.display());
+                assert!(
+                    stated.contains(line.as_str()),
+                    "{line:?} is not a line of {text:?}"
+                );
+            }
+        });
     }
 
     /// Rebuilding the index from the entries is what loading does, and it has

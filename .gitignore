@@ -4,3 +4,6 @@
 /history
 .DS_Store
 /.claude/worktrees
+# What `cargo xtask fuzz` keeps between runs: libFuzzer's corpus and its crashes.
+# Generated, so not the corpus; a crash worth keeping is written down by hand.
+/tests/__fuzz__

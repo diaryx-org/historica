@@ -222,6 +222,7 @@ fn render(digests: &BTreeMap<String, RevisionId>, stamps: &BTreeMap<String, Stam
 
 #[cfg(test)]
 mod tests {
+    use std::collections::BTreeSet;
     use std::time::SystemTime;
 
     use super::*;
@@ -296,6 +297,78 @@ mod tests {
         ] {
             assert!(parse(&bad).is_empty(), "should have been discarded: {bad}");
         }
+    }
+
+    /// A path as the walk hands one over, from bytes: anything `check_path`
+    /// lets through, which is the only kind of path this file is written for.
+    fn path_from(bytes: &[u8]) -> Option<String> {
+        const PIECES: [&str; 12] = [
+            "a", "b", " ", "/", ".", "-", "#", "é", "日本", "*", "\u{85}", "\\",
+        ];
+        let path: String = bytes
+            .iter()
+            .map(|byte| PIECES[usize::from(*byte) % PIECES.len()])
+            .collect();
+        crate::format::check_path(&path).ok().map(|()| path)
+    }
+
+    /// Decision 0043: every path the folder offers comes back as the size,
+    /// the time and the digest it was written with, so an entry is believed
+    /// exactly where its file has not moved — never less, which would cost
+    /// reads, and never otherwise, which would be a wrong answer.
+    #[test]
+    fn every_entry_a_writer_keeps_comes_back_as_itself() {
+        bolero::check!()
+            .with_type::<Vec<(Vec<u8>, u64, i64, u8)>>()
+            .for_each(|entries| {
+                let mut digests = BTreeMap::new();
+                let mut stamps = BTreeMap::new();
+                let mut expected = BTreeMap::new();
+                for (path, size, modified, seed) in entries {
+                    let Some(path) = path_from(path) else {
+                        continue;
+                    };
+                    let id = digest(&[*seed]);
+                    let modified = i128::from(*modified);
+                    digests.insert(path.clone(), id);
+                    stamps.insert(path.clone(), stamp(*size, modified));
+                    expected.insert(
+                        path,
+                        Held {
+                            size: *size,
+                            modified,
+                            digest: id,
+                        },
+                    );
+                }
+                let text = render(&digests, &stamps);
+                assert_eq!(parse(&text), expected, "{text:?}");
+            });
+    }
+
+    /// And a file nobody wrote is discarded or read, and never read as more
+    /// than its lines state: garbage costs the folder a hashing, not a wrong
+    /// answer.
+    #[test]
+    fn a_catalogue_believes_only_what_a_line_states() {
+        let id = digest(b"one");
+        let seed = format!("{CATALOGUE_HEADER}\n{id} 12 3000 notes/a b.md\n");
+        bolero::check!().for_each(|input: &[u8]| {
+            let text = match input.split_first() {
+                Some((mode, rest)) if mode % 2 == 0 => {
+                    format!("{seed}{}", String::from_utf8_lossy(rest))
+                }
+                _ => String::from_utf8_lossy(input).into_owned(),
+            };
+            let stated: BTreeSet<&str> = text.lines().collect();
+            for (path, held) in parse(&text) {
+                let line = format!("{} {} {} {path}", held.digest, held.size, held.modified);
+                assert!(
+                    stated.contains(line.as_str()),
+                    "{line:?} is not a line of {text:?}"
+                );
+            }
+        });
     }
 
     /// A path the directory reports no stamp for is left out rather than

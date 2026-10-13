@@ -546,6 +546,60 @@ mod tests {
         assert_eq!(render(&held, &taken, &opened), first);
     }
 
+    /// Decision 0058: an entry is counted rather than delimited, so any bytes
+    /// at all come back as themselves, under any path `load` writes down —
+    /// every one but a path holding a newline, which it leaves out. And what
+    /// came back, written again as believed, is the same file byte for byte.
+    #[test]
+    fn every_document_a_writer_keeps_comes_back_as_itself() {
+        bolero::check!()
+            .with_type::<Vec<(String, Vec<u8>, i64)>>()
+            .for_each(|entries| {
+                let mut paths = std::collections::BTreeSet::new();
+                let opened: Vec<Entry> = entries
+                    .iter()
+                    .map(|(path, bytes, modified)| (format!("revisions/{path}"), bytes, modified))
+                    .filter(|(path, _, _)| {
+                        !path.contains('\n')
+                            && path.len() > "revisions/".len()
+                            && paths.insert(PathBuf::from(path))
+                    })
+                    .map(|(path, bytes, modified)| entry(&path, bytes, i128::from(*modified)))
+                    .collect();
+                let first = rendered(&opened);
+                let held = parse(&first);
+                assert_eq!(held.len(), opened.len(), "{first:?}");
+                for entry in &opened {
+                    let found = held.get(Path::new(&entry.path)).expect("an entry");
+                    assert_eq!(
+                        (found.size, found.modified, found.digest, &found.bytes),
+                        (entry.size, entry.modified, entry.digest, &entry.bytes)
+                    );
+                }
+                let taken: Vec<&Path> = opened.iter().map(|entry| Path::new(&entry.path)).collect();
+                assert_eq!(render(&held, &taken, &[]), first);
+            });
+    }
+
+    /// And any bytes at all are a file this reads or discards, and what it
+    /// reads holds exactly as many bytes as its line says.
+    #[test]
+    fn any_bytes_are_read_or_discarded() {
+        let seed = rendered(&[
+            entry("revisions/a.rev.txt", b"historica\n\nmessage\n", 1),
+            entry("revisions/b c.rev.txt", b"", 2),
+        ]);
+        bolero::check!().for_each(|input: &[u8]| {
+            let bytes = match input.split_first() {
+                Some((mode, rest)) if mode % 2 == 0 => [seed.as_slice(), rest].concat(),
+                _ => input.to_vec(),
+            };
+            for held in parse(&bytes).values() {
+                assert_eq!(held.bytes.len() as u64, held.size);
+            }
+        });
+    }
+
     /// A file whose header is not this one is a file this version does not
     /// have. Discarding it whole is what a fixed name costs.
     #[test]
