@@ -471,6 +471,26 @@ pub fn plan<F: Filesystem>(store: &Store<F>, carrying: &Carrying) -> Result<Carr
             return Err(CarryError::CollapsedParents { revision: *id });
         }
 
+        // The other half of the refusal above, which comparing content cannot
+        // see. A rewrite that restates its predecessor's text mints its own
+        // items for it (0023), so nothing *moved*, and yet a merge whose past
+        // held both the predecessor and the rewrite — work on what was
+        // rewritten, joined to the rewrite — held two copies of every such
+        // line, one per side, and its resolution, and every edit after it,
+        // were written against that. Carried, the predecessor leaves its
+        // past and the two sides share one copy, so a `keep` finds fewer
+        // elements under a name than it keeps, or a deletion on one side
+        // takes the other side's line with it. `check` refuses the result
+        // and readers fail on it. So a merge carries only where its past
+        // names the same documents, as many times each, before and after.
+        if previous.parents.len() > 1 {
+            let before = named_in_past(store, &documents, &previous.parents)?;
+            let after = named_in_past(store, &documents, &parents)?;
+            if before != after {
+                return Err(CarryError::MergeAboveMovedContent { revision: *id });
+            }
+        }
+
         // The refusals a step meets before any content is read.
         for path in previous.added.values().chain(previous.moved.values()) {
             if moving.introduced.contains(path) {
@@ -753,6 +773,49 @@ pub fn plan<F: Filesystem>(store: &Store<F>, carrying: &Carrying) -> Result<Carr
     }
 
     Ok(CarryPlan { steps })
+}
+
+/// Every document the revisions at and behind `heads` name, with how many
+/// of them name it: what a resolution standing on `heads` may keep items of
+/// (0032), and how many elements stand under each of their names, since each
+/// revision naming a document mints its items afresh (0007).
+///
+/// Walked across the store and the plan alike, because a carried merge's
+/// parents may be revisions this plan has decided on and not yet written.
+fn named_in_past<F: Filesystem>(
+    store: &Store<F>,
+    planned: &BTreeMap<RevisionId, RevisionDocument>,
+    heads: &BTreeSet<RevisionId>,
+) -> Result<BTreeMap<RevisionId, usize>, CarryError> {
+    let mut named: BTreeMap<RevisionId, usize> = BTreeMap::new();
+    let mut seen: BTreeSet<RevisionId> = BTreeSet::new();
+    let mut pending: Vec<RevisionId> = heads.iter().copied().collect();
+    while let Some(id) = pending.pop() {
+        if !seen.insert(id) {
+            continue;
+        }
+        let held = match planned.get(&id) {
+            Some(document) => Some(document),
+            None => store.get(&id)?,
+        };
+        // A revision not here is an absence `check` already reports; what it
+        // would have named is not something this refusal can know.
+        let Some(document) = held else {
+            continue;
+        };
+        let documents: BTreeSet<RevisionId> = document
+            .edited
+            .values()
+            .chain(document.text.values())
+            .chain(document.bytes.values())
+            .copied()
+            .collect();
+        for named_here in documents {
+            *named.entry(named_here).or_default() += 1;
+        }
+        pending.extend(document.parents.iter().copied());
+    }
+    Ok(named)
 }
 
 /// What one file set is doing across one rewrite: the store's answer at the
