@@ -945,6 +945,14 @@ depend on each other in.
   content. A file the tree already holds inside one is refused rather than
   dropped, and `update` will not write into one.
 
+- [0085 — Searching for what nobody wrote down](0085-searching-for-what-nobody-wrote-down.md)
+  The corpus and the proofs reach what somebody thought to write down. The
+  parsers are now fuzzed with bolero — a second of random input under
+  `cargo test`, coverage-guided under `cargo xtask fuzz` — and the store is
+  simulated as replicas meeting by partial, unordered, never-deleting copies,
+  held after every step to `check`, to their caches, to what was forgotten,
+  and to each other. What the search finds is a fix or a task.
+
 Not a decision, but the evaluation one of them rests on:
 [`docs/loro.md`](../loro.md) — the initial Loro evaluation, and the conditions
 that would reverse it.

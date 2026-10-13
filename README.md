@@ -269,6 +269,22 @@ HISTORICA_CONFORMANCE_SEED=0x0007c04f0000f00d cargo test --test conformance
 A failure prints that line for you, along with the failing round shrunk to the
 fewest replicas and actions that still reproduce it.
 
+Two more searches run the same way. `tests/simulation.rs` is replicas that
+meet only by copying files — any order, partway, never deleting — doing every
+kind of work between copies, and it holds each one after every step to
+`check`, to its cache changing nothing, to forgotten text staying forgotten,
+and to agreeing with any replica holding the same files.
+`HISTORICA_SIMULATION_SEED` replays it. `tests/strict.rs` feeds every parser
+mutated corpus files and holds it to decision 0004: what is accepted writes
+back byte for byte, and what is refused says why. A failure there prints the
+`BOLERO_RANDOM_SEED` that replays it. Both run for seconds under `cargo test`;
+to search for longer:
+
+```console
+cargo xtask soak                                  # many more rounds, a minute a parser
+cargo xtask fuzz a_revision_document_is_read_as_written   # coverage-guided; nightly and cargo-bolero
+```
+
 The corpus checks with tools that are already installed, which is the claim the
 format exists to make — every directory under `tests/corpus/` carries a
 `MANIFEST`, and [its README](tests/corpus/README.md) says what each one pins:

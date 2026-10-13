@@ -5,6 +5,11 @@ created: 2026-09-02
 updated: 2026-09-28
 contents:
   - '[Closed tasks](/docs/tasks/closed/closed.md)'
+  - '[A listing ending in a carriage return](/docs/tasks/a-listing-ending-in-a-carriage-return.md)'
+  - '[A merge agrees by text](/docs/tasks/a-merge-agrees-by-text.md)'
+  - '[A stand-in filed beside another copy](/docs/tasks/a-stand-in-filed-beside-another-copy.md)'
+  - '[Forget leaves the folder holding what it destroyed](/docs/tasks/forget-leaves-the-folder-holding-what-it-destroyed.md)'
+  - '[Forget at a rewrite leaves its predecessor legible](/docs/tasks/forget-at-a-rewrite-leaves-its-predecessor-legible.md)'
 part_of: '[historica](/README.md)'
 ---
 

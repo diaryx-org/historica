@@ -19,6 +19,7 @@
 
 mod bench;
 mod proofs;
+mod search;
 
 use std::env;
 use std::path::{Path, PathBuf};
@@ -160,21 +161,27 @@ fn doc(sh: &Sh) -> Result<()> {
     )
 }
 
-/// The workspace test suite, with the conformance suite pointed somewhere new.
+/// The workspace test suite, with every seeded search pointed somewhere new.
 ///
-/// `tests/conformance.rs` searches randomly from a seed, and its default is a
-/// constant: a hundred and fifty cases that are the same hundred and fifty
-/// every time, which stop being a search the day they first pass. CI hands it
-/// a fresh one, so every run looks somewhere it has not looked before.
+/// `tests/conformance.rs` and `tests/simulation.rs` search randomly from a
+/// seed, and each one's default is a constant: the same rounds every time,
+/// which stop being a search the day they first pass. CI hands them a fresh
+/// one, so every run looks somewhere it has not looked before. One seed for
+/// both, since each draws its rounds from its own stream.
 ///
 /// The seed is echoed with the command that used it — a rotated search is only
 /// worth running if a red run can be made red again, and `Sh::run` prints the
 /// environment alongside the command so the log reads as something to paste
-/// back. The suite prints it again in any failure, for the same reason.
+/// back. The suites print it again in any failure, for the same reason.
+/// `tests/strict.rs` needs no seed handed to it: bolero draws a fresh one per
+/// run and prints it in a failure.
 fn test(sh: &Sh) -> Result<()> {
     let seed = format!("0x{:016x}", rotating_seed());
     sh.cargo_with(
-        &[("HISTORICA_CONFORMANCE_SEED", seed.as_str())],
+        &[
+            ("HISTORICA_CONFORMANCE_SEED", seed.as_str()),
+            ("HISTORICA_SIMULATION_SEED", seed.as_str()),
+        ],
         &["test", "--workspace"],
     )
 }
@@ -184,7 +191,7 @@ fn test(sh: &Sh) -> Result<()> {
 /// The clock, which is all this needs: the point is to look somewhere other
 /// than last run, not to be unguessable. Mixed rather than used raw so that
 /// two runs a moment apart do not search two nearly identical places.
-fn rotating_seed() -> u64 {
+pub(crate) fn rotating_seed() -> u64 {
     let now = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0, |since| since.as_nanos() as u64);
@@ -331,6 +338,8 @@ fn main() -> ExitCode {
             return ExitCode::SUCCESS;
         }
         ["bench", ref rest @ ..] => bench::bench(&sh, rest),
+        ["soak", ref rest @ ..] => search::soak(&sh, rest),
+        ["fuzz", ref rest @ ..] => search::fuzz(&sh, rest),
         ["ci"] => ci(&sh),
         ["ci-matrix"] => {
             println!("{}", ci_matrix());
@@ -414,6 +423,15 @@ fn usage() -> String {
     out.push_str(&format!(
         "  {:<20}{}\n",
         "bench [<shape>]", "time the reading commands on a store built to order"
+    ));
+    // Nor is searching for longer than a build should take.
+    out.push_str(&format!(
+        "  {:<20}{}\n",
+        "soak [rounds=<n>]", "the simulation and the parser targets, run for longer"
+    ));
+    out.push_str(&format!(
+        "  {:<20}{}\n",
+        "fuzz [<target>]", "one parser target under libFuzzer (nightly, cargo-bolero)"
     ));
     // Releasing is not CI and is not here: it is one shared tool across the
     // org, so that the changelog contract has one implementation rather than
