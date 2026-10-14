@@ -120,8 +120,54 @@ Git writes are detected rather than silently absorbed. An explicit
 `historica-git import <directory> <directory>` adopts them and gives git's
 crossed refs precedence.
 
-What is not built is the remaining run of both directions around every
-historica command.
+Keeping `.git/` current after each historica command is
+[decision 0009](docs/decisions/0009-the-run-after-a-historica-command.md). A
+writing command run with `--fields` says what it wrote, and `write --wrote`
+reads that and brings the repository up to date:
+
+```console
+$ historica record -m 'Say why' --fields | historica-git write --wrote -
+historica wrote revision 711f1bfb960e; name main
+git: wrote 1 commit; moved refs/heads/main
+1 note on what git cannot hold; `historica-git write /Users/adam/notes /Users/adam/notes` says it
+```
+
+A command that wrote nothing costs nothing: the run opens no store and prints
+nothing. A branch git moved on its own is reported under *git is not where the
+store is* and not followed, as 0008 says. The run never makes a repository,
+and refuses a statement about a store other than the one it finds.
+
+Nothing can make `historica` run this by itself, so the wrapper is a shell
+function. Only the writing commands take `--fields`, `--dry-run` refuses it,
+and the pipeline has to fail when `historica` does:
+
+```sh
+# sh, bash, zsh
+h() {
+  case "$1" in
+    record|amend|abandon|squash|carry|prune|forget|name|receive|fetch) ;;
+    *) historica "$@"; return ;;
+  esac
+  case " $* " in *" --dry-run "*) historica "$@"; return ;; esac
+  (set -o pipefail; historica "$@" --fields | historica-git write --wrote -)
+}
+```
+
+```nu
+# nushell
+def --wrapped h [...args] {
+  let writing = [record amend abandon squash carry prune forget name receive fetch]
+  if ($args | is-empty) or ($args.0 not-in $writing) or ("--dry-run" in $args) {
+    ^historica ...$args
+  } else {
+    ^historica ...$args --fields | ^historica-git write --wrote -
+    null
+  }
+}
+```
+
+The `null` is there because a pipeline that ends a nushell function loses its
+exit status, so a failed `record` would otherwise exit zero.
 
 Three decisions everything is written under.
 

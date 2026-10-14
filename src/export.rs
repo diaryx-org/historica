@@ -26,6 +26,7 @@ use historica::core::{ChangeState, RevisionId};
 use historica::store::{Content, STORE_DIR, Store};
 use historica::tree::{Kind, Tree, TreeContest};
 use historica::working::{Rule, Scope};
+use historica::wrote::{Line, Statement};
 
 use crate::carried;
 use crate::plumbing::{Pointed, Repository};
@@ -79,6 +80,11 @@ pub struct Report {
     pub onto: bool,
     /// One line per kind of fact that did not cross, for a person to read.
     pub uncarried: Vec<String>,
+    /// One line per ref the store names that was left where git has it,
+    /// because something other than this tool moved it — decision 0008's
+    /// detection. Not a fact git cannot hold, as `uncarried` is, but a
+    /// statement that git is not yet where the store is.
+    pub held_back: Vec<String>,
 }
 
 impl Report {
@@ -240,7 +246,7 @@ pub fn to_repository(folder: &Path, repository: &Path) -> Result<Report, Error> 
     let mut report = std::mem::take(&mut written.report);
     report.onto = onto;
     if colocated {
-        colocated_index(&repository, &written, onto, &mut report)?;
+        colocated_index(&repository, &written, onto, &known.current, &mut report)?;
     } else if onto {
         // An existing repository has a HEAD of its own; `branch` is only what
         // the working tree was actually brought up to.
@@ -252,17 +258,65 @@ pub fn to_repository(folder: &Path, repository: &Path) -> Result<Report, Error> 
     Ok(report)
 }
 
+/// Keep a repository current after a historica command — decision 0009.
+///
+/// `wrote` is what the command said it wrote, under historica's decision
+/// 0074. A statement with no lines is the whole of the cheap case: nothing is
+/// opened, git is not started, and `None` says nothing was done. Any line at
+/// all is a reason to bring the repository up to date, and the bringing is
+/// [`to_repository`]'s, since the store is what a write is a function of and a
+/// statement is only where to look.
+///
+/// Two refusals come first, and both write nothing. A `revision` the store
+/// does not hold means the statement is about another store. And a
+/// repository that is not there is not made: this keeps a projection current,
+/// and making one is `colocate`'s, or a `write` somebody typed.
+pub fn after(wrote: &Statement, folder: &Path, repository: &Path) -> Result<Option<Report>, Error> {
+    if wrote.is_empty() {
+        return Ok(None);
+    }
+    let store = Store::open(folder.join(STORE_DIR))?;
+    for line in wrote.lines() {
+        if let Line::Revision(revision) = line
+            && store.revision(revision).is_none()
+        {
+            return Err(Error::Elsewhere {
+                revision: *revision,
+            });
+        }
+    }
+    drop(store);
+    if Repository::at(repository).is_none() {
+        return Err(Error::Unprojected {
+            at: repository.to_path_buf(),
+        });
+    }
+    to_repository(folder, repository).map(Some)
+}
+
 /// Point a new colocated repository at the chosen branch, or refresh an
 /// existing one's index only when HEAD is one of the refs this conversion
 /// brought into agreement. The working tree is never written.
+///
+/// An existing repository whose HEAD names a branch nobody has made is
+/// pointed too. A store with no bookmark leaves HEAD on git's own default,
+/// and when a bookmark is named later that default is still unborn, so every
+/// file reads as untracked although the branch is right there. An unborn
+/// HEAD holds nothing of anybody's to keep.
 fn colocated_index(
     repository: &Repository,
     written: &Written,
     onto: bool,
+    current: &BTreeMap<String, Pointed>,
     report: &mut Report,
 ) -> Result<(), Error> {
     let mut head = repository.head()?;
-    if !onto && let Some(branch) = report.branch.clone() {
+    let unborn = head
+        .as_ref()
+        .is_some_and(|head| !current.contains_key(head) && !written.ours.contains_key(head));
+    if (!onto || unborn)
+        && let Some(branch) = report.branch.clone()
+    {
         let reference = format!("{HEADS}{branch}");
         repository.run(&["symbolic-ref", "HEAD", &reference])?;
         head = Some(reference);
@@ -983,9 +1037,7 @@ impl<W: Write> Conversion<W> {
                 format!("{private} bookmarks are private and their names stayed behind")
             });
         }
-        for line in std::mem::take(&mut self.held_back) {
-            self.report.note(line);
-        }
+        self.report.held_back = std::mem::take(&mut self.held_back);
         self.report.note(
             "change IDs did not cross; git has nowhere to put one, and decision 0003 \
              derives one from a commit rather than the other way about"

@@ -13,6 +13,7 @@ use historica::core::RevisionId;
 use historica::record::{self, Platform, Recording, Restriction};
 use historica::store::{Name, STORE_DIR, Store};
 use historica::working::Working;
+use historica::wrote::Statement;
 use historica_git::{export, import};
 
 fn folder(name: &str) -> PathBuf {
@@ -325,7 +326,7 @@ fn a_ref_both_sides_moved_is_held_back_and_said() {
     );
 
     let written = export::to_repository(&store, &repo).expect("the write");
-    let said = written.uncarried.join("\n");
+    let said = written.held_back.join("\n");
     assert!(
         said.contains("`refs/heads/main` was not moved") && said.contains("git moved it"),
         "the write should say why main stayed:\n{said}"
@@ -379,7 +380,7 @@ fn a_branch_one_side_dropped_is_carried_or_said() {
     );
     assert!(
         written
-            .uncarried
+            .held_back
             .join("\n")
             .contains("`refs/heads/scratch` was not moved"),
         "{written:?}"
@@ -416,7 +417,7 @@ fn a_repository_this_tool_never_wrote_keeps_its_own_refs() {
     );
     assert!(
         written
-            .uncarried
+            .held_back
             .join("\n")
             .contains("`refs/heads/main` was not moved"),
         "{written:?}"
@@ -673,4 +674,156 @@ fn a_ref_that_is_neither_branch_nor_tag_brings_no_commits() {
     let store = Store::open(into.join(STORE_DIR)).expect("the store opens");
     let heads = store.history().heads();
     assert_eq!(heads.len(), 1, "one root, one head: {heads:?}");
+}
+
+/// What `historica record --fields` would have said it wrote: the revision,
+/// and `main`, which followed it.
+fn wrote(revision: RevisionId) -> Statement {
+    let mut statement = Statement::new();
+    statement.revision(revision).name("main");
+    statement
+}
+
+/// Decision 0009: a statement with no lines is the cheap case, and it is
+/// cheap because nothing is opened — not even a folder that is not there.
+#[test]
+fn the_run_after_a_command_that_wrote_nothing_opens_nothing() {
+    let nowhere = folder("run-nowhere");
+    let done = export::after(&Statement::new(), &nowhere, &nowhere).expect("nothing to do");
+    assert!(done.is_none());
+    assert!(!nowhere.exists(), "nothing was made");
+}
+
+/// Decision 0009: the run brings a colocated repository up to what the
+/// command recorded, and leaves git's status clean.
+#[test]
+fn the_run_keeps_a_colocated_repository_current() {
+    let Some(_) = git() else { return };
+    let at = folder("run-current");
+    build(&at);
+    import::from_repository(&at, &at).expect("the colocated import");
+
+    let recorded = record(&at, "c.txt", "Third");
+    let report = export::after(&wrote(recorded), &at, &at)
+        .expect("the run")
+        .expect("something was written");
+    assert_eq!(report.commits, 1, "{report:?}");
+    assert_eq!(report.references, vec!["refs/heads/main".to_owned()]);
+    assert!(report.held_back.is_empty(), "{report:?}");
+    let (commits_file, _) = record_files(&at);
+    let head = run(&at, &["rev-parse", "HEAD"]);
+    assert!(
+        commits_file.contains(&format!("{recorded} {head}")),
+        "HEAD is the commit the revision became:\n{commits_file}"
+    );
+    assert_eq!(
+        run(&at, &["status", "--porcelain"]),
+        "",
+        "the index followed"
+    );
+}
+
+/// Decision 0009 under 0008's detection: a branch git moved on its own is
+/// said in the same breath and not followed, the rest of the run is done, and
+/// the index is left alone because HEAD no longer names the folder's revision.
+#[test]
+fn the_run_says_a_ref_git_moved_and_does_not_follow_it() {
+    let Some(_) = git() else { return };
+    let at = folder("run-held-back");
+    build(&at);
+    import::from_repository(&at, &at).expect("the colocated import");
+    let in_git = commit(&at, "git.txt", "In git");
+
+    let recorded = record(&at, "store.txt", "In the store");
+    let report = export::after(&wrote(recorded), &at, &at)
+        .expect("a ref held back is a report, not an error")
+        .expect("something was written");
+    assert_eq!(report.commits, 1, "the revision still crossed: {report:?}");
+    assert!(
+        report
+            .held_back
+            .join("\n")
+            .contains("`refs/heads/main` was not moved"),
+        "{report:?}"
+    );
+    assert!(report.branch.is_none(), "{report:?}");
+    assert_eq!(
+        references(&at)["refs/heads/main"],
+        in_git,
+        "git's main is git's"
+    );
+}
+
+/// Decision 0009: a statement naming a revision this store does not hold is
+/// about another store, and is refused before anything is written.
+#[test]
+fn the_run_refuses_a_statement_about_another_store() {
+    let Some(_) = git() else { return };
+    let elsewhere = folder("run-elsewhere-other");
+    build(&elsewhere);
+    import::from_repository(&elsewhere, &elsewhere).expect("the other store");
+    let theirs = record(&elsewhere, "theirs.txt", "Theirs");
+
+    let at = folder("run-elsewhere");
+    build(&at);
+    import::from_repository(&at, &at).expect("the colocated import");
+    record(&at, "mine.txt", "Mine");
+    let before = references(&at);
+
+    let refused = export::after(&wrote(theirs), &at, &at);
+    assert!(
+        matches!(refused, Err(export::Error::Elsewhere { revision }) if revision == theirs),
+        "{refused:?}"
+    );
+    assert_eq!(references(&at), before, "nothing was written to git");
+}
+
+/// Decision 0009: keeping a repository current never makes one.
+#[test]
+fn the_run_never_makes_a_repository() {
+    let Some(_) = git() else { return };
+    let origin = folder("run-unprojected-origin");
+    build(&origin);
+    let at = folder("run-unprojected");
+    import::from_repository(&origin, &at).expect("the import");
+    let recorded = record(&at, "c.txt", "Third");
+
+    let refused = export::after(&wrote(recorded), &at, &at);
+    assert!(
+        matches!(refused, Err(export::Error::Unprojected { .. })),
+        "{refused:?}"
+    );
+    assert!(!at.join(".git").exists(), "no repository was made");
+}
+
+/// A colocated store with no branch leaves HEAD on git's own default, unborn;
+/// once a bookmark names one, the run points HEAD at it, so git's status is
+/// not a folder of untracked files.
+#[test]
+fn the_run_points_an_unborn_head_at_the_branch_it_wrote() {
+    let Some(_) = git() else { return };
+    let origin = folder("run-unborn-origin");
+    build(&origin);
+    let at = folder("run-unborn");
+    import::from_repository(&origin, &at).expect("the import");
+    let main = {
+        let mut store = Store::open(at.join(STORE_DIR)).expect("the store opens");
+        let main = store.name("main").expect("main is a bookmark");
+        assert!(store.remove_name("main").expect("the bookmark goes"));
+        main
+    };
+    export::to_repository(&at, &at).expect("the colocated write");
+    run(&at, &["symbolic-ref", "HEAD", "refs/heads/trunk"]);
+
+    let mut store = Store::open(at.join(STORE_DIR)).expect("the store opens");
+    store.set_name("main", main).expect("the bookmark returns");
+    drop(store);
+    let mut statement = Statement::new();
+    statement.name("main");
+    let report = export::after(&statement, &at, &at)
+        .expect("the run")
+        .expect("something was written");
+    assert_eq!(report.branch.as_deref(), Some("main"), "{report:?}");
+    assert_eq!(run(&at, &["symbolic-ref", "HEAD"]), "refs/heads/main");
+    assert_eq!(run(&at, &["status", "--porcelain"]), "");
 }

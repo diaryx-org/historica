@@ -1,13 +1,22 @@
 ---
 title: The run around every historica command
 description: 0008 defers the thing that makes colocation worth having — keeping `.git/` current after a historica command wrote — and historica's 0074 is the format it can be triggered from
-status: open
+status: done
 created: 2026-09-02
-updated: 2026-09-02
+updated: 2026-10-13
 part_of: "[Tasks](tasks.md)"
 ---
 
 # The run around every historica command
+
+**Status.** Done, by `add(export): keep a repository current after a historica
+command`. [Decision 0009](../decisions/0009-the-run-after-a-historica-command.md)
+answers the three questions below: the run is `write --wrote`, a statement is
+a trigger for the whole incremental write rather than its scope, and a ref git
+moved is reported in the same report the run prints, under its own heading.
+The parser blocker had already cleared: historica's `wrote` module, parser
+included, was published in 1.0.0-rc.2. The README gives the wrapper for sh,
+bash, zsh and nushell, each run against a colocated store.
 
 [0008](../decisions/0008-one-directory-and-git-derived-in-it.md) defers it by
 name, and says what it is worth:

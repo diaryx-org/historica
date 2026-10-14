@@ -77,6 +77,18 @@ pub enum Error {
         /// Where the file sits.
         path: String,
     },
+    /// A statement of what a historica command wrote names a revision this
+    /// store does not hold, so it is about another store.
+    Elsewhere {
+        /// The revision named.
+        revision: RevisionId,
+    },
+    /// There is no repository to keep current, and keeping one current never
+    /// makes one.
+    Unprojected {
+        /// Where one was looked for.
+        at: PathBuf,
+    },
 }
 
 impl Error {
@@ -151,6 +163,21 @@ impl fmt::Display for Error {
                  revision cannot be written whole\n\nthey were either forgotten or \
                  never fetched; a git commit has no absent blob",
                 revision.abbreviate(12)
+            ),
+            Error::Elsewhere { revision } => write!(
+                f,
+                "the command said it wrote revision {}, and this store does not \
+                 hold it, so what it wrote is in another store\n\nnothing was \
+                 written to git; run the command where this store is, or name the \
+                 store it wrote to",
+                revision.abbreviate(12)
+            ),
+            Error::Unprojected { at } => write!(
+                f,
+                "{} holds no git repository to keep current, and keeping one \
+                 current never makes one\n\n`historica-git colocate` makes one \
+                 beside the store",
+                at.display()
             ),
         }
     }

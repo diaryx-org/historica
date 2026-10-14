@@ -1,8 +1,11 @@
 //! The command line: one conversion, stated plainly.
 
-use std::path::PathBuf;
+use std::io::Read;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
+use historica::store::Store;
+use historica::wrote::{Line, Statement};
 use historica_git::{export, import};
 
 fn main() -> ExitCode {
@@ -30,6 +33,10 @@ fn run(arguments: &[&str]) -> Result<(), String> {
         ["import", ..] => Err(format!(
             "`import` takes a repository and a folder to make\n\n{USAGE}"
         )),
+        ["write", "--wrote", statement] => after(statement, None),
+        ["write", "--wrote", statement, folder, repository] => {
+            after(statement, Some((folder, repository)))
+        }
         ["write", folder, repository] => write(folder, repository),
         ["write", ..] => Err(format!(
             "`write` takes a store and a repository to make\n\n{USAGE}"
@@ -136,8 +143,125 @@ fn write(folder: &str, repository: &str) -> Result<(), String> {
             false => println!("\nchecked out {branch}"),
         }
     }
+    held_back(&report.held_back);
     say(&report.uncarried);
     Ok(())
+}
+
+/// Decision 0009: the run after a historica command, which reads what the
+/// command said it wrote and keeps the repository current.
+///
+/// A statement that says nothing was written is the case this exists for,
+/// and it costs reading standard input: nothing is opened and nothing is
+/// printed. So is no statement at all — a command that stopped before it
+/// printed one wrote nothing, and its own exit status says why.
+fn after(statement: &str, at: Option<(&str, &str)>) -> Result<(), String> {
+    let text = match statement {
+        "-" => {
+            let mut text = String::new();
+            std::io::stdin()
+                .read_to_string(&mut text)
+                .map_err(|error| format!("standard input: {error}"))?;
+            text
+        }
+        path => std::fs::read_to_string(path).map_err(|error| format!("{path}: {error}"))?,
+    };
+    if text.is_empty() {
+        return Ok(());
+    }
+    let wrote: Statement = text.parse().map_err(|error| {
+        format!(
+            "{error}\n\nnothing was written to git, because a statement this build \
+             does not read is discarded whole; `historica-git write` without \
+             `--wrote` brings the repository current"
+        )
+    })?;
+    if wrote.is_empty() {
+        return Ok(());
+    }
+    let (folder, repository) = match at {
+        Some((folder, repository)) => (PathBuf::from(folder), PathBuf::from(repository)),
+        None => {
+            let store = Store::discover(".").map_err(|error| error.to_string())?;
+            let folder = store
+                .root()
+                .parent()
+                .map(Path::to_path_buf)
+                .ok_or("the store has no folder around it")?;
+            (folder.clone(), folder)
+        }
+    };
+    let Some(report) =
+        export::after(&wrote, &folder, &repository).map_err(|error| error.to_string())?
+    else {
+        return Ok(());
+    };
+
+    println!("historica wrote {}", told(&wrote));
+    let mut git = Vec::new();
+    match report.commits {
+        0 => {}
+        1 => git.push("wrote 1 commit".to_owned()),
+        n => git.push(format!("wrote {n} commits")),
+    }
+    if !report.references.is_empty() {
+        git.push(format!("moved {}", report.references.join(", ")));
+    }
+    if !report.deleted.is_empty() {
+        git.push(format!("deleted {}", report.deleted.join(", ")));
+    }
+    match git.is_empty() {
+        true => println!("git had all of it already"),
+        false => println!("git: {}", git.join("; ")),
+    }
+    held_back(&report.held_back);
+    // What git cannot hold is the same on every run, and a whole write says
+    // it; the run says only how much there is and where to read it.
+    let notes = report.uncarried.len();
+    if notes > 0 {
+        println!(
+            "{notes} {} on what git cannot hold; `historica-git write {} {}` {}",
+            if notes == 1 { "note" } else { "notes" },
+            folder.display(),
+            repository.display(),
+            if notes == 1 { "says it" } else { "lists them" },
+        );
+    }
+    Ok(())
+}
+
+/// What a statement says, briefly, for the person whose command printed it
+/// instead of its own sentences.
+fn told(wrote: &Statement) -> String {
+    let mut parts = Vec::new();
+    for kind in ["revision", "name", "unname", "gone"] {
+        let said: Vec<String> = wrote
+            .lines()
+            .filter(|line| line.kind() == kind)
+            .map(|line| match line {
+                Line::Revision(id) | Line::Gone(id) => id.abbreviate(12),
+                Line::Name(name) | Line::Unname(name) => name.clone(),
+            })
+            .collect();
+        match said.len() {
+            0 => {}
+            1..=3 => parts.push(format!("{kind} {}", said.join(", "))),
+            n => parts.push(format!("{n} {kind} lines")),
+        }
+    }
+    parts.join("; ")
+}
+
+/// Decision 0008: a ref something else moved is said and not followed, and
+/// that is a statement about where git is rather than about what it can hold.
+fn held_back(lines: &[String]) {
+    if lines.is_empty() {
+        return;
+    }
+    println!("\ngit is not where the store is:");
+    for line in lines {
+        println!("  - {line}");
+    }
 }
 
 /// Decision 0001: a conversion states what it could not carry, because the
@@ -161,6 +285,12 @@ commands:
 
   import <repository> <folder>   convert <repository> into the store at <folder>
   write  <folder> <repository>   write the store at <folder> out as a git repository
+  write  --wrote <statement> [<folder> <repository>]
+                                 keep the repository current after a historica
+                                 command, given what `--fields` said it wrote
+                                 (`-` is standard input). with no directories,
+                                 the store is found from here and the
+                                 repository is the one beside it
   colocate <directory>           keep a store and its git projection together
 
 A target that is empty or absent gets a whole conversion. A folder already
@@ -170,4 +300,13 @@ touched: a second import writes into `history/` and leaves the folder for
 `historica update`, and a second write moves only refs this tool made or git
 left where it found them. Anything else in the way is refused. `git` must be
 on PATH, which decision 0002 makes this tool's one dependency.
+
+`write --wrote` is for running after every historica command that writes:
+
+  historica record -m 'note' --fields | historica-git write --wrote -
+
+A statement with no lines does nothing at all, without opening the store; one
+that names anything brings the repository up to date. It never makes a
+repository, and a statement naming a revision this store does not hold is
+refused, since it is about another store.
 ";

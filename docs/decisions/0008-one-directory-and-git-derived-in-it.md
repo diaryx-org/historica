@@ -216,9 +216,11 @@ an arrangement; it does not replace one.
   rather than a colocation question, but colocation sharpens it, because the
   working tree the unwritable revision describes is the directory the person is
   sitting in. What a write does when it reaches one is its own decision.
-- **The run around every historica command**, which is what makes colocation
+- ~~**The run around every historica command**, which is what makes colocation
   worth having and what detection will report through. Its own decision, and
-  the next one.
+  the next one.~~ Answered by
+  [decision 0009](0009-the-run-after-a-historica-command.md): `write --wrote`,
+  reading what historica's `--fields` said it wrote.
 - **A rebase, a merge, or anything else that moves several refs at once** is
   detected as several refs that moved on their own, and says so once per ref.
   Correct, and noisier than the one thing that happened.

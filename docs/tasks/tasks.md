@@ -2,9 +2,8 @@
 title: Tasks
 description: Deferred work in historica-git — one file each, every one with a done state
 created: 2026-09-02
-updated: 2026-09-02
-contents:
-  - "[The run around every historica command](the-run-around-every-historica-command.md)"
+updated: 2026-10-13
+contents: []
 ---
 
 # Tasks
