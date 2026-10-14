@@ -12,7 +12,7 @@ Historica does a tree-walk through the operation/revision files.
 
 **Library-first**
 Historica is designed to be embedded in apps.
-It shys away from process-spawning and large dependencies.
+It shies away from process-spawning and large dependencies.
 The Historica CLI is WASI-compatible (except for `fetch`).
 
 | | Historica | Git / Hg | Jujutsu | Pijul / Darcs | Fossil | Automerge / Loro |
@@ -25,12 +25,13 @@ The Historica CLI is WASI-compatible (except for `fetch`).
 | Stable change ID across rewrites | yes | no | **yes** | patch hash | no | n/a |
 | CRDT metadata on disk | **none** | n/a | n/a | yes (graph) | n/a | grows forever |
 | Redaction preserving structure | **yes (`forget`)** | no (rewrites all hashes) | no | no | `shun` | no |
-| Remote / transport | **none** | yes | yes | yes | yes | yes |
+| Remote / transport | **static files over HTTP, no server** | yes | yes | yes | yes | yes |
 | Rename detection at diff | **recorded, not inferred** | heuristic | heuristic | recorded | heuristic | n/a |
 | Line attribution (`blame`) | **read from the operations** | re-diffed per commit | re-diffed per commit | patch-derived | re-diffed per commit | n/a |
 | A merge's kept lines keep their author | **yes** | no | no | yes | no | n/a |
-| Checkout to a past revision | **no** (`update` reaches heads, by decision) | yes | yes | yes | yes | n/a
-| File modes | one bit, `executable` | one bit | one bit | one bit | one bit | n/a
+| Checkout to a past revision | **no** (`update` reaches heads, by decision) | yes | yes | yes | yes | n/a |
+| File modes | one bit, `executable` | one bit | one bit | one bit | one bit | n/a |
+| History without every file's bytes | **yes** (`fetch --no-bytes`, `evict`) | partial clone, LFS | no | no | no | no |
 
 ## Command by command comparison to Git
 
@@ -64,6 +65,7 @@ The Historica CLI is WASI-compatible (except for `fetch`).
 | `git commit -a -m …` | `historica record -m …` | — |
 | `git commit -m … <paths>` | `historica record <paths> -m …` | the files left out are not compared with the tree at all, so this records an observed state as much as the unrestricted command does (0039) |
 | `git commit --amend` | `historica amend` | the rewrite is *recorded* as supersession rather than hidden, and the original stands until `prune` (0001, 0013) |
+| `git rebase -i` + `squash`/`fixup` | `historica squash <base>..<tip>` | supersedes the run with one revision on the base stating what the tip holds; it reads no folder, so work standing on the tip is carried across verbatim, and with no `-m` the run's own messages are kept in order (0082) |
 | `git rebase -i` + `reword` | `historica amend <target> -m <message>` | a revision work stands on takes a message and nothing else, and what stood on it is carried onto the new one verbatim — same operation documents, so the store gains none (0059) |
 | `git mv <old> <new>` | `historica record --move <old>=<new>` | a rename is the one fact a person has to state, because the folder cannot show it (0011) |
 | `git rm <path>` | delete the file, then `historica record` | — |
@@ -86,6 +88,8 @@ The Historica CLI is WASI-compatible (except for `fetch`).
 | `git pull` | `historica fetch <url>`, then `historica update` | the fetch and the folder's catch-up are two commands because they are two decisions |
 | `git remote add …` | — | there are no remotes. Nothing is configured, so nothing is stale |
 | `git bundle create` | `historica export <dir>` | compressing it is `tar`'s job |
+| `git clone --filter=blob:none`, Git LFS | `historica fetch <url> --no-bytes`, then `historica fetch <url> <path>…` | takes the history and leaves each file of bytes with the published copy until it is asked for by name; the history still says which payload a file holds and how big it is (0083) |
+| — | `historica evict <url> <path>…` | lets go of a file's bytes, from the store and the folder, where the published copy holds them |
 | `git archive` | `historica export <dir> --files-only` | writes the folder and no history under it, for looking at a revision rather than working on one |
 
 ### Rewriting and redaction
@@ -112,7 +116,12 @@ There is no command to remove unrecorded files because no command is permitted t
 restating work against a rewrite of its own parent,
 where nothing has to be minted and both replicas write the same bytes.
 
-`git bisect`, `git grep`, `git notes`, `git submodule`, `git worktree` — not
+`git submodule` — answered the other way on purpose. A store further down the
+folder is found and left alone: its own `history/` is never walked, but the
+files beside it are this folder's content and are recorded here, so they travel
+with this history rather than as a pointer to another one (0084).
+
+`git bisect`, `git grep`, `git notes`, `git worktree` — not
 built, and none of them is refused on principle. `export --files-only` is the
 part of `worktree` that exists today, and it is also the part of `bisect` that
 exists: `log <a>..<b> --fields` says which revisions to search, in a shape a
