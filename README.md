@@ -240,10 +240,10 @@ cargo xtask clippy     # or one
 
 ### Releasing
 
-`dx release <patch|minor|major|X.Y.Z>` does the mechanical half — bump the
+`release <patch|minor|major|X.Y.Z>` does the mechanical half — bump the
 version, regenerate the changelog's unreleased region into a section under the
 new version, commit both, tag — and stops before the push, which is asked for
-explicitly each time. `dx` lives outside these repositories and is not
+explicitly each time. `release` lives outside these repositories and is not
 published, so it is a maintainer's tool: nothing here is needed to build, test,
 or send a change. See [`docs/CHANGELOG.md`](docs/CHANGELOG.md) for which half of
 that file is generated and which is written by hand.
