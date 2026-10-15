@@ -21,9 +21,9 @@ down, so that finishing it is a fact rather than an opinion.
 
 `contents` above lists what is live, and [Closed tasks](closed/closed.md)
 holds the rest: the index is the spine, and what is open is a view of it
-(`dx tasks`). Closing a task is an edit, not a delete: its `status` becomes
+(`org tasks`). Closing a task is an edit, not a delete: its `status` becomes
 `done` or `dropped` and it names the commit or release that resolved it; then
-`dx shelve` moves it to the shelf, where it stays findable by grep.
+`org shelve` moves it to the shelf, where it stays findable by grep.
 
 What does not belong here:
 
