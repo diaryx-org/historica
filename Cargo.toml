@@ -15,12 +15,11 @@ documentation = "https://docs.rs/historica-git"
 keywords = ["git", "version-control", "convert", "import", "export"]
 categories = ["development-tools", "command-line-utilities"]
 
-# `xtask` is historica-git's CI, as a program, exactly as it is in historica:
-# `cargo xtask <job>` runs one CI job and the workflow runs nothing else.
+# A workspace of one package, kept for `[workspace.package]` below. CI is not a
+# crate here: it is the jobs in .config/ship.figl, run by `ship ci`.
 [workspace]
-members = ["xtask"]
 
-# One `version = "…"` line for the whole repository, which is what `release bump`
+# One `version = "…"` line for the whole repository, which is what `ship bump`
 # rewrites and what the package inherits. Keeping it here rather than in
 # `[package]` is what lets the shared release tooling assert that exactly one
 # such line exists.

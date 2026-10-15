@@ -228,24 +228,23 @@ deliberately and temporarily.
 
 ## Development
 
-CI is a program rather than a YAML file, as it is in historica. Every job the
-workflow runs is one entry in `xtask/src/main.rs`, and `cargo xtask ci` runs all
-of them locally, in the same order, against the same commands:
+CI is a list rather than a YAML file. Every job the workflow runs is one entry
+in `.config/ship.figl`, and [ship](https://github.com/diaryx-org/ship) runs all
+of them locally, in the same order, with the same commands:
 
 ```console
-cargo xtask            # what the jobs are
-cargo xtask ci         # all of them: fmt, clippy, test, msrv
-cargo xtask clippy     # or one
+ship ci --list         # what the jobs are
+ship ci                # all of them: fmt, clippy, test, msrv
+ship ci clippy         # or one
 ```
 
 ### Releasing
 
-`release <patch|minor|major|X.Y.Z>` does the mechanical half — bump the
+`ship <patch|minor|major|X.Y.Z>` does the mechanical half — bump the
 version, regenerate the changelog's unreleased region into a section under the
 new version, commit both, tag — and stops before the push, which is asked for
-explicitly each time. `release` lives outside these repositories and is not
-published, so it is a maintainer's tool: nothing here is needed to build, test,
-or send a change. See [`docs/CHANGELOG.md`](docs/CHANGELOG.md) for which half of
+explicitly each time. ship is a maintainer's tool: nothing here is needed to
+build, test, or send a change. See [`docs/CHANGELOG.md`](docs/CHANGELOG.md) for which half of
 that file is generated and which is written by hand.
 
 Publishing this crate needs the historica version it names to be on crates.io,
