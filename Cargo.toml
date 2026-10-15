@@ -36,16 +36,17 @@ all-features = true
 [lints.rust]
 unexpected_cfgs = { level = "warn", check-cfg = ['cfg(verus_keep_ghost)', 'cfg(verus_keep_ghost_body)'] }
 
-# `cli` is the command-line front end, and `xtask` is historica's CI as a
-# program: `cargo xtask <job>` runs one CI job and the workflow runs nothing
-# else. Both are members so `cargo test --workspace` checks them; `xtask` also
-# carries `publish = false`, which keeps it off crates.io.
+# `cli` is the command-line front end, and `xtask` holds the CI jobs that are
+# programs rather than commands (the jobs themselves are in .config/ship.figl)
+# and the tasks that are not CI. Both are members so `cargo test --workspace`
+# checks them; `xtask` also carries `publish = false`, which keeps it off
+# crates.io.
 [workspace]
 members = ["cli", "xtask"]
 
 # The version lives here rather than in `[package]` above so that one line is
-# the whole answer to "what does this repository call itself" — `cargo xtask
-# bump` rewrites exactly that line, and the package inherits it.
+# the whole answer to "what does this repository call itself" — `ship bump`
+# rewrites exactly that line, and the package inherits it.
 [workspace.package]
 version = "1.0.0-rc.8"
 edition = "2024"

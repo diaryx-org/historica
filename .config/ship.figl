@@ -1,0 +1,105 @@
+# What ship needs to know about historica: its release, and its CI. Everything
+# not stated here is ship's default — the manifest, the changelog path, the
+# cliff config, and that this is a Cargo workspace.
+name = historica
+url = https://github.com/diaryx-org/historica
+release_branch = main
+
+# No `verify`: before cutting, a release runs the jobs below — and here, after
+# the bump rather than before it. `historica_requirement_tracks_the_workspace`
+# in xtask, which the `test` job runs, compares `[workspace.package] version`
+# against the `historica` requirement in `cli/Cargo.toml`, so running it first
+# judges the versions this release is replacing — which is how a bump that
+# moved the first and not the second got as far as `cargo update` refusing to
+# resolve. After the bump, that test is a real guard, and a failure restores
+# the tree.
+verify_after_bump = true
+
+# No `tag_starts`: nothing runs on the tag. The GitHub release is cut by `ship`
+# itself, from the machine that pushed the tag — `ship github <tag>` is the
+# same step run on its own — and every upload to crates.io is a
+# `cargo publish --workspace` somebody runs deliberately. So the warning before
+# the push says exactly that, rather than naming a workflow that no longer
+# exists.
+
+# CI. `.github/workflows/ci.yml` asks `ship ci --matrix` for these and runs one
+# per runner, as `ship ci <id>`; `ship ci` runs them all here, in this order,
+# with the same shell, and stops at the first that fails. Changing CI is an edit
+# here and nowhere else.
+#
+# A job is `id` (what `ship ci <id>` takes), `name` (the check GitHub shows as
+# `CI / <name>` — renaming it renames the required status check) and `run` (run
+# by `bash -eo pipefail -c` at the repository root). `runner` is the workflow's:
+# `components` are the rustup components it installs, and `builds = false` skips
+# restoring the cargo cache. Cheapest and most likely to fail first. A job that
+# is more than a command is a `cargo xtask` task, documented where it lives in
+# xtask/src/main.rs.
+job
+> *
+> > id = fmt
+> > name = Format
+> > run = cargo fmt --all --check
+> > runner
+> > > components = rustfmt
+> > > builds = false
+> *
+> > # Warnings are errors in CI, so they are errors here too — a lint that only
+> > # fires on the runner is a lint found too late.
+> > id = clippy
+> > name = Clippy
+> > run = cargo clippy --workspace --all-targets -- -D warnings
+> > runner
+> > > components = clippy
+> *
+> > # rustdoc, held to the same standard as the compiler: `documentation` points
+> > # at docs.rs, and a link to an item renamed last week still compiles and
+> > # renders as plain text there. `--all-features` because a feature-gated item
+> > # is documented only in a build that has it, `--no-deps` because a
+> > # dependency's documentation is its author's problem.
+> > id = doc
+> > name = Doc
+> > run = RUSTDOCFLAGS='-D warnings' cargo doc --workspace --all-features --no-deps
+> *
+> > # The workspace test suite, with every seeded search handed a fresh seed,
+> > # echoed so a red run can be made red again.
+> > id = test
+> > name = Test
+> > run = cargo xtask test
+> *
+> > # The library without `disk`, which must not reach `std::fs` (decision 0025):
+> > # a clippy build with the feature off, and a scan that names the line.
+> > id = bare
+> > name = Bare
+> > run = cargo xtask bare
+> > runner
+> > > components = clippy
+> *
+> > # The whole CLI built for both wasi previews with no HTTP stack under it
+> > # (decision 0057). The task installs the targets it builds for.
+> > id = wasi
+> > name = Wasi
+> > run = cargo xtask wasi
+> *
+> > # A build, not a test run: MSRV is a promise about who can compile
+> > # historica, and the dev-dependencies need not hold to it. The version is
+> > # read from `[workspace.package] rust-version`, so the pin follows the
+> > # declared floor; `rust-version.workspace = true` in `[package]` does not
+> > # match. `rustup run` rather than `cargo +<version>`, which only rustup's
+> > # proxy knows.
+> > id = msrv
+> > name = MSRV
+> > run = '''
+version=$(sed -n 's/^rust-version = "\(.*\)"$/\1/p' Cargo.toml)
+test -n "$version" || { echo "no rust-version in Cargo.toml" >&2; exit 1; }
+echo "MSRV from Cargo.toml: $version"
+rustup toolchain install "$version" --profile minimal --no-self-update
+rustup run "$version" cargo build --workspace
+'''
+> *
+> > # Verus over the library, fetching the pinned release once. It builds into a
+> > # target directory of its own, so the cargo cache is not worth restoring.
+> > id = proofs
+> > name = Proofs
+> > run = cargo xtask proofs
+> > runner
+> > > builds = false

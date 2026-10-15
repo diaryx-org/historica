@@ -77,9 +77,8 @@ pub fn fuzz(sh: &Sh, arguments: &[&str]) -> Result<()> {
     let Some(target) = target else {
         return sh.cargo(&["test", "--test", "strict", "--", "--list"]);
     };
-    // The proxy's `+nightly`, through rustup rather than `$CARGO`, for the
-    // reason `msrv` gives: `$CARGO` may be a real toolchain's cargo, which
-    // does not understand it.
+    // The proxy's `+nightly`, through rustup rather than `$CARGO`: `$CARGO`
+    // may be a real toolchain's cargo, which does not understand it.
     sh.run(
         "rustup",
         &[

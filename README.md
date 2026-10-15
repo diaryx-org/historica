@@ -240,15 +240,18 @@ conditions that would reverse it.
 
 ## Development
 
-CI is a program rather than a YAML file. Every job the workflow runs is one
-entry in `xtask/src/main.rs`, and `cargo xtask ci` runs all of them locally, in
-the same order, against the same commands:
+CI is a list rather than a YAML file. Every job the workflow runs is one
+entry in the `job` list in `.config/ship.figl`, and [`ship ci`][ship] runs all
+of them locally, in the same order, against the same commands; a job that is
+more than a command is a `cargo xtask` task the entry runs:
 
 ```console
-cargo xtask            # what the jobs are
-cargo xtask ci         # all of them: fmt, clippy, test, msrv, proofs
-cargo xtask clippy     # or one
+ship ci --list         # what the jobs are
+ship ci                # all of them: fmt, clippy, doc, test, bare, wasi, msrv, proofs
+ship ci clippy         # or one
 ```
+
+[ship]: https://github.com/diaryx-org/ship
 
 Which is to say the underlying commands are still the underlying commands:
 
@@ -297,29 +300,28 @@ for d in tests/corpus/*/; do (cd "$d" && shasum -a 256 -c MANIFEST); done
 ### Releasing
 
 A release is a tag, the GitHub release cut from it, and a `cargo publish` run by
-hand. `release` does the mechanical half — bump the version, regenerate the
+hand. `ship` does the mechanical half — bump the version, regenerate the
 changelog's unreleased region into a section under the new version, commit both,
 tag — and stops there:
 
 ```console
-release changelog --write   # refresh the unreleased region
-release minor               # bump, cut, commit, tag — locally
-release minor --push
+ship changelog --write   # refresh the unreleased region
+ship minor               # bump, cut, commit, tag — locally
+ship minor --push
 ```
 
-`release` is the shared tooling historica, prov, twig, leaf, flower, and the other
-historica repositories all cut releases with. It lives outside these
-repositories and is not published, so it is a maintainer's tool rather than a
-contributor's: nothing in this section is needed to build, test, or send a
-change. What makes historica historica is
-[`.config/release.toml`](.config/release.toml) and nothing else. `as-is`
+`ship` is the release tool historica and the other diaryx-org repositories all
+cut releases with. It lives outside these repositories and is not on crates.io,
+so it is a maintainer's tool rather than a contributor's: nothing in this
+section is needed to build, test, or send a change. What makes historica
+historica is [`.config/ship.figl`](.config/ship.figl) and nothing else. `as-is`
 releases the version the tree already holds, for a bump committed earlier and
 never tagged.
 
 Without `--push` nothing leaves the machine, and the command prints the two
 pushes it did not run. Nothing runs on the tag: the GitHub release is cut by
-`release` from the machine that pushed it — `release github <tag>` is the same
-step on its own, and it asks `release notes` for the body rather than keeping
+`ship` from the machine that pushed it — `ship github <tag>` is the same
+step on its own, and it asks `ship notes` for the body rather than keeping
 a second copy of the notes.
 
 What the tag does not do is publish. crates.io is a separate `cargo publish` a

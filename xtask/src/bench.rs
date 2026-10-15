@@ -3,10 +3,8 @@
 //! Not a CI job. A timing that fails a build on a shared runner is a timing
 //! nobody trusts, and these numbers exist to be compared against each other —
 //! before a change and after it, on one machine — rather than against a
-//! threshold. So this lives beside the jobs rather than in [`JOBS`], for the
-//! reason releasing does.
-//!
-//! [`JOBS`]: crate::JOBS
+//! threshold. So this is a task beside the CI jobs rather than one of them in
+//! `.config/ship.figl`.
 //!
 //! The store is synthetic and stated in one line: so many files, so many
 //! revisions, so many lines each, one line of each file rewritten per
