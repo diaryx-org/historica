@@ -153,8 +153,9 @@ takes.
 
 ## Development
 
-`cargo xtask ci` runs every CI job in order, and the workflow runs nothing
-else. `cargo xtask` lists them.
+`ship ci` runs every CI job in order, and the workflow runs nothing else;
+`ship ci --list` lists them, from `.config/ship.figl`. See
+[ship](https://github.com/diaryx-org/ship).
 
 ## License
 
