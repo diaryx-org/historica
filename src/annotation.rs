@@ -460,7 +460,7 @@ impl Annotation {
                 .map(|(key, value)| (fig::Value::Str(key.to_string()), fig::Value::Str(value)))
                 .collect(),
         );
-        let meta = map.serialize(fig::Format::Yaml)?;
+        let meta = map.serialize(fig_yaml::format()?)?;
         let mut text = String::from("---\n");
         text.push_str(meta.trim_end());
         text.push_str("\n---\n");

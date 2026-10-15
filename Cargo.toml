@@ -58,11 +58,15 @@ layer = ["dep:historica", "historica/disk"]
 # written. Taken over inventing a `remark-0` line grammar for the same reason
 # this crate does not invent a digest.
 #
-# The format features are the ones a caller is likely to meet in the wild: a
-# store whose documents are YAML frontmatter, JSON, or TOML. `fig-lang` is
-# deliberately absent — it adds a backend, and nothing here needs the authoring
+# The languages are the ones a caller is likely to meet in the wild: a store
+# whose documents are YAML frontmatter, JSON, or TOML. Each is a crate of its
+# own, taken without serde: this crate reads into `fig::Value` and writes from
+# it. `fig-figl` is deliberately absent — nothing here needs the authoring
 # dialect to read a `target:` line.
-fig = { version = "5", default-features = false, features = ["yaml", "json", "toml"] }
+fig = "7"
+fig-yaml = { version = "7", default-features = false, features = ["fig"] }
+fig-json = { version = "7", default-features = false, features = ["fig"] }
+fig-toml = { version = "7", default-features = false, features = ["fig"] }
 # The chains this is about. A version and no path, as everywhere in this org:
 # what this crate can reach is what historica published.
 #
