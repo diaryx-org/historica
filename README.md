@@ -174,10 +174,12 @@ the other side. Publishing it needs the historica version it names to be on
 crates.io, for the same reason.
 
 ```console
-$ cargo xtask ci
+$ ship ci
 ```
 
-is every CI job, in the order CI runs them.
+is every CI job, in the order CI runs them, from the list in
+`.config/ship.figl`; [ship](https://github.com/diaryx-org/ship) is what reads
+it, here and in the workflow.
 
 ## Licence
 
