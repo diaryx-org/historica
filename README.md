@@ -297,17 +297,17 @@ for d in tests/corpus/*/; do (cd "$d" && shasum -a 256 -c MANIFEST); done
 ### Releasing
 
 A release is a tag, the GitHub release cut from it, and a `cargo publish` run by
-hand. `dx release` does the mechanical half — bump the version, regenerate the
+hand. `release` does the mechanical half — bump the version, regenerate the
 changelog's unreleased region into a section under the new version, commit both,
 tag — and stops there:
 
 ```console
-dx changelog --write   # refresh the unreleased region
-dx release minor       # bump, cut, commit, tag — locally
-dx release minor --push
+release changelog --write   # refresh the unreleased region
+release minor               # bump, cut, commit, tag — locally
+release minor --push
 ```
 
-`dx` is the shared tooling historica, prov, twig, leaf, flower, and the other
+`release` is the shared tooling historica, prov, twig, leaf, flower, and the other
 historica repositories all cut releases with. It lives outside these
 repositories and is not published, so it is a maintainer's tool rather than a
 contributor's: nothing in this section is needed to build, test, or send a
@@ -318,8 +318,8 @@ never tagged.
 
 Without `--push` nothing leaves the machine, and the command prints the two
 pushes it did not run. Nothing runs on the tag: the GitHub release is cut by
-`dx` from the machine that pushed it — `dx github-release <tag>` is the same
-step on its own, and it asks `dx release-notes` for the body rather than keeping
+`release` from the machine that pushed it — `release github <tag>` is the same
+step on its own, and it asks `release notes` for the body rather than keeping
 a second copy of the notes.
 
 What the tag does not do is publish. crates.io is a separate `cargo publish` a

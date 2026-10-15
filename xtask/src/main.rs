@@ -627,7 +627,7 @@ mod tests {
         assert!(!ids.contains(&"ci") && !ids.contains(&"ci-matrix"));
     }
 
-    /// `dx bump` rewrites one line — `[workspace.package] version` —
+    /// `release bump` rewrites one line — `[workspace.package] version` —
     /// and every member inherits it. One requirement does not inherit: the
     /// front end depends on the library by version as well as by path, because
     /// that is what publishing needs, and a literal in `cli/Cargo.toml` is a
