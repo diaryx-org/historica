@@ -21,7 +21,7 @@ categories = ["development-tools", "text-processing"]
 [workspace]
 members = ["xtask"]
 
-# One `version = "…"` line for the whole repository, which is what `dx bump`
+# One `version = "…"` line for the whole repository, which is what `release bump`
 # rewrites and what the package inherits.
 [workspace.package]
 version = "0.5.0"
