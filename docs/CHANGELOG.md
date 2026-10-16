@@ -12,6 +12,27 @@ _No commits since the last tag._
 
 <!-- git-cliff:end -->
 
+## v0.6.0 — 2026-10-16
+
+### Breaking
+
+- **deps** — move to fig 7, which is pure Rust and needs no Zig ([`1d8a413`](https://github.com/diaryx-org/historica-remark/commit/1d8a41388aa34155fdd2452ef78a5b06566acfe3))
+
+### Fixed
+
+- **xtask** — send the release commands that left xtask to `release`, not `dx` ([`e96ebd6`](https://github.com/diaryx-org/historica-remark/commit/e96ebd6ee25294fa00341a36de4b0eed511bd190))
+- **ci** — restore the cache, and Zig, for a job whose runner leaves out builds ([`10fcc48`](https://github.com/diaryx-org/historica-remark/commit/10fcc489dad4236a76b88a8f3f7befbd429cfb84))
+
+### Behavioural changes
+
+- historica-remark now requires `fig = "7"`. A consumer
+still on fig 5 or 6 has two copies of fig, and `Remark::meta` and the
+`Fields` impl are for fig 7's `fig::Value`, not the consumer's; move the
+consumer's own pin to 7 alongside. The text of `Error::Metadata` is fig
+7's account of a malformed block, which may word a parse error
+differently from fig 5's.
+
+
 ## v0.5.0 — 2026-10-03
 
 ### Breaking
