@@ -953,6 +953,17 @@ depend on each other in.
   held after every step to `check`, to their caches, to what was forgotten,
   and to each other. What the search finds is a fix or a task.
 
+- [0086 — A copy chooses its heads](0086-a-copy-chooses-its-heads.md)
+  A tip is a fact about the store and a head is a fact about the copy: the
+  tips of what a rule the embedder supplies follows. Nothing is stored. Work
+  the rule does not follow is held, shown and never swept into a merge, and
+  joins only by being taken, `carry --onto` superseding it. That one act is
+  cherry-pick and accepting a contribution. A supersession counts only where
+  its revision is followed, so a stranger cannot hide a head. Tips are found
+  among current revisions, so the work a partial take leaves stays listed.
+  The CLI follows writers: its own identity and the names it lists, and every
+  tip when it has none, which is a convenience and not evidence.
+
 Not a decision, but the evaluation one of them rests on:
 [`docs/loro.md`](../loro.md) — the initial Loro evaluation, and the conditions
 that would reverse it.
