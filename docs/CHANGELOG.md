@@ -12,6 +12,17 @@ _No commits since the last tag._
 
 <!-- git-cliff:end -->
 
+## v0.6.1 — 2026-10-19
+
+### Added
+
+- **layer** — reach a layer's directory only through historica's Filesystem ([`84bde06`](https://github.com/diaryx-org/historica-remark/commit/84bde067472cc89f50a7b8b5a9af028d5ab07adf))
+
+### Behavioural changes
+
+- on `Disk`, notes, the suppression list and the files laid out at a layer's head are written with historica's `Disk::write`, an atomic replacement flushed durable, where they were plain `std::fs::write` before; a receive is crash-safe file by file and correspondingly slower. `Repo::exists` no longer follows a symbolic link at the store's marker file.
+
+
 ## v0.6.0 — 2026-10-16
 
 ### Breaking
