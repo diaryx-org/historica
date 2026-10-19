@@ -290,10 +290,14 @@ line with a merge in it is taken around the merge or not at all.
 
 ## Consequences
 
-- `History::heads` becomes `History::tips`, computed over current revisions.
-  Its callers that ask about the store (`check`'s rule coverage, `skip`'s,
-  and the offer an export writes) keep asking for tips. The offer's bytes do
-  not change: what it listed as heads were always tips.
+- `History` gains `tips`, computed over current revisions. `History::heads`
+  stays the pure graph question, every revision nothing names as a parent,
+  superseded ones included, and is renamed `childless` so that no caller
+  mistakes it for this document's heads. The offer an export writes keeps
+  asking it, because a listing answers relatedness rather than rendering
+  (`Store::offer`), so the offer's bytes do not change. `check`'s rule
+  coverage and `skip`'s keep asking it too: a path held by any revision is a
+  path a rule cannot cover.
 - `src/following.rs` holds the rule's trait, the closure under ancestry, the
   supersession that counts, and the one `heads` the library and CLI share.
   `update::plan`, `carry`, `merge` and every target resolution take a rule.
