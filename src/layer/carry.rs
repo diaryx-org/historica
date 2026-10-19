@@ -85,8 +85,8 @@ pub struct Export {
 
 /// Build the copy of `repo`'s chain a reader should be given, in memory.
 /// `None` for a store holding no revision. `label` only names the [`Export`].
-pub(crate) fn export_at(repo: &Repo, label: &str) -> Result<Option<Export>> {
-    let store = Store::open(repo.store_dir()).map_err(history)?;
+pub(crate) fn export_at<F: Filesystem>(repo: &Repo<F>, label: &str) -> Result<Option<Export>> {
+    let store = repo.store()?;
     let Some(head) = current_heads(&store).first().copied() else {
         return Ok(None);
     };

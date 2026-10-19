@@ -44,10 +44,11 @@ default = ["layer"]
 #
 # It takes historica's `disk`, unlike historica-minisign's own `layer`-shaped
 # split, because a kept layer *is* a directory: `keep`, `list` and `suppress`
-# are named by their paths, and a caller that wanted to hold one somewhere
-# other than a filesystem would be asking for a different thing. The one place
-# this crate does not use `disk` is the export, which is written into memory on
-# purpose — see `carry`.
+# are named by their paths, and `Repo::at` and `Layers::at` are those paths on
+# historica's `Disk`. The directory is reached only through historica's
+# `Filesystem` trait, though, so `Repo::on` and `Layers::on` hold a layer on any
+# other — the crate's own `Memory`, which the export is written into on purpose
+# (see `carry`) and a caller's tests can keep whole layers in.
 layer = ["dep:historica", "historica/disk"]
 
 [dependencies]

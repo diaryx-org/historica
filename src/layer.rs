@@ -21,6 +21,12 @@
 //!     <another name>/
 //! ```
 //!
+//! Every layer under one root is on one filesystem — historica's [`Disk`]
+//! for [`Layers::at`], the caller's for [`Layers::on`] — and nothing here
+//! reaches `std::fs` itself; see [`Repo`] for why the filesystem is a type
+//! parameter, and [`Memory`] for the one this crate offers that is not a
+//! disk.
+//!
 //! Nothing in this module reads a document or knows what one means: keep,
 //! list, carry, suppress. What a layer's documents *say* is
 //! [`Repo::remarks`]' department, and a caller keeping layers of something
@@ -38,8 +44,10 @@
 //! copy would need the foreign chain re-derived, which this crate does not
 //! do: today's carry is the chain as kept.)
 
+use std::io;
 use std::path::{Path, PathBuf};
 
+use historica::fs::{self as files, Disk, Filesystem};
 use historica::store::{STORE_DIR, Source};
 
 use crate::error::Result;
@@ -49,6 +57,7 @@ mod memory;
 pub(crate) mod repo;
 
 pub use carry::Export;
+pub use memory::Memory;
 pub use repo::{
     MANIFEST_PATH, NOTES_DIR, ORIGIN_NOTE, Received, Remark, Repo, SENDER_NOTE, check_name,
 };
@@ -57,29 +66,45 @@ pub use repo::{
 /// bookkeeping, not part of the chain, never carried.
 pub const SUPPRESSED_NOTE: &str = "suppressed";
 
-/// The layers kept under one root.
+/// The layers kept under one root, on a filesystem — [`Disk`] unless the
+/// caller names another.
 ///
 /// Cheap to construct; nothing is touched until something is asked.
 #[derive(Debug, Clone)]
-pub struct Layers {
+pub struct Layers<F = Disk> {
+    files: F,
     root: PathBuf,
     notes: String,
 }
 
 impl Layers {
-    /// Layers under `root`, each keeping its notes under
+    /// Layers under `root` on [`Disk`], each keeping its notes under
     /// [`NOTES_DIR`](repo::NOTES_DIR).
     pub fn at(root: impl Into<PathBuf>) -> Self {
-        Self {
-            root: root.into(),
-            notes: repo::NOTES_DIR.to_string(),
-        }
+        Self::on(Disk, root)
     }
 
     /// The same, with a notes directory of the caller's own — see
     /// [`Repo::with_notes`].
     pub fn with_notes(root: impl Into<PathBuf>, notes: impl Into<String>) -> Self {
+        Self::with_notes_on(Disk, root, notes)
+    }
+}
+
+impl<F> Layers<F> {
+    /// Layers under `root` on `files` — see [`Repo::on`].
+    ///
+    /// Every layer handed out is on a clone of `files`, so a filesystem that
+    /// is a handle (`Arc<Memory>`, `&Memory`, [`Disk`]) is what this wants:
+    /// cloning one must reach the same folder.
+    pub fn on(files: F, root: impl Into<PathBuf>) -> Self {
+        Self::with_notes_on(files, root, repo::NOTES_DIR)
+    }
+
+    /// [`Layers::with_notes`], on `files`.
+    pub fn with_notes_on(files: F, root: impl Into<PathBuf>, notes: impl Into<String>) -> Self {
         Self {
+            files,
             root: root.into(),
             notes: notes.into(),
         }
@@ -90,27 +115,39 @@ impl Layers {
         &self.root
     }
 
+    /// The filesystem the root is on.
+    pub fn files(&self) -> &F {
+        &self.files
+    }
+}
+
+impl<F: Filesystem + Clone> Layers<F> {
     /// One layer, by name. The name is checked — it is about to be a path
     /// segment — and nothing else is assumed about it.
-    pub fn layer(&self, name: &str) -> Result<Repo> {
+    pub fn layer(&self, name: &str) -> Result<Repo<F>> {
         let name = name.trim();
         repo::check_name(name)?;
-        Ok(Repo::with_notes(self.root.join(name), &self.notes))
+        Ok(Repo::with_notes_on(
+            self.files.clone(),
+            self.root.join(name),
+            &self.notes,
+        ))
     }
 
     /// Every layer kept here, in name order. Empty for a root that does not
     /// exist yet.
     pub fn names(&self) -> Result<Vec<String>> {
         let mut out = Vec::new();
-        let entries = match std::fs::read_dir(&self.root) {
+        let entries = match self.files.entries(&self.root) {
             Ok(entries) => entries,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(out),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(out),
             Err(e) => return Err(e.into()),
         };
         for entry in entries {
-            let Some(name) = entry?.file_name().to_str().map(str::to_string) else {
+            let Some(name) = entry.path.file_name().and_then(|n| n.to_str()) else {
                 continue;
             };
+            let name = name.to_string();
             if self.layer(&name).is_ok_and(|layer| layer.exists()) {
                 out.push(name);
             }
@@ -151,9 +188,9 @@ impl Layers {
 
     /// The suppressed paths of one layer, one per line as noted.
     pub fn suppressed(&self, name: &str) -> Result<Vec<String>> {
-        let text = match std::fs::read_to_string(self.suppressed_file(name)?) {
+        let text = match files::read_to_string(&self.files, &self.suppressed_file(name)?) {
             Ok(text) => text,
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(Vec::new()),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => return Ok(Vec::new()),
             Err(e) => return Err(e.into()),
         };
         Ok(text
@@ -207,13 +244,13 @@ impl Layers {
     fn write_suppressed(&self, name: &str, noted: &[String]) -> Result<()> {
         let file = self.suppressed_file(name)?;
         if let Some(parent) = file.parent() {
-            std::fs::create_dir_all(parent)?;
+            self.files.create_directory(parent)?;
         }
         let text = match noted.is_empty() {
             true => String::new(),
             false => format!("{}\n", noted.join("\n")),
         };
-        std::fs::write(file, text)?;
+        self.files.write(&file, text.as_bytes())?;
         Ok(())
     }
 }

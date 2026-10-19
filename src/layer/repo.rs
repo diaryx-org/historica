@@ -13,6 +13,20 @@
 //!
 //! A [`Repo`] is a path and nothing else; constructing one touches no disk.
 //!
+//! # Where the directory is
+//!
+//! Wherever the caller's [`Filesystem`] says. Every read and write here goes
+//! through one, the same seam historica's own [`Store`] is built on (its
+//! decision 0025), and nothing in this crate reaches `std::fs` itself. The
+//! filesystem is a type parameter defaulting to [`Disk`], for the reason
+//! historica gives for its own: a `Repo` is `Clone`, `Send` or `Debug`
+//! exactly when its filesystem is, and nobody's filesystem is asked for more.
+//!
+//! [`Repo::at`] is a repository on [`Disk`], as it always was. [`Repo::on`]
+//! takes any other — an `Arc<`[`Memory`](super::Memory)`>` for a test that
+//! should not touch a disk, an `Arc<dyn Filesystem>` for a caller that
+//! decides at run time.
+//!
 //! # What a receive is
 //!
 //! historica's `fetch` (its decision 0048): the store asks the source for the
@@ -37,6 +51,7 @@
 use std::path::{Path, PathBuf};
 
 use historica::core::RevisionId;
+use historica::fs::{self as files, Disk, Filesystem};
 use historica::store::{HEADER_FILE, STORE_DIR, Source, Store};
 use historica::tree::Kind;
 
@@ -116,20 +131,20 @@ pub struct Remark {
     pub meta: fig::Value,
 }
 
-/// One kept chain, at a path.
+/// One kept chain, at a path, on a filesystem — [`Disk`] unless the caller
+/// names another.
 #[derive(Debug, Clone)]
-pub struct Repo {
+pub struct Repo<F = Disk> {
+    files: F,
     root: PathBuf,
     notes: String,
 }
 
 impl Repo {
-    /// A repository at `root`, keeping its notes under [`NOTES_DIR`].
+    /// A repository at `root` on [`Disk`], keeping its notes under
+    /// [`NOTES_DIR`].
     pub fn at(root: impl Into<PathBuf>) -> Self {
-        Self {
-            root: root.into(),
-            notes: NOTES_DIR.to_string(),
-        }
+        Self::on(Disk, root)
     }
 
     /// The same, keeping its notes under a directory of the caller's own.
@@ -139,7 +154,25 @@ impl Repo {
     /// The directory must be one historica has not reserved, which is every
     /// name historica does not itself use.
     pub fn with_notes(root: impl Into<PathBuf>, notes: impl Into<String>) -> Self {
+        Self::with_notes_on(Disk, root, notes)
+    }
+}
+
+impl<F> Repo<F> {
+    /// A repository at `root` on `files`, keeping its notes under
+    /// [`NOTES_DIR`].
+    ///
+    /// Named after historica's `Store::open_on`, and for the same reason:
+    /// the folder is the caller's to supply, and [`Repo::at`] is this with
+    /// [`Disk`] and nothing more.
+    pub fn on(files: F, root: impl Into<PathBuf>) -> Self {
+        Self::with_notes_on(files, root, NOTES_DIR)
+    }
+
+    /// [`Repo::with_notes`], on `files`.
+    pub fn with_notes_on(files: F, root: impl Into<PathBuf>, notes: impl Into<String>) -> Self {
         Self {
+            files,
             root: root.into(),
             notes: notes.into(),
         }
@@ -150,15 +183,31 @@ impl Repo {
         &self.root
     }
 
+    /// The filesystem the directory is on.
+    pub fn files(&self) -> &F {
+        &self.files
+    }
+
     /// The store's directory, inside it.
     pub fn store_dir(&self) -> PathBuf {
         self.root.join(STORE_DIR)
     }
+}
 
+impl<F: Filesystem> Repo<F> {
     /// Whether a store is here — the marker file, not the directory: a folder
     /// merely named `history` is ordinary content.
+    ///
+    /// A filesystem that cannot say is taken to be saying no, which is what
+    /// asking `std::fs` the same question always answered.
     pub fn exists(&self) -> bool {
-        self.store_dir().join(HEADER_FILE).is_file()
+        files::is_file(&self.files, &self.store_dir().join(HEADER_FILE)).unwrap_or(false)
+    }
+
+    /// The store, opened on this repository's filesystem. A borrowed
+    /// filesystem is a filesystem, so nothing has to be cloned to open one.
+    pub(crate) fn store(&self) -> Result<Store<&F>> {
+        Store::open_on(&self.files, self.store_dir()).map_err(history)
     }
 
     /// The current head, as a digest. `None` for a store that holds no
@@ -167,7 +216,7 @@ impl Repo {
         if !self.exists() {
             return Ok(None);
         }
-        let store = Store::open(self.store_dir()).map_err(history)?;
+        let store = self.store()?;
         Ok(head_of(&store).map(|h| h.to_string()))
     }
 
@@ -178,16 +227,17 @@ impl Repo {
     pub fn note(&self, name: &str, value: &str) -> Result<()> {
         let path = self.note_path(name)?;
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
+            self.files.create_directory(parent)?;
         }
-        std::fs::write(path, format!("{}\n", value.trim()))?;
+        self.files
+            .write(&path, format!("{}\n", value.trim()).as_bytes())?;
         Ok(())
     }
 
     /// One noted fact, or `None` when it was never noted — which is what a
     /// copy fetched before the note existed answers, and re-fetching writes.
     pub fn noted(&self, name: &str) -> Option<String> {
-        let text = std::fs::read_to_string(self.note_path(name).ok()?).ok()?;
+        let text = files::read_to_string(&self.files, &self.note_path(name).ok()?).ok()?;
         let noted = text.trim();
         (!noted.is_empty()).then(|| noted.to_string())
     }
@@ -242,12 +292,11 @@ impl Repo {
         source: &S,
         manifest: &str,
     ) -> Result<Received> {
-        let store_dir = self.store_dir();
         if !self.exists() {
-            std::fs::create_dir_all(&self.root)?;
-            Store::init(&store_dir).map_err(history)?;
+            self.files.create_directory(&self.root)?;
+            Store::init_on(&self.files, self.store_dir()).map_err(history)?;
         }
-        let mut store = Store::open(&store_dir).map_err(history)?;
+        let mut store = self.store()?;
         // The claims that vouch for what arrives come with it, as `reserved`
         // entries of the offer: historica carries a reserved directory by its
         // class, and its registry says `claims/` travels and `trust/` does
@@ -257,7 +306,7 @@ impl Repo {
 
         // Reopen: what a fetch destroyed in compliance with a forgetting is
         // best read from a store that has not held the originals in memory.
-        let store = Store::open(&store_dir).map_err(history)?;
+        let store = self.store()?;
         let head = head_of(&store);
         let files = match &head {
             Some(head) => materialised(&store, head)?,
@@ -284,7 +333,7 @@ impl Repo {
         if !self.exists() {
             return Ok(Vec::new());
         }
-        let store = Store::open(self.store_dir()).map_err(history)?;
+        let store = self.store()?;
         let Some(head) = head_of(&store) else {
             return Ok(Vec::new());
         };
@@ -353,26 +402,43 @@ impl Repo {
     /// Write the head's files into the repository, clearing whatever was
     /// there. The store is left alone — it is what says which files these
     /// are.
-    fn lay_out(&self, files: &[(String, String)]) -> Result<()> {
-        for entry in std::fs::read_dir(&self.root)? {
-            let path = entry?.path();
-            if path.file_name().and_then(|n| n.to_str()) == Some(STORE_DIR) {
+    fn lay_out(&self, laid: &[(String, String)]) -> Result<()> {
+        for entry in self.files.entries(&self.root)? {
+            if entry.path.file_name().and_then(|n| n.to_str()) == Some(STORE_DIR) {
                 continue;
             }
-            match path.is_dir() {
-                true => std::fs::remove_dir_all(&path)?,
-                false => std::fs::remove_file(&path)?,
+            match entry.kind.is_directory() {
+                true => remove_tree(&self.files, &entry.path)?,
+                false => self.files.remove_file(&entry.path)?,
             }
         }
-        for (path, text) in files {
+        for (path, text) in laid {
             let full = self.root.join(path);
             if let Some(parent) = full.parent() {
-                std::fs::create_dir_all(parent)?;
+                self.files.create_directory(parent)?;
             }
-            std::fs::write(full, text)?;
+            self.files.write(&full, text.as_bytes())?;
         }
         Ok(())
     }
+}
+
+/// Remove a directory and everything under it.
+///
+/// The trait removes one empty directory at a time on purpose — historica
+/// tidies upwards until a directory refuses, and a recursive remove there
+/// would delete a history a level at a time — so the recursion is spelled
+/// here, for the one directory this crate means to empty: the head it is
+/// about to lay out again. A link is removed as a link, never followed.
+fn remove_tree<F: Filesystem + ?Sized>(files: &F, path: &Path) -> Result<()> {
+    for entry in files.entries(path)? {
+        match entry.kind.is_directory() {
+            true => remove_tree(files, &entry.path)?,
+            false => files.remove_file(&entry.path)?,
+        }
+    }
+    files.remove_directory(path)?;
+    Ok(())
 }
 
 /// A name that is about to be a path segment, and nothing else is assumed
@@ -393,7 +459,7 @@ pub fn check_name(name: &str) -> Result<()> {
 /// A superseded head is one an amendment replaced; what is left is the
 /// current one. A chain with nothing but superseded heads has been amended
 /// down to nothing readable, and the raw heads are better than no answer.
-pub(crate) fn current_heads(store: &Store) -> Vec<RevisionId> {
+pub(crate) fn current_heads<F: Filesystem>(store: &Store<F>) -> Vec<RevisionId> {
     let history = store.history();
     let heads = history.heads();
     let superseded = history.superseded();
@@ -404,7 +470,7 @@ pub(crate) fn current_heads(store: &Store) -> Vec<RevisionId> {
     }
 }
 
-pub(crate) fn head_of(store: &Store) -> Option<RevisionId> {
+pub(crate) fn head_of<F: Filesystem>(store: &Store<F>) -> Option<RevisionId> {
     current_heads(store).first().copied()
 }
 
@@ -413,7 +479,10 @@ pub(crate) fn head_of(store: &Store) -> Option<RevisionId> {
 /// Files of bytes are skipped: a remark is text, and a caller wanting the
 /// rest of what a chain holds should ask the store, which is the thing that
 /// has it.
-pub(crate) fn materialised(store: &Store, revision: &RevisionId) -> Result<Vec<(String, String)>> {
+pub(crate) fn materialised<F: Filesystem>(
+    store: &Store<F>,
+    revision: &RevisionId,
+) -> Result<Vec<(String, String)>> {
     let tree = store.tree(revision).map_err(history)?;
     let mut out = Vec::new();
     for (file, entry) in tree.entries() {

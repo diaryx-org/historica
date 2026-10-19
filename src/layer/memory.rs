@@ -1,18 +1,32 @@
 //! A historica [`Filesystem`] made of two maps.
 //!
 //! historica reaches a folder only through its `Filesystem` trait (its
-//! decision 0025), and an export is a store *written* somewhere. Where the
-//! somewhere is a set of objects about to be sealed and handed to a stranger,
-//! there is no directory on disk that should hold the plaintext even
-//! briefly — so the export is written here, read back as bytes, and dropped.
+//! decision 0025), and so does everything in [`crate::layer`]. Two things here
+//! want a folder that is not on a disk.
 //!
-//! This is the one place in the crate that does not use historica's `disk`,
-//! and the reason [`crate::layer`] enabling `disk` is not the same as this
-//! crate assuming a filesystem everywhere.
+//! **The export.** An export is a store *written* somewhere, and where the
+//! somewhere is a set of objects about to be sealed and handed to a stranger,
+//! there is no directory on disk that should hold the plaintext even briefly —
+//! so the export is written here, read back as bytes, and dropped. That is
+//! the one place the crate chooses this over historica's `disk` for itself.
+//!
+//! **A caller's tests.** historica publishes its trait and [`Disk`], and no
+//! filesystem that is not one: its own in-memory implementation lives in its
+//! test suite. A caller that keeps layers and wants to drive them without a
+//! temporary directory — every receive on a real disk pays for historica's
+//! durable writes, which is most of what such a test spends its time on —
+//! would otherwise have to write this file again. So it is public, and a
+//! [`Repo`](super::Repo) or [`Layers`](super::Layers) opened `_on` an
+//! `Arc<Memory>` is the whole of a layer held in memory.
 //!
 //! Nine methods over two `BTreeMap`s, after the implementation historica's
 //! own test suite drives a whole history through. Paths are keys exactly as
-//! they arrive; nothing is canonicalised because nothing asks for it.
+//! they arrive; nothing is canonicalised because nothing asks for it. It is
+//! more forgiving than a disk in one way worth knowing: a file may be written
+//! under a directory nobody made, so a caller's own code that forgot to make
+//! one is not caught here.
+//!
+//! [`Disk`]: historica::fs::Disk
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::io;
@@ -22,8 +36,22 @@ use std::sync::Mutex;
 use historica::fs::{Entry, Filesystem, Kind};
 
 /// Files and directories in memory, and nothing else.
+///
+/// Shared by holding it in an `Arc` — `Arc<Memory>` is itself a
+/// [`Filesystem`], and cloning it is how one set of files is handed to every
+/// [`Repo`](super::Repo) and store that should see the same folder:
+///
+/// ```
+/// use std::sync::Arc;
+/// use historica_remark::layer::{Layers, Memory};
+///
+/// let files = Arc::new(Memory::default());
+/// let layers = Layers::on(Arc::clone(&files), "/kept");
+/// assert!(layers.names()?.is_empty());
+/// # Ok::<(), historica_remark::Error>(())
+/// ```
 #[derive(Debug, Default)]
-pub(crate) struct Memory {
+pub struct Memory {
     held: Mutex<Held>,
 }
 
