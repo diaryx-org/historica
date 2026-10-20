@@ -1,0 +1,169 @@
+# Decision 0087's globs, each with the paths it covers (+) and leaves (-).
+#
+# A case is a rule as its file states it, then its paths, and a blank line
+# ends it. Every verdict here is git's: `sh against-git.sh` writes each rule
+# as the `.gitignore` that means the same and asks `git check-ignore`.
+
+# Anchored: a glob is matched against the whole path.
+skip-glob src/*.rs
++ src/main.rs
++ src/.hidden.rs
+- src/a/main.rs
+- lib/src/main.rs
+- main.rs
+
+# Any depth is spelled `**/`.
+skip-glob **/.claude/settings.local.json
++ .claude/settings.local.json
++ apps/web/.claude/settings.local.json
+- .claude/settings.json
+- settings.local.json
+- .claude/w/settings.local.json
+
+skip-glob **/*.log
++ a.log
++ x/y/a.log
++ .log
+- a.log.bak
+
+# A `**` in the middle is any number of directories, none included.
+skip-glob a/**/b
++ a/b
++ a/x/b
++ a/x/y/b
+- b
+- x/a/b
+- a/b/c
+
+skip-glob **/x/*.log
++ x/a.log
++ q/x/a.log
+- x/q/a.log
+
+# A trailing `**` is everything beneath, and not the directory itself.
+skip-glob a/**
++ a/x
++ a/x/y
+- a
+- b/a/x
+
+# `*` takes one component, never two.
+skip-glob */c
++ q/c
+- c
+- q/r/c
+
+skip-glob **/*/c
++ q/c
++ q/r/c
+- c
+
+# `?` is one character, and a set is one character from it.
+skip-glob file?.txt
++ file1.txt
++ filea.txt
+- file.txt
+- file12.txt
+
+skip-glob [ab].c
++ a.c
++ b.c
+- c.c
+- ab.c
+
+skip-glob x[!0-9]
++ xa
+- x1
+
+skip-glob [[:digit:]]x
++ 1x
+- ax
+
+skip-glob []a]
++ ]
++ a
+- b
+
+skip-glob [a-]
++ -
++ a
+- b
+
+# An escape means the character.
+skip-glob \*
++ *
+- a
+
+skip-glob trail\ 
++ trail 
+- trail
+
+# A value follows a key, so `#` and `!` at its start are ordinary.
+skip-glob #notes
++ #notes
+- notes
+
+skip-glob !important
++ !important
+- important
+
+# Without a trailing `/`, a file; with one, everything beneath a directory.
+skip-glob **/out
++ out
++ a/out
+- a/out/x
+
+skip-glob **/out/
++ out/x
++ a/out/x/y
+- out
+- outer/x
+
+# An exception narrows its own rule.
+skip-glob **/*.tmp
+except **/keep.tmp
++ a.tmp
++ x/a.tmp
+- keep.tmp
+- x/keep.tmp
+
+# The allowlist: everything at the root but what is named.
+skip-glob *
+except README.md
++ notes.txt
+- README.md
+- docs/a
+
+skip-glob */
+except docs/
+except www/
++ src/a
++ src/b/c
+- docs/a
+- docs/b/c
+- www/index.html
+- README.md
+
+# A file beneath an excluded directory stays excluded. `build/` matches, so
+# everything beneath it is covered, and an exception naming a directory inside
+# it never gets a say: git's `build/` then `!build/keep/` keeps nothing.
+skip-glob build/
+except build/keep/
++ build/a
++ build/keep.txt
++ build/keep/a
+
+# An exception reaches what the rule's own pattern matches.
+skip-glob build/*/
+except build/keep/
++ build/a/b
+- build/keep/a
+- build/b
+
+# Everything, with an exception, is a rule.
+skip-glob **
+except docs/**
++ a
++ src/a
+- docs/a
+- docs/b/c

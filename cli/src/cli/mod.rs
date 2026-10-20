@@ -216,10 +216,14 @@ const REST: &str = "  forget <target> <path> [--lines <first>..<last>] [--dry-ru
                            here: a replica that still holds the name brings
                            it back on the next receive
   skip [--private] <path>... [--name <name>]
+       [--glob <pattern> [--except <pattern>]...]
                            stop history taking a path, a directory, or a
                            name in which `*` is any run of characters.
-                           --private keeps the rule's own text out of an
-                           `export`; with no arguments, print the rules
+                           --glob takes a gitignore pattern matched from the
+                           root, `**/` for any depth, and each --except
+                           narrows the --glob before it. --private keeps the
+                           rule's own text out of an `export`; with no
+                           arguments, print the rules
 
 a <target> is `head`, a bookmark, a change ID, or a revision digest; the last
 two may
@@ -1532,7 +1536,8 @@ fn delete_name(
     })
 }
 
-/// `skip [--private] <path>... [--name <name>]` — what history does not take.
+/// `skip [--private] <path>... [--name <name>] [--glob <pattern> [--except
+/// <pattern>]...]` — what history does not take.
 ///
 /// The file is four keys and a value, so this command is a convenience and
 /// says so by refusing to be anything more: it appends the line a person
@@ -1547,9 +1552,14 @@ fn delete_name(
 /// command means one thing by it, and a flag that moved rule by rule would be
 /// a precedence to read, which is what the rule file exists not to have.
 ///
+/// `--except` is the one flag that belongs to another: decision 0087 makes an
+/// exception part of its glob's rule, so it narrows the `--glob` before it and
+/// is refused where there is none.
+///
 /// With no arguments it prints the rules, as `names` prints the bookmarks.
 fn skip(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     let mut scopes: Vec<Scope> = Vec::new();
+    let mut globs: Vec<(String, Vec<String>)> = Vec::new();
     let mut private = false;
     let mut arguments = arguments.into_iter();
     while let Some(argument) = arguments.next() {
@@ -1560,6 +1570,26 @@ fn skip(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
                     .next()
                     .ok_or_else(|| Failure::usage("`--name` wants a name to match"))?;
                 scopes.push(name_scope(&name)?);
+            }
+            "--glob" => {
+                let pattern = arguments
+                    .next()
+                    .ok_or_else(|| Failure::usage("`--glob` wants a pattern to match"))?;
+                globs.push((pattern, Vec::new()));
+            }
+            "--except" => {
+                let pattern = arguments
+                    .next()
+                    .ok_or_else(|| Failure::usage("`--except` wants a pattern to leave"))?;
+                globs
+                    .last_mut()
+                    .ok_or_else(|| {
+                        Failure::usage(
+                            "`--except` narrows the `--glob` before it, and there is none",
+                        )
+                    })?
+                    .1
+                    .push(pattern);
             }
             // Decision 0051 retires the key, so the flag that wrote it goes
             // with it, and says what to type instead rather than what it is
@@ -1578,13 +1608,19 @@ fn skip(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
             path => scopes.push(path_scope(base, path)?),
         }
     }
-    let wanted: Vec<Rule> = scopes
+    let mut wanted: Vec<Rule> = scopes
         .into_iter()
         .map(|scope| match private {
             true => Rule::private(scope),
             false => Rule::shared(scope),
         })
         .collect();
+    for (pattern, except) in &globs {
+        let except: Vec<&str> = except.iter().map(String::as_str).collect();
+        wanted.push(Rule::glob(private, pattern, &except).map_err(|because| {
+            Failure::usage(format!("`{pattern}` cannot be a glob: {because}"))
+        })?);
+    }
 
     let mut store = open(base)?;
     if wanted.is_empty() {

@@ -143,13 +143,29 @@ the next sync, which the command says rather than leaving to be discovered.
 
 ### `skip`
 
-Writes the rule saying what recording does not take. A rule is four keys on two
+Writes the rule saying what recording does not take. A rule is six keys on two
 axes ([0045](decisions/0045-one-rule-to-a-file.md),
-[0051](decisions/0051-two-axes-for-a-rule.md)): `skip <path>` and
+[0051](decisions/0051-two-axes-for-a-rule.md),
+[0087](decisions/0087-a-glob-for-what-a-name-cannot-say.md)): `skip <path>` and
 `skip <path>/` name a file and a directory, `skip-name <name>` and
 `skip-name <name>/` match one path component at any depth with `*` standing for
-any run of characters in it, and `private` and `private-name` say the same
-things while keeping their own text out of an `export`.
+any run of characters in it, `skip-glob <pattern>` and `skip-glob <pattern>/`
+say in gitignore's pattern language what a name cannot, and `private`,
+`private-name` and `private-glob` say the same things while keeping their own
+text out of an `export`.
+
+A glob is matched against the whole path from the root, so any depth is
+spelled `**/`: git's `*.log` is `--glob '**/*.log'`, and git's `/build` and
+`src/*.rs` are `--glob build` and `--glob 'src/*.rs'`. Each `--except` after a
+`--glob` is an `except` line in that rule's file, and narrows that rule and no
+other:
+
+```console
+$ historica skip --glob '*/' --except docs/ --except www/
+```
+
+A glob that a `skip` or `skip-name` rule says exactly is accepted, and `check`
+names the readable rule as a note.
 
 A rule covering a file the tree already holds is refused, because the walk
 would stop offering the path and the next record would spell a request for

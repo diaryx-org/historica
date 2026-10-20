@@ -3388,6 +3388,73 @@ fn a_pattern_that_holds_a_separator_or_only_stars_is_refused() {
 }
 
 #[test]
+fn a_glob_rule_says_what_a_name_cannot() {
+    // Decision 0087: anchored at the root, `**/` for any depth, and an
+    // `--except` narrowing the `--glob` before it.
+    let directory = repository("skip-glob");
+    write(&directory, "notes.md", "kept\n");
+    write(&directory, ".claude/settings.json", "tracked\n");
+    write(&directory, ".claude/settings.local.json", "mine\n");
+    write(&directory, "apps/web/.claude/settings.local.json", "mine\n");
+    write(&directory, "src/main.tmp", "a dropping\n");
+    write(&directory, "src/keep.tmp", "wanted\n");
+    write(&directory, "lib/src/main.tmp", "a dropping elsewhere\n");
+
+    let written = out(recorded(
+        &directory,
+        &["skip", "--glob", "**/.claude/settings.local.json"],
+    ));
+    assert!(
+        written.contains("skip-glob **/.claude/settings.local.json"),
+        "{written}"
+    );
+    out(recorded(
+        &directory,
+        &["skip", "--glob", "src/*.tmp", "--except", "src/keep.tmp"],
+    ));
+    let narrowed = walk_names(&directory.join("history/skipped"))
+        .into_iter()
+        .find(|label| {
+            fs::read_to_string(directory.join("history/skipped").join(label))
+                .is_ok_and(|text| text == "skip-glob src/*.tmp\nexcept src/keep.tmp\n")
+        });
+    assert!(
+        narrowed.is_some(),
+        "the rule and its exception are one file"
+    );
+
+    let first = out(recorded(&directory, &["record", "-m", "First"]));
+    assert!(first.contains(".claude/settings.json"), "{first}");
+    assert!(!first.contains("settings.local.json"), "{first}");
+    assert!(!first.contains("added   src/main.tmp"), "{first}");
+    assert!(first.contains("src/keep.tmp"), "{first}");
+    assert!(first.contains("lib/src/main.tmp"), "{first}");
+
+    // A glob covering a recorded file is refused, as any rule is.
+    let complaint = refused(&directory, &["skip", "--glob", "**/settings.json"]);
+    assert!(complaint.contains(".claude/settings.json"), "{complaint}");
+    // And so is a second spelling, an exception with no glob, and everything.
+    let complaint = refused(&directory, &["skip", "--glob", "/src/*.log"]);
+    assert!(complaint.contains("leading `/`"), "{complaint}");
+    let complaint = refused(&directory, &["skip", "--except", "a"]);
+    assert!(complaint.contains("there is none"), "{complaint}");
+    let complaint = refused(&directory, &["skip", "--glob", "**"]);
+    assert!(complaint.contains("covers everything"), "{complaint}");
+}
+
+#[test]
+fn check_names_the_readable_rule_a_glob_could_be() {
+    let directory = repository("skip-glob-readable");
+    out(recorded(&directory, &["skip", "--glob", "**/*.log"]));
+    let checked = out(recorded(&directory, &["check"]));
+    assert!(
+        checked.contains("`skip-name *.log` says exactly"),
+        "{checked}"
+    );
+    assert!(checked.contains("no errors, 1 note"), "{checked}");
+}
+
+#[test]
 fn check_names_a_path_covered_both_privately_and_shared() {
     // Decision 0051's one way the travel axis fails: a union takes both, so
     // the shared rule names the path in every copy and the private rule

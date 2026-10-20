@@ -57,7 +57,9 @@ earlier line. A glob can be admitted without any of the three.
   - `[...]` matches one character from a set: single characters, ranges such
     as `a-z`, and POSIX classes such as `[:digit:]`. `[!...]` negates the set;
     `[^...]` is refused, so negation has one spelling. A `]` first in the set,
-    and a `-` first or last, stand for themselves. A set never matches `/`.
+    and a `-` first or last, stand for themselves, so a set holds no `\`. A
+    set never matches `/`. A `[` that no `]` closes is refused, since git
+    matches nothing with it, and a literal one is `\[`.
   - `**` is a whole part or it is refused, and two are never adjacent. As the
     first part it matches any number of directories, including none. In the
     middle it does the same, so `a/**/b` covers `a/b`. As the last part, it
@@ -66,12 +68,15 @@ earlier line. A glob can be admitted without any of the three.
     `skip-glob a/**` and `skip-glob a/**/`, and is not `skip a/`: with an
     exception, `a/**` can keep a file directly inside `a`, and `a/` cannot.
   - `\` makes the next character literal, and is allowed only before `*`,
-    `?`, `[`, `\`, and a trailing space. A value follows a key, so a `#` or
-    `!` at its start is an ordinary character and needs no escape.
-  - A file rule whose parts are all `*` or `**`, at least one of them `**`,
-    and that states no exception, is refused: it covers every file, and rules
-    exist to name the exceptions. `skip-glob *` is allowed, because it covers
-    only the files at the root, and the allowlist idiom needs it.
+    `?`, `[`, `\`, and a space. A rule's value starts and ends with no
+    unescaped space, so a name's leading or trailing space is `\ `. A value
+    follows a key, so a `#` or `!` at its start is an ordinary character and
+    needs no escape.
+  - A rule whose parts are all `*` or `**`, at least one of them `**`, and
+    that states no exception, is refused: it covers every file, or every file
+    below the root, and rules exist to name the exceptions. `skip-glob *` and
+    `skip-glob */` are allowed, because each covers one level, and the
+    allowlist idiom needs them.
 
   Matching is git's `wildmatch` with pathname matching, which is what
   `gitignore(5)` describes, applied to an anchored pattern. Where that text is
@@ -171,6 +176,10 @@ and not text to copy into this repository.
 - **`core.ignorecase` is not followed.** Matching is case-sensitive, as
   everything in historica is. Where git ignores case, an import can be wrong
   about case, and historica-git says so when it imports.
+- **A character is a character, where git's is a byte.** git's `?` and sets
+  match one byte, so `caf?` does not match `café` in git and does here. This
+  matters only where a `?` or a set meets a character outside ASCII, and
+  `gitignore(5)` describes the reading taken here.
 
 ## For historica-git
 

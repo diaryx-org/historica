@@ -1,0 +1,2 @@
+skip-glob *.tmp
+except keep/

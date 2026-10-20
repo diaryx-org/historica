@@ -27,6 +27,7 @@ be a reader guessing at what it was leaving out, which decision
 | [`modes/`](modes) | [`modes.rs`](../modes.rs) | the executable bit |
 | [`merged/`](merged) | [`resolution.rs`](../resolution.rs) | what a merge records as its resolution |
 | [`diffs/`](diffs) | [`diff.rs`](../diff.rs) | the choices the writer makes |
+| [`skipped/`](skipped) | [`skipped.rs`](../skipped.rs) | what a glob rule covers |
 
 ## `revisions/`
 
@@ -104,3 +105,13 @@ a property test cannot see. Decision
 [0009](../../docs/decisions/0009-diff.md) is the argument, and
 [`examples/matchers.rs`](../../examples/matchers.rs) is the measurement it chose
 the matcher on.
+
+## `skipped/`
+
+`cases.txt` is each `skip-glob` rule with the paths it covers and the paths it
+leaves, and nineteen invalid rule files are each refused for their own
+reason. The verdicts are git's, not ours: `sh against-git.sh` writes each rule
+as the `.gitignore` that means the same and asks `git check-ignore`, and fails
+on any verdict git does not give. Decision
+[0087](../../docs/decisions/0087-a-glob-for-what-a-name-cannot-say.md) is the
+argument.
