@@ -27,6 +27,9 @@ use crate::fs::{Disk, Entry, Filesystem, Stamp, read_to_string};
 use crate::store::{HEADER_FILE, STORE_DIR};
 
 mod catalogue;
+mod glob;
+
+pub use glob::{Glob, GlobPattern};
 
 /// The directory in the store that says what history does not take.
 ///
@@ -62,9 +65,12 @@ const LABEL_BYTES: usize = 200;
 
 /// What `history/skipped/` says.
 ///
-/// Four keys on two axes, and the set closes there: decision 0051 makes what a
-/// rule matches orthogonal to whether it travels, so `skip` and `skip-name`
-/// each have a `private` spelling and no combination is missing. The matching
+/// Six keys on two axes, and the set closes there: decision 0051 makes what a
+/// rule matches orthogonal to whether it travels, so `skip`, `skip-name` and
+/// decision 0087's `skip-glob` each have a `private` spelling and no
+/// combination is missing. The glob is the case a name cannot say, and it says
+/// it in git's own pattern language, anchored and with one spelling to a
+/// meaning; what follows is the argument for the two readable kinds. The matching
 /// side stops at a path component — decision 0011 argues that the part people
 /// get wrong about gitignore is never the pattern but which of five files won,
 /// and 0045 found that precedence lived in the container. A star inside one
@@ -109,6 +115,10 @@ pub enum Scope {
     Name(Pattern),
     /// A directory's name at any depth, and everything beneath it.
     NameUnder(Pattern),
+    /// Decision 0087: a file whose whole path a glob admits.
+    Glob(Glob),
+    /// Decision 0087: everything beneath a directory whose path a glob admits.
+    GlobUnder(Glob),
 }
 
 impl Rule {
@@ -133,33 +143,41 @@ impl Rule {
         !self.private
     }
 
-    /// Read one stated rule.
+    /// Read one stated rule: a line, and for a glob, the `except` lines that
+    /// follow it.
     ///
     /// An unknown key is an error rather than something to ignore. Decision
     /// 0011: a reader that ignored a key it had not heard of would record
     /// files somebody asked it to keep out, into a history that is
     /// append-only, and refusing to record is the recoverable half of that.
-    pub fn parse(line: &str) -> Result<Self, MalformedSkip> {
-        Self::parse_at(line, 1)
+    pub fn parse(text: &str) -> Result<Self, MalformedSkip> {
+        let mut lines = text.lines().enumerate();
+        let Some((_, first)) = lines.next() else {
+            return Err(MalformedSkip {
+                at: 1,
+                because: "a line is a key, a space, and a value",
+            });
+        };
+        let mut reading = Self::parse_at(first, 1)?;
+        for (index, line) in lines {
+            reading.except_at(line, index + 1)?;
+        }
+        reading.finish()
     }
 
     /// The same, saying which line of its file the rule was on.
-    fn parse_at(line: &str, at: usize) -> Result<Self, MalformedSkip> {
+    fn parse_at(line: &str, at: usize) -> Result<Reading, MalformedSkip> {
         let (key, value) = line.split_once(' ').ok_or(MalformedSkip {
             at,
             because: "a line is a key, a space, and a value",
         })?;
-        if value.is_empty() || value != value.trim() {
-            return Err(MalformedSkip {
-                at,
-                because: "a value is not empty and carries no leading or trailing space",
-            });
-        }
         let (private, matching) = match key {
-            "skip" => (false, false),
-            "private" => (true, false),
-            "skip-name" => (false, true),
-            "private-name" => (true, true),
+            "skip" => (false, Matching::Path),
+            "private" => (true, Matching::Path),
+            "skip-name" => (false, Matching::Name),
+            "private-name" => (true, Matching::Name),
+            "skip-glob" => (false, Matching::Glob),
+            "private-glob" => (true, Matching::Glob),
             // Decision 0051 retires it: `skip-suffix .tmp` is `skip-name
             // *.tmp` with the meaning it always had, since the old rule was
             // already a match against the last component.
@@ -171,14 +189,30 @@ impl Rule {
                               file's own name",
                 });
             }
+            "except" => {
+                return Err(MalformedSkip {
+                    at,
+                    because: "an `except` line follows the `skip-glob` or \
+                              `private-glob` rule it narrows",
+                });
+            }
             _ => {
                 return Err(MalformedSkip {
                     at,
-                    because: "the keys are `skip`, `skip-name`, `private` and \
-                              `private-name`",
+                    because: "the keys are `skip`, `skip-name`, `skip-glob`, \
+                              `private`, `private-name` and `private-glob`",
                 });
             }
         };
+        // A glob may end in an escaped space, which is how a name ending in
+        // one is spelled; its own parser says what else it refuses.
+        let spaced = value != value.trim() && matching != Matching::Glob;
+        if value.is_empty() || spaced {
+            return Err(MalformedSkip {
+                at,
+                because: "a value is not empty and carries no leading or trailing space",
+            });
+        }
         let under = value.ends_with('/');
         let value = match under {
             true => value.trim_end_matches('/'),
@@ -192,17 +226,78 @@ impl Rule {
                 because: "a value is not empty and carries no leading or trailing space",
             });
         }
+        let refused = |because| MalformedSkip { at, because };
         let scope = match (matching, under) {
-            (false, false) => Scope::Path(crate::format::nfc(value).into_owned()),
-            (false, true) => Scope::Under(crate::format::nfc(value).into_owned()),
-            (true, false) => {
-                Scope::Name(Pattern::parse(value).map_err(|because| MalformedSkip { at, because })?)
+            (Matching::Path, false) => Scope::Path(crate::format::nfc(value).into_owned()),
+            (Matching::Path, true) => Scope::Under(crate::format::nfc(value).into_owned()),
+            (Matching::Name, false) => Scope::Name(Pattern::parse(value).map_err(refused)?),
+            (Matching::Name, true) => Scope::NameUnder(Pattern::parse(value).map_err(refused)?),
+            (Matching::Glob, under) => {
+                let pattern = GlobPattern::parse(&crate::format::nfc(value)).map_err(refused)?;
+                return Ok(Reading::Glob {
+                    private,
+                    under,
+                    pattern,
+                    except: Vec::new(),
+                    at,
+                });
             }
-            (true, true) => Scope::NameUnder(
-                Pattern::parse(value).map_err(|because| MalformedSkip { at, because })?,
-            ),
         };
-        Ok(Rule { scope, private })
+        Ok(Reading::Done(Rule { scope, private }))
+    }
+
+    /// A glob rule from its value and its exceptions, each spelled as its
+    /// line would spell it, trailing `/` and all.
+    ///
+    /// For the writers that are not a file, `skip --glob` and an import, so
+    /// that what they build is refused for exactly what a file would be.
+    pub fn glob(private: bool, value: &str, except: &[&str]) -> Result<Self, &'static str> {
+        let text = std::iter::once(format!(
+            "{} {value}",
+            if private { "private-glob" } else { "skip-glob" }
+        ))
+        .chain(except.iter().map(|except| format!("except {except}")))
+        .collect::<Vec<_>>()
+        .join("\n");
+        Self::parse(&text).map_err(|malformed| malformed.because)
+    }
+
+    /// The `skip` or `skip-name` rule that says exactly what this glob says.
+    ///
+    /// Decision 0087 keeps the readable kinds first, so a glob one of them can
+    /// say is one `check` names, and an import writes as the readable rule.
+    /// Only a glob with no exception: `**/` and a name holding no `?`, set or
+    /// escape is `skip-name`, and a value with no wildcard at all is `skip`.
+    pub fn readable(&self) -> Option<Rule> {
+        let (glob, under) = match &self.scope {
+            Scope::Glob(glob) => (glob, false),
+            Scope::GlobUnder(glob) => (glob, true),
+            _ => return None,
+        };
+        if !glob.except().is_empty() {
+            return None;
+        }
+        let value = glob.pattern().as_str();
+        let scope = if glob.pattern().is_literal() {
+            match under {
+                true => Scope::Under(value.to_owned()),
+                false => Scope::Path(value.to_owned()),
+            }
+        } else {
+            let name = value.strip_prefix("**/")?;
+            if name.contains(['/', '?', '[', '\\']) {
+                return None;
+            }
+            let pattern = Pattern::parse(name).ok()?;
+            match under {
+                true => Scope::NameUnder(pattern),
+                false => Scope::Name(pattern),
+            }
+        };
+        Some(Rule {
+            scope,
+            private: self.private,
+        })
     }
 
     /// Where a writer files this rule, relative to `skipped/`.
@@ -230,6 +325,22 @@ impl Rule {
             }
             Scope::NameUnder(pattern) => {
                 format!("name {}/{UNDER_FILE}", crate::naming::scrubbed(&pattern.0))
+            }
+            // Decision 0087: a glob mirrors its value only where the value is
+            // a path a folder can carry, and a rule with exceptions is more
+            // than its value, so it takes the digest of all of it.
+            Scope::Glob(glob) | Scope::GlobUnder(glob) => {
+                let value = glob.pattern().as_str();
+                let mirrorable = glob.except().is_empty()
+                    && glob.pattern().is_literal()
+                    && !value.split('/').any(crate::store::platform_name);
+                if !mirrorable {
+                    return self.digest_label();
+                }
+                match self.covers_everything_under() {
+                    true => format!("glob {}/{UNDER_FILE}", crate::naming::scrubbed(value)),
+                    false => format!("glob {}{RULE_SUFFIX}", crate::naming::scrubbed(value)),
+                }
             }
         };
         match self.spellable(&natural) {
@@ -277,7 +388,10 @@ impl Rule {
 
     /// Whether this rule's scope is a directory and what hangs beneath it.
     fn covers_everything_under(&self) -> bool {
-        matches!(self.scope, Scope::Under(_) | Scope::NameUnder(_))
+        matches!(
+            self.scope,
+            Scope::Under(_) | Scope::NameUnder(_) | Scope::GlobUnder(_)
+        )
     }
 
     /// Whether this rule covers a path.
@@ -296,6 +410,101 @@ impl Rule {
                 components.pop();
                 components.iter().any(|name| pattern.matches(name))
             }
+            Scope::Glob(glob) => glob.admits(&path.split('/').collect::<Vec<_>>()),
+            // Decision 0087: each directory above the file, tested whole, and
+            // an exception tested against the same directory. That is what
+            // keeps a file beneath an excluded directory excluded, as git does.
+            Scope::GlobUnder(glob) => {
+                let components: Vec<&str> = path.split('/').collect();
+                (1..components.len()).any(|depth| glob.admits(&components[..depth]))
+            }
+        }
+    }
+}
+
+/// Which of decision 0087's three kinds of matching a key names.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Matching {
+    Path,
+    Name,
+    Glob,
+}
+
+/// A rule part way through being read: whole, or a glob still taking the
+/// `except` lines that follow it.
+enum Reading {
+    Done(Rule),
+    Glob {
+        private: bool,
+        under: bool,
+        pattern: GlobPattern,
+        except: Vec<GlobPattern>,
+        /// The rule's own line, which a refusal of the whole rule names.
+        at: usize,
+    },
+}
+
+impl Reading {
+    /// Take one more line of the rule's file.
+    fn except_at(&mut self, line: &str, at: usize) -> Result<(), MalformedSkip> {
+        let Some(value) = line.strip_prefix("except ") else {
+            return Err(MalformedSkip {
+                at,
+                because: "a file states one rule, and this is a second",
+            });
+        };
+        let Reading::Glob { under, except, .. } = self else {
+            return Err(MalformedSkip {
+                at,
+                because: "an `except` line narrows a `skip-glob` or `private-glob` \
+                          rule, and this file states another kind",
+            });
+        };
+        let value = match (value.strip_suffix('/'), *under) {
+            (Some(value), true) => value,
+            (None, false) => value,
+            (Some(_), false) => {
+                return Err(MalformedSkip {
+                    at,
+                    because: "an exception to a file rule names files, so it ends \
+                              without `/`, or it could never apply",
+                });
+            }
+            (None, true) => {
+                return Err(MalformedSkip {
+                    at,
+                    because: "an exception to a directory rule names directories, so \
+                              it ends in `/`, or it could never apply",
+                });
+            }
+        };
+        let pattern = GlobPattern::parse(&crate::format::nfc(value))
+            .map_err(|because| MalformedSkip { at, because })?;
+        except.push(pattern);
+        Ok(())
+    }
+
+    /// The rule, once every line is read.
+    fn finish(self) -> Result<Rule, MalformedSkip> {
+        match self {
+            Reading::Done(rule) => Ok(rule),
+            Reading::Glob {
+                private,
+                under,
+                pattern,
+                except,
+                at,
+            } => {
+                let glob =
+                    Glob::new(pattern, except).map_err(|because| MalformedSkip { at, because })?;
+                Ok(Rule {
+                    scope: match under {
+                        true => Scope::GlobUnder(glob),
+                        false => Scope::Glob(glob),
+                    },
+                    private,
+                })
+            }
         }
     }
 }
@@ -308,13 +517,10 @@ impl fmt::Display for Rule {
             (Scope::Path(_) | Scope::Under(_), true) => "private",
             (Scope::Name(_) | Scope::NameUnder(_), false) => "skip-name",
             (Scope::Name(_) | Scope::NameUnder(_), true) => "private-name",
+            (Scope::Glob(_) | Scope::GlobUnder(_), false) => "skip-glob",
+            (Scope::Glob(_) | Scope::GlobUnder(_), true) => "private-glob",
         };
-        match &self.scope {
-            Scope::Path(value) => write!(f, "{key} {value}"),
-            Scope::Under(value) => write!(f, "{key} {value}/"),
-            Scope::Name(pattern) => write!(f, "{key} {pattern}"),
-            Scope::NameUnder(pattern) => write!(f, "{key} {pattern}/"),
-        }
+        write!(f, "{key} {}", self.scope)
     }
 }
 
@@ -327,6 +533,22 @@ impl fmt::Display for Scope {
             Scope::Under(value) => write!(f, "{value}/"),
             Scope::Name(pattern) => write!(f, "{pattern}"),
             Scope::NameUnder(pattern) => write!(f, "{pattern}/"),
+            // The exceptions are part of the value, one line each, which is
+            // what makes the rule's text its file and its digest.
+            Scope::Glob(glob) => {
+                write!(f, "{}", glob.pattern())?;
+                for except in glob.except() {
+                    write!(f, "\nexcept {except}")?;
+                }
+                Ok(())
+            }
+            Scope::GlobUnder(glob) => {
+                write!(f, "{}/", glob.pattern())?;
+                for except in glob.except() {
+                    write!(f, "\nexcept {except}/")?;
+                }
+                Ok(())
+            }
         }
     }
 }
@@ -429,7 +651,13 @@ pub const SKIPPED_NOTE: &str = "\
 # `*` stands for any run of characters within the one name. A `#` line says
 # nothing.
 #
-# `private` and `private-name` say the same things and are not written into an
+# What a name cannot say, `skip-glob <pattern>` says in gitignore's pattern
+# language, always matched from the top of this folder: `**/` is any depth,
+# so git's `*.log` is `skip-glob **/*.log`, and a trailing `/` names a
+# directory and everything beneath it. `except <pattern>` lines after it, in
+# the same file, narrow that rule and no other.
+#
+# `private`, `private-name` and `private-glob` say the same things and are not written into an
 # `export`, which is the only copy this design builds smaller than the store.
 # A path covered both privately and shared is named in the copy anyway, and
 # `check` reports it.
@@ -475,7 +703,7 @@ impl Skipped {
     /// rather than a line inside it — which is the better half of the trade
     /// decision 0045 makes, since the fix is now to split one file in two.
     pub fn rule_in(text: &str) -> Result<Option<Rule>, MalformedSkip> {
-        let mut found: Option<Rule> = None;
+        let mut found: Option<Reading> = None;
         for (index, line) in text.lines().enumerate() {
             let at = index + 1;
             if line.is_empty() {
@@ -487,15 +715,12 @@ impl Skipped {
             if line.starts_with('#') {
                 continue;
             }
-            if found.is_some() {
-                return Err(MalformedSkip {
-                    at,
-                    because: "a file states one rule, and this is a second",
-                });
+            match &mut found {
+                Some(reading) => reading.except_at(line, at)?,
+                None => found = Some(Rule::parse_at(line, at)?),
             }
-            found = Some(Rule::parse_at(line, at)?);
         }
-        Ok(found)
+        found.map(Reading::finish).transpose()
     }
 
     /// The spelling that replaces a retired key this file still states.
@@ -533,7 +758,8 @@ impl Skipped {
             // 0039 able to tell "no such path" from "a rule keeps that path
             // out" now that a rule can name a directory without spelling one.
             Scope::NameUnder(pattern) => pattern.matches(last_component(path)),
-            Scope::Name(_) => false,
+            Scope::GlobUnder(glob) => glob.admits(&path.split('/').collect::<Vec<_>>()),
+            Scope::Name(_) | Scope::Glob(_) => false,
         })
     }
 
@@ -1601,6 +1827,135 @@ mod tests {
         let refused = Skipped::rule_in("skip target/\nskip-name *.tmp\n").expect_err("refused");
         assert_eq!(refused.at, 2);
         assert!(refused.to_string().contains("one rule"));
+    }
+
+    fn glob(text: &str) -> Rule {
+        Skipped::rule_in(text)
+            .expect("a rule the reader accepts")
+            .expect("a file that states one")
+    }
+
+    #[test]
+    fn a_glob_is_matched_against_the_whole_path() {
+        // Decision 0087: anchored, with any depth spelled `**/`.
+        let anchored = glob("skip-glob src/*.rs\n");
+        assert!(anchored.covers("src/main.rs"));
+        assert!(!anchored.covers("lib/src/main.rs"));
+        assert!(!anchored.covers("src/a/main.rs"));
+
+        let anywhere = glob("skip-glob **/.claude/settings.local.json\n");
+        assert!(anywhere.covers(".claude/settings.local.json"));
+        assert!(anywhere.covers("apps/web/.claude/settings.local.json"));
+        assert!(!anywhere.covers(".claude/settings.json"));
+        assert!(!anywhere.covers("settings.local.json"));
+    }
+
+    #[test]
+    fn a_glob_without_a_slash_is_a_file_and_with_one_a_directory() {
+        let file = glob("skip-glob **/out\n");
+        assert!(file.covers("a/out"));
+        assert!(!file.covers("a/out/x"));
+
+        let directory = glob("skip-glob **/out/\n");
+        assert!(directory.covers("a/out/x"));
+        assert!(!directory.covers("a/out"));
+        let rules = Skipped::from_rules([directory]);
+        assert!(rules.skips_directory("a/out"));
+        assert!(!rules.skips_directory("a/outer"));
+    }
+
+    #[test]
+    fn an_exception_narrows_its_own_rule() {
+        let rule = glob("skip-glob **/*.tmp\nexcept **/keep.tmp\n");
+        assert!(rule.covers("a.tmp"));
+        assert!(!rule.covers("x/keep.tmp"));
+        // Rules still union: another rule is not narrowed by this one.
+        let rules = Skipped::from_rules([rule, glob("skip-glob keep.tmp\n")]);
+        assert!(rules.skips("keep.tmp"));
+        assert!(!rules.skips("x/keep.tmp"));
+    }
+
+    #[test]
+    fn a_file_beneath_an_excluded_directory_stays_excluded() {
+        // git's `build/` then `!build/keep.txt`, which does not re-include.
+        let rule = glob("skip-glob build/\n");
+        assert!(rule.covers("build/keep.txt"));
+        // The allowlist: every top-level directory but `docs/`.
+        let allow = glob("skip-glob */\nexcept docs/\n");
+        assert!(allow.covers("src/a"));
+        assert!(!allow.covers("docs/a/b"));
+        assert!(!allow.covers("README.md"));
+    }
+
+    #[test]
+    fn a_glob_rule_reads_back_as_written_with_its_exceptions_sorted() {
+        let rule = glob("private-glob */\nexcept www/\nexcept docs/\nexcept docs/\n");
+        assert_eq!(
+            rule.to_string(),
+            "private-glob */\nexcept docs/\nexcept www/"
+        );
+        assert_eq!(Rule::parse(&rule.to_string()), Ok(rule.clone()));
+        assert_eq!(
+            Rule::glob(true, "*/", &["www/", "docs/"]).as_ref(),
+            Ok(&rule)
+        );
+    }
+
+    #[test]
+    fn what_a_glob_rule_refuses() {
+        for text in [
+            "skip-glob /src/*.rs\n",
+            "skip-glob **\n",
+            "skip-glob **/*\n",
+            "skip-glob **/\n",
+            "skip-glob a**b\n",
+            "skip-glob *.tmp\nexcept keep/\n",
+            "skip-glob tmp/\nexcept keep\n",
+            "skip-name *.tmp\nexcept keep.tmp\n",
+            "except keep.tmp\n",
+            "skip-glob *.tmp\nskip-glob *.log\n",
+        ] {
+            assert!(Skipped::rule_in(text).is_err(), "{text}");
+        }
+        // Everything, with an exception, is the allowlist and is a rule.
+        assert!(Skipped::rule_in("skip-glob **\nexcept docs/**\n").is_ok());
+        assert!(Skipped::rule_in("skip-glob *\n").is_ok());
+        // A trailing space is spelled escaped.
+        assert!(glob("skip-glob trail\\ \n").covers("trail "));
+    }
+
+    #[test]
+    fn a_glob_a_name_can_say_reads_as_the_name() {
+        let readable = |text: &str| glob(text).readable().map(|rule| rule.to_string());
+        assert_eq!(
+            readable("skip-glob **/*.log\n").as_deref(),
+            Some("skip-name *.log")
+        );
+        assert_eq!(
+            readable("skip-glob **/target/\n").as_deref(),
+            Some("skip-name target/")
+        );
+        assert_eq!(
+            readable("private-glob docs/a\n").as_deref(),
+            Some("private docs/a")
+        );
+        assert_eq!(
+            readable("skip-glob build/\n").as_deref(),
+            Some("skip build/")
+        );
+        assert_eq!(readable("skip-glob **/a/*.log\n"), None);
+        assert_eq!(readable("skip-glob **/?.log\n"), None);
+        assert_eq!(readable("skip-glob **/*.tmp\nexcept **/keep.tmp\n"), None);
+    }
+
+    #[test]
+    fn a_glob_label_mirrors_only_a_plain_value() {
+        assert_eq!(glob("skip-glob docs/a\n").label(), "glob docs/a.txt");
+        assert_eq!(glob("skip-glob build/\n").label(), "glob build/all.txt");
+        let starred = glob("skip-glob src/*.rs\n");
+        assert_eq!(starred.label(), starred.digest_label());
+        let narrowed = glob("skip-glob build/\nexcept build/keep/\n");
+        assert_eq!(narrowed.label(), narrowed.digest_label());
     }
 
     #[test]

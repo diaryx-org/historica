@@ -121,6 +121,17 @@ pub enum Finding {
         /// The line that says the same thing.
         replacement: String,
     },
+    /// A glob rule that a `skip` or `skip-name` rule says exactly.
+    ///
+    /// Decision 0087 keeps the readable kinds first, so that a glob in the
+    /// folder is visibly the case a name cannot say. Never an error: the rule
+    /// means what the readable one would.
+    ReadableGlob {
+        /// The file stating the glob.
+        file: PathBuf,
+        /// The rule that says the same thing.
+        readable: String,
+    },
     /// One path covered both privately and shared.
     ///
     /// Decision 0051: the two are separate rules, so a union takes both, so
@@ -398,6 +409,7 @@ impl Finding {
             | Finding::MissingReference { .. }
             | Finding::StillQuoted { .. }
             | Finding::DuplicateRule { .. }
+            | Finding::ReadableGlob { .. }
             | Finding::Incomplete { .. } => Severity::Note,
         }
     }
@@ -473,6 +485,12 @@ impl fmt::Display for Finding {
                 "{} states `skip-suffix`, which is retired and no longer reads; \
                  `{replacement}` says the same thing, matched against a file's \
                  own name as the old key always was",
+                file.display()
+            ),
+            Finding::ReadableGlob { file, readable } => write!(
+                f,
+                "{} states a glob that `{readable}` says exactly, and the \
+                 readable rule is the one to keep",
                 file.display()
             ),
             Finding::PrivateAndShared {
@@ -1684,7 +1702,7 @@ fn reachable(
 
 /// Decision 0045's directory, read the way `check` reads everything: through.
 ///
-/// Five things the loader cannot say. A file that is not one rule stops every
+/// Six things the loader cannot say. A file that is not one rule stops every
 /// command, so `check` names it here rather than at the next `record`, and a
 /// file still stating decision 0051's retired `skip-suffix` is named with the
 /// `skip-name` line that replaces it. A rule stated twice is harmless and
@@ -1695,7 +1713,9 @@ fn reachable(
 /// to delete the file that states it. And one path covered both privately and
 /// shared is decision 0051's one way the travel axis fails — privacy defeated
 /// by addition, in the one container whose every other contradiction is
-/// resolved by taking both.
+/// resolved by taking both. A glob a readable rule says exactly is named with
+/// that rule, as a note: decision 0087 keeps the glob for what a name cannot
+/// say.
 fn check_skipped<F: Filesystem + ?Sized>(files: &F, root: &Path, report: &mut Report) {
     // The file this directory replaced. It is not read, and a store carrying
     // one is a store whose rules a reader cannot see.
@@ -1727,7 +1747,15 @@ fn check_skipped<F: Filesystem + ?Sized>(files: &F, root: &Path, report: &mut Re
             }
         };
         match crate::working::Skipped::rule_in(&text) {
-            Ok(Some(rule)) => stated.push((rule, path)),
+            Ok(Some(rule)) => {
+                if let Some(readable) = rule.readable() {
+                    report.push(Finding::ReadableGlob {
+                        file: path.clone(),
+                        readable: readable.to_string(),
+                    });
+                }
+                stated.push((rule, path));
+            }
             // The note `init` writes, and any other prose somebody keeps here.
             Ok(None) => {}
             // Decision 0051's retired key first, because "unknown key" is the
