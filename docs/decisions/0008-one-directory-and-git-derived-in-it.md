@@ -229,3 +229,22 @@ an arrangement; it does not replace one.
   adds that they are also unskipped.
 - **Windows**, where the index write and `info/exclude` should carry unchanged
   and where nothing here has been run. CI is ubuntu.
+
+## Since
+
+Detection had a gap that a developer's first day finds. `git switch -c
+feature` makes a branch the store has no bookmark for, and HEAD is on it.
+Nothing moved that branch, so nothing reported it. But what `historica
+record` writes next goes to the store's own bookmark, and the index, left
+alone because it describes HEAD's branch, then shows the recorded files as
+untracked. A write now reports that HEAD is on a branch git made, under the
+same *git is not where the store is* heading, and touches nothing. Where the
+write moved exactly one branch, the report names it and gives `git
+symbolic-ref HEAD refs/heads/<it> && git reset`, which moves git there without
+writing a file. `git switch` is refused in that position, because the folder
+already holds the other branch's files.
+
+The directory also had two facts that only git read: which branch the folder
+holds, and what is not part of the project. [0011](0011-a-colocated-store-follows-the-folder.md)
+makes a colocated import follow HEAD's branch, so that a branch beside it does
+not become the store's head, and turns git's ignore files into skip rules.

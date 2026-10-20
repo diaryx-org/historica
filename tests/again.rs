@@ -339,7 +339,8 @@ fn a_ref_both_sides_moved_is_held_back_and_said() {
 }
 
 /// A branch this tool made, whose bookmark the store no longer has, is deleted
-/// by the next write; a branch git deleted is reported by the next import.
+/// by the next write; a branch git deleted takes its bookmark with it on the
+/// next import.
 #[test]
 fn a_branch_one_side_dropped_is_carried_or_said() {
     let Some(_) = git() else { return };
@@ -353,9 +354,11 @@ fn a_branch_one_side_dropped_is_carried_or_said() {
     export::to_repository(&store, &repo).expect("the write");
     assert!(references(&repo).contains_key("refs/heads/topic"));
 
-    // The store drops `topic`. Historica's API has no way to remove a bookmark,
-    // so this test removes the file itself, which is what a person would do.
-    fs::remove_file(store.join(STORE_DIR).join("names/topic.txt")).expect("the bookmark file");
+    // The store drops `topic`, as `historica name --delete` would.
+    Store::open(store.join(STORE_DIR))
+        .expect("the store opens")
+        .remove_name("topic")
+        .expect("the bookmark goes");
     let written = export::to_repository(&store, &repo).expect("the write");
     assert_eq!(
         written.deleted,
@@ -364,27 +367,28 @@ fn a_branch_one_side_dropped_is_carried_or_said() {
     );
     assert!(!references(&repo).contains_key("refs/heads/topic"));
 
-    // Git drops `scratch`. The import cannot remove the bookmark, and says so
-    // rather than recreating the branch or staying quiet.
+    // Git drops `scratch`. The store left the bookmark where the branch was,
+    // so git is the side that changed, and the bookmark goes with it.
     run(&repo, &["branch", "-D", "scratch"]);
     let imported = import::from_repository(&repo, &store).expect("the import");
-    let said = imported.uncarried.join("\n");
-    assert!(
-        said.contains("`scratch` was deleted in git"),
-        "the import should say the branch went:\n{said}"
-    );
+    assert_eq!(imported.removed, vec!["scratch".to_owned()], "{imported:?}");
+    let opened = Store::open(store.join(STORE_DIR)).expect("the store opens");
+    assert!(opened.bookmark("scratch").is_none(), "the bookmark went");
+    drop(opened);
+    let (_, refs) = record_files(&repo);
+    assert!(!refs.contains("refs/heads/scratch"), "{refs}");
+
+    // And it is done: the next import has nothing to say about it, and the
+    // next write neither resurrects the branch nor holds anything back.
+    let again = import::from_repository(&repo, &store).expect("the import again");
+    assert!(again.removed.is_empty(), "{again:?}");
+    assert!(!again.uncarried.join("\n").contains("scratch"), "{again:?}");
     let written = export::to_repository(&store, &repo).expect("the write after");
     assert!(
         !references(&repo).contains_key("refs/heads/scratch"),
         "a write must not resurrect a branch git deleted: {written:?}"
     );
-    assert!(
-        written
-            .held_back
-            .join("\n")
-            .contains("`refs/heads/scratch` was not moved"),
-        "{written:?}"
-    );
+    assert!(written.held_back.is_empty(), "{written:?}");
 }
 
 /// A repository this tool never wrote gets the commits and none of its own
@@ -662,13 +666,14 @@ fn a_ref_that_is_neither_branch_nor_tag_brings_no_commits() {
     assert_eq!(report.commits, 2, "the two on main, and not the checkpoint");
     assert_eq!(report.revisions, 2, "{report:?}");
     assert_eq!(report.bookmarks, vec!["main".to_owned()]);
+    // Reported as somewhere else, and without claiming the checkpoint is in
+    // the store, which it is not.
+    let said = report.standing.join("\n");
     assert!(
-        report
-            .uncarried
-            .iter()
-            .any(|line| line.contains("refs/t3/checkpoints/session/turn/")),
-        "the ref is reported as somewhere else: {:?}",
-        report.uncarried
+        said.contains("refs/t3/checkpoints/session/turn/")
+            && said.contains("what only they reach did not cross either")
+            && !said.contains("every commit they named is in the store"),
+        "the ref is reported as somewhere else: {said}"
     );
 
     let store = Store::open(into.join(STORE_DIR)).expect("the store opens");
@@ -826,4 +831,189 @@ fn the_run_points_an_unborn_head_at_the_branch_it_wrote() {
     assert_eq!(report.branch.as_deref(), Some("main"), "{report:?}");
     assert_eq!(run(&at, &["symbolic-ref", "HEAD"]), "refs/heads/main");
     assert_eq!(run(&at, &["status", "--porcelain"]), "");
+}
+
+/// `git switch -c` makes a branch the store has no bookmark for. What
+/// historica records then goes to a bookmark that is not HEAD's, and the
+/// index stays with HEAD; the run says so rather than leaving `git status`
+/// to show the recorded work as untracked without a word.
+#[test]
+fn the_run_says_head_is_on_a_branch_git_made() {
+    let Some(_) = git() else { return };
+    let at = folder("run-git-branch");
+    build(&at);
+    import::from_repository(&at, &at).expect("the colocated import");
+    run(&at, &["switch", "--quiet", "-c", "feature"]);
+
+    let recorded = record(&at, "c.txt", "On the store's main");
+    let report = export::after(&wrote(recorded), &at, &at)
+        .expect("the run")
+        .expect("something was written");
+    assert_eq!(report.references, vec!["refs/heads/main".to_owned()]);
+    let said = report.held_back.join("\n");
+    assert!(
+        said.contains("HEAD is on `feature`")
+            && said.contains("went to `main`")
+            && said.contains("`import`"),
+        "{said}"
+    );
+    assert_eq!(run(&at, &["symbolic-ref", "HEAD"]), "refs/heads/feature");
+
+    // The remedy it gives touches no file and leaves git agreeing.
+    run(&at, &["symbolic-ref", "HEAD", "refs/heads/main"]);
+    run(&at, &["reset", "--quiet"]);
+    assert_eq!(run(&at, &["status", "--porcelain"]), "");
+}
+
+/// After `git fetch`, a remote-tracking ref names work no branch has reached,
+/// and the import says so by name rather than claiming every commit it named
+/// is in the store. Once a branch reaches it, it is one of the refs that are
+/// always somewhere else, said by a whole conversion and not by every run
+/// onto it — decision 0010.
+#[test]
+fn a_remote_tracking_ref_ahead_of_every_branch_is_said() {
+    let Some(_) = git() else { return };
+    let origin = folder("remote-ahead-origin");
+    build(&origin);
+    let at = folder("remote-ahead");
+    run(
+        Path::new(env!("CARGO_TARGET_TMPDIR")),
+        &[
+            "clone",
+            "--quiet",
+            origin.to_str().expect("a UTF-8 path"),
+            "remote-ahead",
+        ],
+    );
+    let first = import::from_repository(&at, &at).expect("the colocated import");
+    assert!(
+        first.standing.join("\n").contains("refs/remotes/origin/"),
+        "{first:?}"
+    );
+
+    commit(&origin, "c.txt", "Upstream");
+    run(&at, &["fetch", "--quiet"]);
+    let fetched = import::from_repository(&at, &at).expect("the import after a fetch");
+    assert_eq!(fetched.revisions, 0, "{fetched:?}");
+    let said = fetched.uncarried.join("\n");
+    assert!(
+        said.contains("`refs/remotes/origin/main` names work the store does not hold"),
+        "{said}"
+    );
+    assert!(!fetched.behind, "nothing arrived: {fetched:?}");
+
+    run(&at, &["merge", "--quiet", "--ff-only", "origin/main"]);
+    let merged = import::from_repository(&at, &at).expect("the import after a merge");
+    assert_eq!(merged.revisions, 1, "{merged:?}");
+    assert!(merged.uncarried.is_empty(), "{merged:?}");
+    assert!(
+        merged
+            .standing
+            .join("\n")
+            .contains("every commit they named is in the store"),
+        "{merged:?}"
+    );
+    // Git already wrote the files, so the folder holds what arrived.
+    assert!(!merged.behind, "{merged:?}");
+}
+
+/// A separate folder does not hold what a second import recorded, and the
+/// report says `historica update` is what brings it; a run that recorded
+/// nothing says nothing of the kind.
+#[test]
+fn a_separate_folder_is_behind_only_when_something_arrived() {
+    let Some(_) = git() else { return };
+    let origin = folder("behind-origin");
+    build(&origin);
+    let store = folder("behind-store");
+    import::from_repository(&origin, &store).expect("the import");
+
+    let idle = import::from_repository(&origin, &store).expect("an import of nothing");
+    assert!(!idle.behind, "{idle:?}");
+    commit(&origin, "c.txt", "Third");
+    let again = import::from_repository(&origin, &store).expect("the second import");
+    assert!(again.behind, "{again:?}");
+}
+
+/// Decision 0011: a colocated store follows the branch HEAD is on, the
+/// bookmarks it already has, and the tags those reach. A branch beside it — a
+/// worktree's, an agent's — stays in git and is named, so that the store's one
+/// head is the line the folder holds.
+#[test]
+fn a_colocated_store_follows_the_branch_head_is_on() {
+    let Some(_) = git() else { return };
+    let at = folder("follows-head");
+    build(&at);
+    run(&at, &["tag", "v1"]);
+    run(&at, &["switch", "--quiet", "-c", "feature"]);
+    commit(&at, "c.txt", "Ahead of main");
+    run(&at, &["tag", "v-feature"]);
+    run(&at, &["switch", "--quiet", "main"]);
+    fs::remove_file(at.join("c.txt")).ok();
+
+    let report = import::from_repository(&at, &at).expect("the colocated import");
+    assert_eq!(report.bookmarks, ["main", "v1"], "{report:?}");
+    let said = report.uncarried.join("\n");
+    assert!(
+        said.contains(
+            "`refs/heads/feature`, `refs/tags/v-feature` name work the store does not hold"
+        ),
+        "{said}"
+    );
+    let store = Store::open(at.join(STORE_DIR)).expect("the store opens");
+    let heads: Vec<RevisionId> = store.history().heads().into_iter().collect();
+    assert_eq!(heads, [main_points_at(&at)]);
+    drop(store);
+
+    // An import with HEAD on the branch brings it in, and from then on the
+    // store follows it as a bookmark it has.
+    run(&at, &["switch", "--quiet", "feature"]);
+    let switched = import::from_repository(&at, &at).expect("the import on feature");
+    assert_eq!(switched.bookmarks, ["feature", "v-feature"], "{switched:?}");
+    assert!(switched.uncarried.is_empty(), "{switched:?}");
+}
+
+/// Decision 0011: what git ignores becomes a skip rule where historica's rules
+/// can say it exactly, and is said where they cannot. A rule that covered a
+/// tracked file would record that file's deletion, so it is not made.
+#[test]
+fn a_colocated_store_skips_what_git_ignores() {
+    let Some(_) = git() else { return };
+    let at = folder("skips-ignored");
+    build(&at);
+    run(&at, &["config", "core.excludesFile", "/dev/null"]);
+    fs::write(at.join(".gitignore"), "/target\n*.log\nfile?.tmp\n").expect("a file");
+    fs::write(at.join("kept.log"), "kept\n").expect("a file");
+    run(&at, &["add", "-f", ".gitignore", "kept.log"]);
+    run(&at, &["commit", "--quiet", "-m", "Ignore"]);
+    fs::create_dir_all(at.join("target")).expect("a directory");
+    fs::write(at.join("target/build"), "out\n").expect("a file");
+
+    let report = import::from_repository(&at, &at).expect("the colocated import");
+    assert_eq!(
+        report.skipped,
+        ["skip target", "skip target/"],
+        "{report:?}"
+    );
+    let standing = report.standing.join("\n");
+    assert!(
+        standing.contains("2 of git's ignore lines")
+            && standing.contains(".gitignore:2, because it covers a file git tracks")
+            && standing.contains(".gitignore:3"),
+        "{standing}"
+    );
+    let store = Store::open(at.join(STORE_DIR)).expect("the store opens");
+    assert!(store.skipped().skips("target/build"));
+    assert!(!store.skipped().skips("kept.log"));
+    let working = format!(
+        "{:?}",
+        Working::read(&at, store.skipped()).expect("the folder reads")
+    );
+    assert!(working.contains("kept.log"), "{working}");
+    assert!(!working.contains("target/build"), "{working}");
+    drop(store);
+
+    // Said once: a run onto it adds nothing and names nothing.
+    let again = import::from_repository(&at, &at).expect("the import again");
+    assert!(again.skipped.is_empty(), "{again:?}");
 }

@@ -211,6 +211,76 @@ cd tests/corpus/export && shasum -a 256 -c MANIFEST
 `tests/corpus/export/make.sh` rebuilds it — run it, read the diff, and commit
 that diff deliberately.
 
+## A developer's day
+
+A clone from GitHub, colocated once, with `h` the wrapper above. Historica
+records the work and git carries it to and from everybody else.
+
+```console
+$ git clone git@github.com:you/project.git && cd project
+$ historica-git colocate .
+$ h record -m 'Say why'           # git log, git diff, blame: all current
+$ git push                        # the branch is an ordinary git branch
+$ git pull && historica-git import . .
+read 4 commits, recorded 2 revisions in ./history
+2 of them the store already held, and were recognised rather than converted again
+
+bookmarks moved to where git has the branch:
+  - main
+```
+
+`colocate` follows the branch HEAD is on — [decision
+0011](docs/decisions/0011-a-colocated-store-follows-the-folder.md). Other
+branches, such as a worktree's or an agent's, stay in git and are named, so the
+store's head is the line the folder holds. What git ignores becomes historica
+skip rules, where the rules can say it exactly, so `record` does not take
+`target/` or a `.env`:
+
+```console
+skip rules added, from what git ignores:
+  - skip target
+  - skip target/
+  - skip-name .env
+  - skip-name .env/
+```
+
+`git pull` writes the folder, so after the import the folder already holds what
+arrived, and nothing asks for `historica update`. A `git fetch` with no merge
+records nothing, and the import names what is waiting:
+
+```console
+$ git fetch && historica-git import . .
+read 0 commits, recorded 0 revisions in ./history
+
+what did not cross:
+  - `refs/remotes/origin/main` names work the store does not hold; a
+    remote-tracking ref is a fact about somewhere else, so that work crosses
+    when a branch reaches it — `git merge` or `git pull`, then `import`
+```
+
+A run onto what it made before prints only the notes about that run, under
+[decision 0010](docs/decisions/0010-a-note-said-once.md). That change IDs do
+not cross, and that remote-tracking refs do not cross, is said once, by the
+conversion that made the result.
+
+Some git commands write where historica does not look. Each is reported and
+not followed:
+
+- **`git commit`** moves a branch on its own. The next `h record` says
+  `` `refs/heads/main` was not moved ``, and `historica-git import . .` adopts
+  the commit. If the store recorded something too, two heads then exist, and
+  `historica merge` joins them.
+- **`git switch -c feature`** puts HEAD on a branch the store has no bookmark
+  for, so what `h record` writes goes to the store's branch and not to HEAD's.
+  The run says so, names the branch it moved, and gives the two commands that
+  put git there without touching a file. `historica name` is how a bookmark
+  is made from the historica side.
+- **`git branch -d feature`**, after the work is merged, removes the bookmark
+  too on the next import, where the store has not moved it since.
+
+`historica git <command>` is `historica-git <command>`: historica runs a tool
+called `historica-<word>` on `PATH`, so either spelling works.
+
 ## Building
 
 A clone and a build, with nothing beside it:

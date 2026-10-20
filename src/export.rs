@@ -80,6 +80,10 @@ pub struct Report {
     pub onto: bool,
     /// One line per kind of fact that did not cross, for a person to read.
     pub uncarried: Vec<String>,
+    /// Decision 0010: the facts that did not cross and are true of every
+    /// write, such as change IDs. A whole conversion says them; a write onto
+    /// a repository it made before need not, since the first one already did.
+    pub standing: Vec<String>,
     /// One line per ref the store names that was left where git has it,
     /// because something other than this tool moved it — decision 0008's
     /// detection. Not a fact git cannot hold, as `uncarried` is, but a
@@ -323,11 +327,53 @@ fn colocated_index(
     }
     report.branch = None;
     let Some(head) = head else { return Ok(()) };
-    if written.deleted.contains(&head) || !written.ours.contains_key(&head) {
+    if written.deleted.contains(&head) {
+        return Ok(());
+    }
+    if !written.ours.contains_key(&head) {
+        // `git switch -c` made a branch, and HEAD is on it. The store has no
+        // bookmark there, so whatever historica recorded went to a bookmark
+        // that is not HEAD's, and the index — left alone, because it
+        // describes somebody's branch — no longer describes the folder. Said
+        // where 0008's detection says a ref git moved, unless that already
+        // said this one.
+        let quoted = format!("`{head}`");
+        if let Some(branch) = head.strip_prefix(HEADS)
+            && current.contains_key(&head)
+            && !report
+                .held_back
+                .iter()
+                .any(|line| line.starts_with(&quoted))
+        {
+            // `git switch` back is refused: the folder already holds the
+            // other branch's files, and an index still on this one reads them
+            // as untracked files in the way. Moving HEAD and then the index
+            // touches no file, which is the folder's rule here.
+            let mut moved = written
+                .moved
+                .iter()
+                .filter_map(|reference| reference.strip_prefix(HEADS));
+            let remedy = match (moved.next(), moved.next()) {
+                (Some(other), None) => format!(
+                    "what historica recorded went to `{other}`, and `git symbolic-ref \
+                     HEAD {HEADS}{other} && git reset` puts git there without touching \
+                     a file; `import` instead brings `{branch}` in as a bookmark"
+                ),
+                _ => format!("`import` brings `{branch}` in as a bookmark"),
+            };
+            report.held_back.push(format!(
+                "HEAD is on `{branch}`, which git made and the store has no bookmark \
+                 for, so it and the index stayed where they were; {remedy}"
+            ));
+        }
         return Ok(());
     }
     repository.reset_index()?;
-    report.branch = head.strip_prefix(HEADS).map(str::to_owned);
+    // Said only where it moved: a branch already where the store has it was
+    // not brought anywhere, and the refresh above is then only a check.
+    if written.moved.contains(&head) {
+        report.branch = head.strip_prefix(HEADS).map(str::to_owned);
+    }
     Ok(())
 }
 
@@ -1038,7 +1084,7 @@ impl<W: Write> Conversion<W> {
             });
         }
         self.report.held_back = std::mem::take(&mut self.held_back);
-        self.report.note(
+        self.report.standing.push(
             "change IDs did not cross; git has nowhere to put one, and decision 0003 \
              derives one from a commit rather than the other way about"
                 .to_owned(),

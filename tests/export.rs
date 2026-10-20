@@ -73,15 +73,21 @@ fn what_is_written_reads_back() {
 }
 
 /// Decision 0001, from this end: the conversion says what it could not carry,
-/// and the corpus holds one of everything it cannot.
+/// and the corpus holds one of everything it cannot. That change IDs go
+/// nowhere is true of every write, so it is standing — decision 0010 — and
+/// not one of this run's own notes.
 #[test]
 fn the_conversion_says_what_did_not_cross() {
     let at = store("write-says");
     let (_, report) = write(&at);
-    let said = report.uncarried.join("\n");
+    let said = report.standing.join("\n");
     assert!(
         said.contains("change ID"),
         "change IDs go nowhere and that is worth saying: {said}"
+    );
+    assert!(
+        !report.uncarried.join("\n").contains("change ID"),
+        "{report:?}"
     );
 }
 
