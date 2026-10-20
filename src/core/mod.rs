@@ -472,15 +472,15 @@ impl History {
 
     /// Revisions no observed revision names as a parent.
     ///
-    /// This is a pure graph question, so superseded revisions can appear here.
-    /// Filter with [`History::superseded`] to render only current work; whether
-    /// a given view hides obsolete heads is a rendering policy, not a fact
-    /// about the graph.
+    /// This is a pure graph question, so superseded revisions can appear here,
+    /// and it is what a listing offers, because every one of them answers
+    /// relatedness. Which of them a person is standing on is
+    /// [`History::tips`], and then a copy's rule (decision 0086).
     ///
-    /// Missing parents do not make a child a head: the child's declaration is
-    /// still evidence that its named parent has a successor, even if transport
-    /// has not delivered that parent yet.
-    pub fn heads(&self) -> BTreeSet<RevisionId> {
+    /// Missing parents do not make a child childless: the child's declaration
+    /// is still evidence that its named parent has a successor, even if
+    /// transport has not delivered that parent yet.
+    pub fn childless(&self) -> BTreeSet<RevisionId> {
         let parents = self
             .revisions
             .values()
@@ -490,6 +490,33 @@ impl History {
         self.revisions
             .keys()
             .filter(|id| !parents.contains(id))
+            .copied()
+            .collect()
+    }
+
+    /// Current revisions no current revision stands on.
+    ///
+    /// Decision 0086: the childless are found among the current, not the
+    /// superseded subtracted from the childless. Take `C` alone from `A-B-C`
+    /// and `C` is superseded, so nothing current stands on `B`, and `B` is a
+    /// tip. The other order loses `B`: it was never childless, so it was never
+    /// in the set the superseded were subtracted from.
+    ///
+    /// Every supersession counts here, because this is a fact about the store.
+    /// Which of them count for a copy is [`crate::following`]'s question.
+    pub fn tips(&self) -> BTreeSet<RevisionId> {
+        let superseded = self.superseded();
+        let current = |id: &RevisionId| !superseded.contains(id);
+        let parents = self
+            .revisions
+            .values()
+            .filter(|revision| current(&revision.id))
+            .flat_map(|revision| revision.parents.iter())
+            .collect::<BTreeSet<_>>();
+
+        self.revisions
+            .keys()
+            .filter(|id| current(id) && !parents.contains(id))
             .copied()
             .collect()
     }
@@ -536,8 +563,8 @@ impl History {
 
     /// What this change ID currently means.
     ///
-    /// Resolution is head discovery over supersession edges, the same rule
-    /// [`History::heads`] applies to parent edges.
+    /// Resolution is childlessness over supersession edges, the same rule
+    /// [`History::childless`] applies to parent edges.
     pub fn change_state(&self, change: &ChangeId) -> ChangeState<'_> {
         let superseded = self.superseded();
         let mut current = self
@@ -649,7 +676,10 @@ mod tests {
         right.merge(&left_before).unwrap();
 
         assert_eq!(left, right);
-        assert_eq!(left.heads(), BTreeSet::from([rev("left"), rev("right")]));
+        assert_eq!(
+            left.childless(),
+            BTreeSet::from([rev("left"), rev("right")])
+        );
     }
 
     #[test]
@@ -662,7 +692,7 @@ mod tests {
             .insert(revision("merge", &["left", "right"]))
             .unwrap();
 
-        assert_eq!(history.heads(), BTreeSet::from([rev("merge")]));
+        assert_eq!(history.childless(), BTreeSet::from([rev("merge")]));
     }
 
     #[test]
@@ -699,7 +729,7 @@ mod tests {
         let mut history = History::new();
         history.insert(revision("child", &["absent"])).unwrap();
 
-        assert_eq!(history.heads(), BTreeSet::from([rev("child")]));
+        assert_eq!(history.childless(), BTreeSet::from([rev("child")]));
         assert_eq!(history.missing_parents(), BTreeSet::from([rev("absent")]));
     }
 
@@ -822,17 +852,30 @@ mod tests {
         }
         assert_eq!(history.len(), 6);
 
-        // Head discovery is a pure graph question, so the obsolete tip is still
-        // a head until a caller filters by supersession.
-        let heads = history.heads();
-        assert_eq!(heads, BTreeSet::from([rev("c1"), rev("c2")]));
+        // Childlessness is a pure graph question, so the obsolete tip is
+        // still childless. A tip is current.
+        assert_eq!(history.childless(), BTreeSet::from([rev("c1"), rev("c2")]));
+        assert_eq!(history.tips(), BTreeSet::from([rev("c2")]));
+    }
 
-        let superseded = history.superseded();
-        let current_heads = heads
-            .difference(&superseded)
-            .copied()
-            .collect::<BTreeSet<_>>();
-        assert_eq!(current_heads, BTreeSet::from([rev("c2")]));
+    #[test]
+    fn taking_the_top_of_a_line_leaves_the_rest_a_tip() {
+        // `A-B-C` stands on `p`; `C` alone is taken onto `h` as `C'`.
+        let mut history = History::new();
+        for revision in [
+            Revision::new(rev("p"), chg("p"), "p"),
+            Revision::new(rev("h"), chg("h"), "h").with_parents([rev("p")]),
+            Revision::new(rev("a"), chg("a"), "a").with_parents([rev("p")]),
+            Revision::new(rev("b"), chg("b"), "b").with_parents([rev("a")]),
+            Revision::new(rev("c"), chg("c"), "c").with_parents([rev("b")]),
+            Revision::new(rev("c'"), chg("c"), "c")
+                .with_parents([rev("h")])
+                .superseding([rev("c")]),
+        ] {
+            history.insert(revision).unwrap();
+        }
+
+        assert_eq!(history.tips(), BTreeSet::from([rev("b"), rev("c'")]));
     }
 
     #[test]

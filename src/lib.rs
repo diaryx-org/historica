@@ -26,6 +26,7 @@ use vstd::prelude::*;
 pub mod conflict;
 pub mod core;
 pub mod diff;
+pub mod following;
 pub mod format;
 pub mod fs;
 pub mod merge;

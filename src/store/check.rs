@@ -1779,7 +1779,7 @@ fn check_skipped<F: Filesystem + ?Sized>(files: &F, root: &Path, report: &mut Re
         return;
     };
     let mut said: BTreeSet<String> = BTreeSet::new();
-    for head in store.history().heads() {
+    for head in store.history().childless() {
         let Ok(tree) = store.tree(&head) else {
             continue;
         };

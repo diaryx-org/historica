@@ -12,6 +12,7 @@ use std::io::{self, Write};
 use std::path::Path;
 
 use historica::core::{ChangeId, ChangeState, FileId, History, RevisionId};
+use historica::following::{Following, Heads};
 use historica::format::{RevisionDocument, Timestamp};
 use historica::record::Survey;
 use historica::store::{Name, Report, Store};
@@ -129,9 +130,9 @@ pub fn shown(store: &Store, reach: Option<&target::Reach>) -> BTreeSet<RevisionI
 /// `log`: every revision, or one revision's ancestry, newest first.
 ///
 /// A filter takes entries out of the list and changes nothing about the ones
-/// that stay: `(head)` is a fact about the graph rather than about this
-/// listing, so a head stays marked as one whether or not its children were
-/// asked for.
+/// that stay: `(head)` and `(held)` are facts about the copy rather than about
+/// this listing, so a head stays marked as one whether or not its children
+/// were asked for.
 pub fn log(
     out: &mut impl Write,
     store: &Store,
@@ -139,7 +140,7 @@ pub fn log(
     filter: &Filter,
 ) -> io::Result<()> {
     let history = store.history();
-    let heads = history.heads();
+    let tips = copy_heads(store);
     let superseded = history.superseded();
     let divergent: BTreeSet<ChangeId> = history.divergent_changes().into_keys().collect();
 
@@ -169,7 +170,7 @@ pub fn log(
             document,
             &digests[id],
             &changes[&document.change],
-            &parenthesised(&marks(document, id, &heads, &superseded, &divergent)),
+            &parenthesised(&marks(document, id, &tips, &superseded, &divergent)),
         )?;
     }
     Ok(())
@@ -234,7 +235,7 @@ pub fn fields(
     filter: &Filter,
 ) -> io::Result<()> {
     let history = store.history();
-    let heads = history.heads();
+    let heads = history.childless();
     let superseded = history.superseded();
     let divergent: BTreeSet<ChangeId> = history.divergent_changes().into_keys().collect();
 
@@ -375,17 +376,31 @@ fn tree_facts(document: &RevisionDocument) -> String {
     .join("  ")
 }
 
+/// This copy's heads and held tips (decision 0086).
+///
+/// A listing is read, not acted on, so an identity file that will not parse
+/// shows every tip as a head rather than refusing the listing; the command
+/// that acts on a head refuses it.
+fn copy_heads(store: &Store) -> Heads {
+    target::following(store)
+        .unwrap_or(Following::Everything)
+        .heads(store)
+}
+
 /// The states worth saying out loud beside a revision.
 fn marks(
     document: &RevisionDocument,
     id: &RevisionId,
-    heads: &BTreeSet<RevisionId>,
+    tips: &Heads,
     superseded: &BTreeSet<RevisionId>,
     divergent: &BTreeSet<ChangeId>,
 ) -> Vec<String> {
     let mut marks = Vec::new();
-    if heads.contains(id) {
+    if tips.heads.contains(id) {
         marks.push("head".to_owned());
+    }
+    if tips.held.contains(id) {
+        marks.push("held".to_owned());
     }
     if document.parents.len() > 1 {
         marks.push("merge".to_owned());
@@ -513,7 +528,7 @@ fn position(out: &mut impl Write, store: &Store, parents: &[RevisionId]) -> io::
     }
 
     let history = store.history();
-    let heads = history.heads();
+    let tips = copy_heads(store);
     let superseded = history.superseded();
     let divergent: BTreeSet<ChangeId> = history.divergent_changes().into_keys().collect();
     // Abbreviated against every revision the store holds, as `log` does, so
@@ -525,7 +540,7 @@ fn position(out: &mut impl Write, store: &Store, parents: &[RevisionId]) -> io::
         let Some(document) = store.get(id).ok().flatten() else {
             continue;
         };
-        let mut marks = marks(document, id, &heads, &superseded, &divergent);
+        let mut marks = marks(document, id, &tips, &superseded, &divergent);
         marks.extend(target::bookmarks(store, id));
         writeln!(
             out,
@@ -646,7 +661,12 @@ pub fn names(out: &mut impl Write, store: &Store) -> io::Result<()> {
     // it resolves to is where that file sits now — which is the question a
     // person made the bookmark to stop having to ask.
     let here = store
-        .merged_tree_of(&target::current_heads(store).into_iter().collect::<Vec<_>>())
+        .merged_tree_of(
+            &target::current_heads(store)
+                .unwrap_or_default()
+                .into_iter()
+                .collect::<Vec<_>>(),
+        )
         .ok();
 
     for (name, bookmark) in bookmarks {

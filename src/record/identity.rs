@@ -7,6 +7,7 @@
 //! repeated for as long as the work goes on, and correcting it rewrites
 //! history rather than editing a field.
 
+use std::collections::BTreeSet;
 use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
@@ -22,10 +23,21 @@ pub const IDENTITY_FILE: &str = "historica/identity";
 ///
 /// Blocks exist so that a path and a name never share a line. This format has
 /// no quoting anywhere, and a directory may hold a space.
+///
+/// A block may also list `follow` lines, one name each: the other writers
+/// whose work a copy in that directory stands on without being asked
+/// (decision 0086).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Identities {
-    default: Option<String>,
-    under: Vec<(String, String)>,
+    default: Option<Block>,
+    under: Vec<(String, Block)>,
+}
+
+/// One block's author, and the names it follows beside its own.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Block {
+    author: String,
+    follow: Vec<String>,
 }
 
 impl Identities {
@@ -34,12 +46,14 @@ impl Identities {
         let mut identities = Self::default();
         let mut heading: Option<String> = None;
         let mut author: Option<String> = None;
+        let mut follow: Vec<String> = Vec::new();
         let mut started = 0usize;
 
         let refuse = |at: usize, because: &'static str| MalformedIdentity { at, because };
 
         let close = |heading: &mut Option<String>,
                      author: &mut Option<String>,
+                     follow: &mut Vec<String>,
                      at: usize,
                      identities: &mut Self|
          -> Result<(), MalformedIdentity> {
@@ -47,7 +61,14 @@ impl Identities {
                 if heading.is_some() {
                     return Err(refuse(at, "a block naming a directory states no author"));
                 }
+                if !follow.is_empty() {
+                    return Err(refuse(at, "a block that follows names states no author"));
+                }
                 return Ok(());
+            };
+            let author = Block {
+                author,
+                follow: std::mem::take(follow),
             };
             match heading.take() {
                 None => {
@@ -69,7 +90,13 @@ impl Identities {
         for (index, line) in text.lines().enumerate() {
             let at = index + 1;
             if line.is_empty() {
-                close(&mut heading, &mut author, started.max(1), &mut identities)?;
+                close(
+                    &mut heading,
+                    &mut author,
+                    &mut follow,
+                    started.max(1),
+                    &mut identities,
+                )?;
                 // The next block reports against its own first line.
                 started = 0;
                 continue;
@@ -92,7 +119,7 @@ impl Identities {
                     if heading.is_some() {
                         return Err(refuse(at, "a block names one directory"));
                     }
-                    if author.is_some() {
+                    if author.is_some() || !follow.is_empty() {
                         return Err(refuse(at, "`under` heads a block, so it comes first"));
                     }
                     heading = Some(value.trim_end_matches('/').to_owned());
@@ -103,10 +130,21 @@ impl Identities {
                     }
                     author = Some(value.to_owned());
                 }
-                _ => return Err(refuse(at, "the keys are `author` and `under`")),
+                "follow" => {
+                    if !follow.iter().any(|held| held == value) {
+                        follow.push(value.to_owned());
+                    }
+                }
+                _ => return Err(refuse(at, "the keys are `author`, `follow` and `under`")),
             }
         }
-        close(&mut heading, &mut author, started.max(1), &mut identities)?;
+        close(
+            &mut heading,
+            &mut author,
+            &mut follow,
+            started.max(1),
+            &mut identities,
+        )?;
         Ok(identities)
     }
 
@@ -118,21 +156,34 @@ impl Identities {
         self.author_under(directory, home().as_deref())
     }
 
+    /// The names a copy in `directory` follows besides its author's own,
+    /// from the block that answers [`Identities::author_for`].
+    pub fn follows_for(&self, directory: &Path) -> &[String] {
+        self.block_under(directory, home().as_deref())
+            .map_or(&[], |block| block.follow.as_slice())
+    }
+
     /// The same, with `~` spelled out, which is what makes it testable.
     fn author_under(&self, directory: &Path, home: Option<&Path>) -> Option<&str> {
-        let mut best: Option<(usize, &str)> = None;
-        for (prefix, author) in &self.under {
+        self.block_under(directory, home)
+            .map(|block| block.author.as_str())
+    }
+
+    /// The block that speaks for `directory`.
+    fn block_under(&self, directory: &Path, home: Option<&Path>) -> Option<&Block> {
+        let mut best: Option<(usize, &Block)> = None;
+        for (prefix, block) in &self.under {
             let Some(expanded) = expand(prefix, home) else {
                 continue;
             };
             if beneath(directory, &expanded) {
                 let depth = expanded.components().count();
                 if best.is_none_or(|(held, _)| depth > held) {
-                    best = Some((depth, author.as_str()));
+                    best = Some((depth, block));
                 }
             }
         }
-        best.map(|(_, author)| author).or(self.default.as_deref())
+        best.map(|(_, block)| block).or(self.default.as_ref())
     }
 }
 
@@ -217,6 +268,59 @@ pub fn author_for_on(files: &dyn Filesystem, directory: &Path) -> Result<String,
         .author_for(directory)
         .ok_or_else(|| IdentityError::NoAuthorHere { file: path.clone() })?;
     check(author.to_owned(), Some(path))
+}
+
+/// The writers a copy in `directory` follows, read from disk.
+#[cfg(feature = "disk")]
+pub fn writers_for(directory: &Path) -> Result<Option<BTreeSet<String>>, IdentityError> {
+    writers_for_on(&crate::fs::Disk, directory)
+}
+
+/// The writers a copy in `directory` follows, read from `files` (decision
+/// 0086): the author `record` would write here, and the `follow` names of the
+/// block that states that author.
+///
+/// `None` until the person opts in, and the caller follows every tip. Writers
+/// are opt-in because a name cannot be told from a stranger's: following only
+/// the current author would hold every revision recorded under the person's
+/// previous one. So `None` where nobody has said who they are, where the block
+/// lists no `follow` line, and where `$HISTORICA_AUTHOR` names someone the
+/// block does not. A file that will not parse is still refused, because
+/// guessing past it could hold the person's own work from them.
+pub fn writers_for_on(
+    files: &dyn Filesystem,
+    directory: &Path,
+) -> Result<Option<BTreeSet<String>>, IdentityError> {
+    let author = match author_for_on(files, directory) {
+        Ok(author) => author,
+        Err(
+            IdentityError::NoIdentity { .. }
+            | IdentityError::NoAuthorHere { .. }
+            | IdentityError::Nowhere,
+        ) => return Ok(None),
+        Err(error) => return Err(error),
+    };
+    let Some(path) = identity_path() else {
+        return Ok(None);
+    };
+    let text = match read_to_string(files, &path) {
+        Ok(text) => text,
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(IdentityError::Io { file: path, error }),
+    };
+    let identities = Identities::parse(&text).map_err(|error| IdentityError::Malformed {
+        file: path.clone(),
+        error,
+    })?;
+    // `$HISTORICA_AUTHOR` may name someone the file's block does not. Then
+    // that block's list is somebody else's, and nobody has opted in.
+    let follows = identities.follows_for(directory);
+    if identities.author_for(directory) != Some(author.as_str()) || follows.is_empty() {
+        return Ok(None);
+    }
+    let mut writers = BTreeSet::from([author]);
+    writers.extend(follows.iter().cloned());
+    Ok(Some(writers))
 }
 
 /// An author must be something a revision document can hold.
@@ -389,6 +493,35 @@ author A <a@b.example>
     }
 
     #[test]
+    fn a_block_follows_the_names_it_lists() {
+        let identities = Identities::parse(
+            "author A <a@b.example>\nfollow Phone <a@b.example>\n\n\
+             under ~/work\nauthor W <w@b.example>\nfollow C <c@b.example>\n\
+             follow D <d@b.example>\n",
+        )
+        .expect("a file");
+        let home = Some(Path::new(HOME));
+        let follows = |path: &str| {
+            identities
+                .block_under(Path::new(path), home)
+                .map(|block| block.follow.clone())
+        };
+        assert_eq!(
+            follows("/home/adam/journal"),
+            Some(vec!["Phone <a@b.example>".to_owned()])
+        );
+        assert_eq!(
+            follows("/home/adam/work/thing"),
+            Some(vec![
+                "C <c@b.example>".to_owned(),
+                "D <d@b.example>".to_owned()
+            ]),
+            "the block that answers the author answers the follows, with nothing \
+             inherited from the default"
+        );
+    }
+
+    #[test]
     fn the_file_is_refused_line_by_line() {
         for (text, at) in [
             ("autor A <a@b>\n", 1),
@@ -396,6 +529,11 @@ author A <a@b.example>
             ("author A <a@b>\n\nunder ~/x\nunder ~/y\n", 4),
             ("author A <a@b>\n\nunder ~/x\n", 3),
             ("author  padded <a@b>\n", 1),
+            ("follow B <b@c>\n", 1),
+            (
+                "author A <a@b>\n\nfollow B <b@c>\nunder ~/x\nauthor C <c@d>\n",
+                4,
+            ),
         ] {
             let refused = Identities::parse(text).expect_err("refused");
             assert_eq!(refused.at, at, "{text:?}");

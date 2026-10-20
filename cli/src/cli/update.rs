@@ -41,15 +41,19 @@ pub fn update(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
     let target = match &spelling {
         Some(spelling) => target::resolve(&store, spelling)?,
         None => {
-            let heads = target::current_heads(&store);
+            let found = target::following(&store)?.heads(&store);
+            let heads = found.heads;
             match heads.len() {
-                0 => return Err(Failure::error("nothing is recorded here yet")),
+                0 if found.held.is_empty() => {
+                    return Err(Failure::error("nothing is recorded here yet"));
+                }
+                0 => return Err(target::followed_nothing(&store, &found.held)),
                 1 => heads.into_iter().next().expect("one head"),
                 several => {
                     return Err(Failure::error(format!(
                         "this store has {several} heads, so nothing here is `the` latest; \
                          name the one the folder should hold:\n{}",
-                        target::described(&store, &heads)
+                        target::described_with_held(&store, &heads, &found.held)
                     )));
                 }
             }
@@ -58,16 +62,18 @@ pub fn update(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
 
     let working = super::cache::working(&repository, &store).map_err(Failure::error)?;
 
-    let update = plan(&store, &working, &repository, &target).map_err(|error| match error {
-        UpdateError::NotAHead { target, heads } => Failure::error(format!(
-            "{} is not a head, and the folder only ever holds one; \
+    let following = target::following(&store)?;
+    let update =
+        plan(&store, &working, &repository, &target, &following).map_err(|error| match error {
+            UpdateError::NotAHead { target, heads } => Failure::error(format!(
+                "{} is not a head, and the folder only ever holds one; \
              reading the past is `show` and `cat`, and going back is `abandon`. \
              the heads:\n{}",
-            target::spelled(&store, &target),
-            target::described(&store, &heads.iter().copied().collect())
-        )),
-        other => Failure::error(other),
-    })?;
+                target::spelled(&store, &target),
+                target::described(&store, &heads.iter().copied().collect())
+            )),
+            other => Failure::error(other),
+        })?;
 
     if dry_run {
         return printing(|out| {

@@ -30,6 +30,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::core::{FileId, RevisionId};
+use crate::following::Following;
 use crate::format::{LinkTarget, Mode};
 use crate::fs::{Filesystem, Guarded, Kind as OnDisk};
 use crate::store::{Content, MaterialiseError, STORE_DIR, Store, StoreError};
@@ -576,19 +577,6 @@ fn recorded_link<F: Filesystem>(
     Ok(false)
 }
 
-/// The heads a person is standing on: every head nothing supersedes, or every
-/// head where a successor has not been delivered and filtering leaves nothing.
-///
-/// Decision 0023's rendering answer, which `plan` needs to say what the folder
-/// may be given and `plan_at` needs to say which paths are tracked anywhere.
-fn current_heads<F: Filesystem>(store: &Store<F>) -> BTreeSet<RevisionId> {
-    let history = store.history();
-    let heads = history.heads();
-    let superseded = history.superseded();
-    let current: BTreeSet<RevisionId> = heads.difference(&superseded).copied().collect();
-    if current.is_empty() { heads } else { current }
-}
-
 /// What one update would do, or why it cannot happen whole.
 ///
 /// `repository` is the directory holding the store — the folder itself. The
@@ -599,16 +587,20 @@ fn current_heads<F: Filesystem>(store: &Store<F>) -> BTreeSet<RevisionId> {
 /// The store and the folder are two filesystems rather than one, because
 /// decision 0042's export is exactly this pair pointed at a folder somewhere
 /// else. `update` passes the same one twice and cannot tell.
+///
+/// Which revisions are heads is the copy's rule, `following` (decision 0086):
+/// held work is never given to the folder.
 pub fn plan<F: Filesystem, G: Filesystem>(
     store: &Store<F>,
     working: &Working<G>,
     repository: &Path,
     target: &RevisionId,
+    following: &Following,
 ) -> Result<Update, UpdateError> {
     if store.is_empty() {
         return Err(UpdateError::NothingRecorded);
     }
-    let current = current_heads(store);
+    let current = following.heads(store).heads;
     if !current.contains(target) {
         return Err(UpdateError::NotAHead {
             target: *target,
@@ -628,7 +620,7 @@ pub fn plan<F: Filesystem, G: Filesystem>(
 /// at a tracked path, a mode changed by hand — is somebody's, and 0030's
 /// overwrite rule is what answers for it.
 ///
-/// A store with no revisions, or with more than one head, answers `false`:
+/// A store with no revisions, or with more than one tip, answers `false`:
 /// neither is a folder an export left, and the recoverable way to be wrong
 /// about somebody's folder is to refuse to touch it.
 pub(crate) fn undisturbed<F: Filesystem, G: Filesystem>(
@@ -639,7 +631,7 @@ pub(crate) fn undisturbed<F: Filesystem, G: Filesystem>(
     if store.is_empty() {
         return Ok(false);
     }
-    let heads = current_heads(store);
+    let heads = store.history().tips();
     let mut heads = heads.into_iter();
     let (Some(head), None) = (heads.next(), heads.next()) else {
         return Ok(false);
@@ -705,7 +697,7 @@ pub fn plan_into<F: Filesystem, G: Filesystem>(
 
 /// The folder's half of letting go of payloads.
 ///
-/// The proposal *Bytes held elsewhere*. Every path a current head names one
+/// The proposal *Bytes held elsewhere*. Every path a tip names one
 /// of `payloads` at becomes held elsewhere once the store lets go of it, and
 /// the folder's file there is removed where it holds exactly those bytes —
 /// freeing the space is the point. A file holding anything else is left: it is
@@ -722,7 +714,7 @@ pub fn plan_eviction<F: Filesystem, G: Filesystem>(
 ) -> Result<Update, UpdateError> {
     let mut update = Update::default();
     let mut seen: BTreeSet<String> = BTreeSet::new();
-    for head in &current_heads(store) {
+    for head in &store.history().tips() {
         for (_, entry) in store.tree(head)?.entries() {
             let Some(payload) = entry
                 .payload
@@ -1095,7 +1087,7 @@ pub(crate) fn plan_at<F: Filesystem, G: Filesystem>(
     // did before the update.
     let mut tracked: BTreeSet<String> = BTreeSet::new();
     if working.iter().next().is_some() {
-        for head in &current_heads(store) {
+        for head in &store.history().tips() {
             for (_, entry) in store.tree(head)?.entries() {
                 tracked.insert(entry.path.clone());
             }

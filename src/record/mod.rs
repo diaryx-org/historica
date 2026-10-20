@@ -35,9 +35,9 @@ pub mod identity;
 pub mod source;
 pub mod squash;
 
+pub use identity::{Identities, IdentityError, author_for_on, writers_for_on};
 #[cfg(feature = "disk")]
-pub use identity::author_for;
-pub use identity::{Identities, IdentityError, author_for_on};
+pub use identity::{author_for, writers_for};
 pub use source::{Clock, Entropy, Platform, SourceError};
 
 /// What one path's content contributes to a revision.
@@ -2050,6 +2050,10 @@ pub fn abandonment_plan<F: Filesystem>(
         return Ok(vec![*revision]);
     }
 
+    // What a rewrite already superseded is not work standing on the run:
+    // moving `B` off `A` leaves the old `B` on `A`, and `A` a tip a person
+    // must be able to abandon (decision 0086).
+    let superseded = store.history().superseded();
     let mut run: Vec<RevisionId> = Vec::new();
     let mut current = *revision;
     loop {
@@ -2083,7 +2087,7 @@ pub fn abandonment_plan<F: Filesystem>(
 
         let standing: Vec<RevisionId> = store
             .revisions()
-            .filter(|(_, held)| held.parents.contains(&current))
+            .filter(|(id, held)| held.parents.contains(&current) && !superseded.contains(id))
             .map(|(id, _)| *id)
             .collect();
         match standing.as_slice() {

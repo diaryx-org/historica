@@ -1087,7 +1087,8 @@ fn read_at(
     if let Some(id) = from {
         return Ok(id);
     }
-    let heads = target::current_heads(store);
+    let found = target::following(store)?.heads(store);
+    let heads = found.heads;
     match heads.len() {
         0 => Err(Failure::error("this store holds no revisions yet")),
         1 => Ok(heads.into_iter().next().expect("one head")),
@@ -1095,7 +1096,7 @@ fn read_at(
             "this store has {several} heads, so there is no one place to read \
              `{path}` at; say which revision to read it at, as \
              `historica log <target> --path {path}`:\n{}",
-            target::described(store, &heads)
+            target::described_with_held(store, &heads, &found.held)
         ))),
     }
 }
@@ -1618,7 +1619,7 @@ fn skip(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     // this cannot cover — and refusing here means never asking for `--onto`
     // to answer a question that has the same answer at both heads anyway.
     let mut covered: Vec<String> = Vec::new();
-    for head in store.history().heads() {
+    for head in store.history().childless() {
         let tree = store
             .merged_tree_of(&[head])
             .map_err(|error| Failure::error(error.to_string()))?;

@@ -560,7 +560,7 @@ fn a_copy_keeps_a_supersedes_line_whose_other_end_it_does_not_hold() {
             .collect::<Vec<_>>()
     );
     let heads: BTreeSet<_> = history
-        .heads()
+        .childless()
         .difference(&history.superseded())
         .map(|id| id.abbreviate(8))
         .collect();
