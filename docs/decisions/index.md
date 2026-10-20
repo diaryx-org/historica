@@ -961,8 +961,9 @@ depend on each other in.
   cherry-pick and accepting a contribution. A supersession counts only where
   its revision is followed, so a stranger cannot hide a head. Tips are found
   among current revisions, so the work a partial take leaves stays listed.
-  The CLI follows writers: its own identity and the names it lists, and every
-  tip when it has none, which is a convenience and not evidence.
+  The CLI follows every tip until an identity block lists `follow` names,
+  then its own author and those names, which is a convenience and not
+  evidence; `record` refuses where it follows no tip at all.
 
 Not a decision, but the evaluation one of them rests on:
 [`docs/loro.md`](../loro.md) — the initial Loro evaluation, and the conditions

@@ -204,25 +204,31 @@ built on it.
 ## The CLI's rule: writers
 
 The library cannot have a default the embedders share, because Diaryx's rule
-and a forge's are different. The CLI needs one, and it follows writers.
+and a forge's are different. The CLI needs one, and it follows writers once
+the person asks it to.
 
 - **A revision's writer** is its `revised-by`, and its `author` when it has
   none ([0002](0002-revision-document.md), [0005](0005-authorship.md)). That
   is the name of whoever wrote these bytes, not whoever began the change, so a
   take is the taker's and a contributor's amendment of their own offer is
   theirs.
-- **The copy follows its own identity**, the author `record` would write in
-  this folder ([0010](0010-writer.md)), with `HISTORICA_AUTHOR` and the
-  per-directory blocks of the identity file applied exactly as `record`
-  applies them. The block that names that author may also list `follow`
-  lines, one name each, for the other people whose work this copy stands on
-  without being asked: a second device under another name, a co-author. The
-  file never travels, so this choice stays the copy's.
+- **Writers are opt-in, by `follow` lines.** The identity block that states
+  the author `record` would write in this folder ([0010](0010-writer.md)),
+  with `HISTORICA_AUTHOR` and the per-directory blocks applied exactly as
+  `record` applies them, may list `follow` lines, one name each. A block with
+  any `follow` line follows its own author and those names: a second device
+  under another name, a co-author. A person who wants only their own work
+  lists their own name. The file never travels, so this choice stays the
+  copy's.
 - **Everything else is held.**
-- **With no identity configured, every tip is a head.** That is today's
-  behaviour with the vanished-revision fix, and it is the CLI's
-  `Following::Everything`. A person who has not said who they are cannot be
-  told apart from anyone else, and nothing they receive is held from them.
+- **A copy that has not opted in follows every tip.** No identity, a block
+  with no `follow` line, or a `HISTORICA_AUTHOR` naming someone the block does
+  not: each is the CLI's `Following::Everything`, today's behaviour with the
+  vanished-revision fix. Nothing anyone receives is held from them until they
+  say whose work they follow.
+- **`record` refuses when the store has tips and the copy follows none of
+  them**, and so does every command that wants the one head. The refusal
+  names the held tips' writers and the `follow` line that would follow them.
 - **`record --onto <held>` is refused**, and the refusal names the take.
   Recording onto held work would make it the ancestry of the person's own
   revision, which is the unrewritten join that merging held work is rejected
@@ -236,6 +242,18 @@ against no one who will type a name. Protection against bad faith is a key:
 historica-minisign's rule follows what keys in `trust/` vouched for, and is
 the rule a forge and anyone receiving from strangers should use. Keys stay
 out of the core CLI ([0046](0046-who-vouches-for-a-revision.md)).
+
+Writers by default was the first version of this section, and it hid a
+person's own work from them. The CLI cannot tell a person's new name from a
+stranger's. Change the address in the identity file, and every revision under
+the old one is held: the copy has no head, and the next `record` was a new
+root claiming the whole folder. Two names recording in one folder do worse.
+The folder holds the second name's work, which the first name does not
+follow, so the first name's next `record` stands on its own older head and
+claims the second's changes as its own. The folder records no position of its
+own (0011), so nothing catches it. Opting in confines both to a person who
+has said whom they follow, and the refusal catches the first. The second
+stays a cost of opting in: a copy that two names record in lists both.
 
 Three rules were available. *Everything* is kept as the fallback above, and
 *keys* is historica-minisign's. *Authors*, a file of its own or a fifth key in [0051](0051-two-axes-for-a-rule.md)'s closed set, became the
