@@ -971,8 +971,8 @@ depend on each other in.
   are said exactly. `!` lines in a glob rule's file narrow that rule and no
   other, which says any `.gitignore` as an order-free union. `skip` and
   `skip-name` stay, and `check` names the readable spelling where one exists.
-  The matcher is historica's own, tested against a corpus checked with git
-  and against `gix-glob` as a dev-dependency.
+  The matcher is historica's own, tested against a corpus whose verdicts
+  are checked with `git check-ignore`.
 
 Not a decision, but the evaluation one of them rests on:
 [`docs/loro.md`](../loro.md) — the initial Loro evaluation, and the conditions

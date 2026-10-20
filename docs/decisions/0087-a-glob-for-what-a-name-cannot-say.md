@@ -114,16 +114,16 @@ release often.
 
 The matcher is small: a pattern compiler and a backtracking match over one
 path, around two hundred lines, since git's own is about three hundred lines
-of C. Its risk is correctness, and that is tested three ways rather than
+of C. Its risk is correctness, and that is tested two ways rather than
 trusted to one:
 
 - a corpus of rule, path and verdict, under `tests/corpus/skipped/`, which is
   the specification executed for anybody reimplementing it;
 - a by-hand check that runs each corpus case through `git check-ignore`, so
-  the corpus is git's answers and not ours;
-- `gix-glob` as a dev-dependency only, as a second oracle for the bolero
-  target in `tests/strict.rs`, where random patterns and paths must get one
-  verdict from both.
+  the corpus is git's answers and not ours.
+
+No other implementation is a dependency, not even a test's: the corpus is
+the oracle, and git is what checks the corpus.
 
 git's own `t3070` cases are GPL, so they are a reference to test against
 and not text to copy into this repository.
