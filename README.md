@@ -90,6 +90,22 @@ witnessed is kept in `history/trust/seen/` and never travels.
 and the argument. A newer statement that was never shown cannot be detected,
 and nothing here pretends otherwise.
 
+**A key has a history.** A person holds a key for each device, and a lost one
+is revoked as of a time they name. Its claims from before that time still
+count, and later ones do not:
+
+```console
+$ historica-minisign trust revoke laptop --as-of 2026-10-19T08:30:00-06:00
+RWQq6vJ… is revoked as of 2026-10-19T08:30:00-06:00
+  history/trust/laptop.txt
+```
+
+**A copy can follow what keys vouched for.** `Vouched` is a rule for
+Historica's [decision 0086](https://github.com/diaryx-org/historica/blob/main/docs/decisions/0086-a-copy-chooses-its-heads.md):
+it accepts a revision that a claim by one of its keys vouches for, so a copy's
+heads are the lines those keys signed.
+[Decision 0007](docs/decisions/0007-a-key-has-a-history.md) has both.
+
 ## Reading with a device key
 
 Historica's fetch sends nothing about who is asking. A server that keeps a

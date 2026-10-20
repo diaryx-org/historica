@@ -129,10 +129,7 @@ fn believe(store: &Store, key: &historica_minisign::Key) {
         store.filesystem(),
         store.root(),
         "tester",
-        &trust::Entry {
-            key: key.clone(),
-            who: "The Test <test@example.com>".to_owned(),
-        },
+        &trust::Entry::new(key.clone(), "The Test <test@example.com>"),
     )
     .expect("the policy written");
 }
@@ -521,10 +518,7 @@ fn a_label_is_never_overwritten() {
         store.filesystem(),
         store.root(),
         "tester",
-        &trust::Entry {
-            key,
-            who: "Somebody Else <else@example.com>".to_owned(),
-        },
+        &trust::Entry::new(key, "Somebody Else <else@example.com>"),
     );
     assert!(
         matches!(again, Err(trust::TrustError::Taken { .. })),

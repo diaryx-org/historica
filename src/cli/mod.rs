@@ -1,7 +1,7 @@
 //! The command-line front end.
 //!
 //! `sign` writes a claim and its signature into `history/claims/`, and
-//! `state` a head statement beside them (decision 0005); `trust` writes and
+//! `state` a head statement beside them (decision 0005); `trust` writes, rewrites and
 //! deletes files in `history/trust/`, and `witness` raises this copy's record
 //! of what it has seen there. `verify` reads, and Historica's decision 0046
 //! says so in as many words. Nothing here writes a Historica document, ever.
@@ -14,8 +14,9 @@ use std::fmt;
 use std::io::{self, Write};
 use std::path::{Path, PathBuf};
 
+use historica::format::Timestamp;
 use historica::fs::Filesystem;
-use historica::record::Platform;
+use historica::record::{Clock, Platform};
 use historica::store::{Store, StoreError};
 
 use historica::core::{FileId, RevisionId};
@@ -81,6 +82,12 @@ usage: historica-minisign [-C <dir>] <command> [<arguments>]
                            another store — receiving a store receives its
                            history and its claims, never its opinion of who
                            to believe
+  trust revoke <label> [--as-of <time>]
+                           stop counting what that key signs from <time>
+                           (`2026-10-19T08:30:00-06:00`; by default now). Its
+                           claims from before still count. Name the earliest
+                           time it may have leaked: the key signs whatever
+                           time it is given
   key new [--at <dir>] [--password-file <path>]
                            write a minisign key pair, by default in
                            ~/.minisign. A key `minisign -G` wrote works here
@@ -844,14 +851,15 @@ fn tidy(store: &Store, from: &Path) -> Result<(), Failure> {
 fn trust_command(base: &Path, arguments: &[String]) -> Result<u8, Failure> {
     let (verb, rest) = arguments
         .split_first()
-        .ok_or_else(|| Failure::usage("trust wants `add`, `list`, or `remove`"))?;
+        .ok_or_else(|| Failure::usage("trust wants `add`, `list`, `remove`, or `revoke`"))?;
 
     match verb.as_str() {
         "list" => trust_list(base, rest),
         "add" => trust_add(base, rest),
         "remove" => trust_remove(base, rest),
+        "revoke" => trust_revoke(base, rest),
         other => Err(Failure::usage(format!(
-            "`{other}`: trust wants `add`, `list`, or `remove`"
+            "`{other}`: trust wants `add`, `list`, `remove`, or `revoke`"
         ))),
     }
 }
@@ -876,6 +884,12 @@ fn trust_list(base: &Path, arguments: &[String]) -> Result<u8, Failure> {
         for (label, entry) in policy.entries() {
             writeln!(out, "{label}  {}", entry.who)?;
             writeln!(out, "  {}", entry.key)?;
+            if let Some(added) = &entry.added {
+                writeln!(out, "  added {added}")?;
+            }
+            if let Some(revoked) = &entry.revoked {
+                writeln!(out, "  revoked {revoked}")?;
+            }
         }
         for (path, because) in policy.malformed() {
             writeln!(out, "\n{} is not an entry: {because}", path.display())?;
@@ -928,10 +942,7 @@ fn trust_add(base: &Path, arguments: &[String]) -> Result<u8, Failure> {
     }
 
     let store = open(base)?;
-    let entry = trust::Entry {
-        key: key.clone(),
-        who: who.clone(),
-    };
+    let entry = trust::Entry::new(key.clone(), who.clone());
     let path = match trust::add(store.filesystem(), store.root(), &label, &entry) {
         Ok(path) => path,
         // One person with two keys lands on one name. A label the tool chose is
@@ -962,6 +973,56 @@ fn trust_remove(base: &Path, arguments: &[String]) -> Result<u8, Failure> {
     let store = open(base)?;
     let path = trust::remove(store.filesystem(), store.root(), label).map_err(Failure::error)?;
     printing(|out| writeln!(out, "removed {}", path.display()))
+}
+
+fn trust_revoke(base: &Path, arguments: &[String]) -> Result<u8, Failure> {
+    let mut label: Option<String> = None;
+    let mut as_of: Option<String> = None;
+
+    let mut rest = arguments.iter();
+    while let Some(argument) = rest.next() {
+        match argument.as_str() {
+            "--as-of" => as_of = Some(value(&mut rest, "--as-of")?),
+            other if other.starts_with("--") => {
+                return Err(Failure::usage(format!(
+                    "`{other}` is not an option to trust revoke"
+                )));
+            }
+            other if label.is_none() => label = Some(other.to_owned()),
+            other => {
+                return Err(Failure::usage(format!(
+                    "`{other}`: trust revoke takes one label"
+                )));
+            }
+        }
+    }
+    let label = label.ok_or_else(|| Failure::usage("trust revoke wants one label"))?;
+    let when: Timestamp = match as_of {
+        Some(text) => text
+            .parse()
+            .map_err(|error| Failure::usage(format!("`{text}`: {error}")))?,
+        None => Platform.now().map_err(|error| {
+            Failure::error(format!("the clock could not say when now is: {error}"))
+        })?,
+    };
+
+    let store = open(base)?;
+    let (path, entry) =
+        trust::revoke(store.filesystem(), store.root(), &label, &when).map_err(Failure::error)?;
+    let revoked = entry.revoked.as_ref().unwrap_or(&when);
+
+    printing(|out| {
+        writeln!(out, "{} is revoked as of {revoked}", entry.key)?;
+        writeln!(out, "  {}", path.display())?;
+        if revoked != &when {
+            writeln!(
+                out,
+                "\nit was already revoked as of that earlier time, which stands: \
+                 a revocation only moves earlier"
+            )?;
+        }
+        Ok(())
+    })
 }
 
 // ---------------------------------------------------------------------------

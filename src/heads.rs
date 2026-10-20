@@ -58,7 +58,11 @@ pub struct Statement {
     /// made before on any copy it has seen, so a reader who has witnessed
     /// `7` refuses a store whose latest is `6`.
     pub counter: u64,
-    /// When the key said it. Informative only: nothing compares it.
+    /// When the key said it.
+    ///
+    /// Never used to order statements; the counter does that. The one thing
+    /// compared with it is a revocation in `trust/`, which a statement made
+    /// after it does not survive, as a claim does not.
     pub when: Timestamp,
     /// The heads the key's history had, by digest. Never empty.
     pub heads: BTreeSet<RevisionId>,

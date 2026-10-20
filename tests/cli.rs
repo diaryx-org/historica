@@ -242,6 +242,47 @@ fn a_label_can_be_chosen_and_removed() {
     assert!(out(&folder, &["trust", "list"]).contains("believes nobody yet"));
 }
 
+/// A revocation is written into the entry, and only ever moves earlier.
+#[test]
+fn a_key_is_revoked_as_of_a_time() {
+    let directory = scratch("revoke");
+    let folder = work(&directory);
+    let key = key(&directory);
+    out(
+        &folder,
+        &["trust", "add", &key, "The Test", "--label", "laptop"],
+    );
+
+    let said = out(
+        &folder,
+        &[
+            "trust",
+            "revoke",
+            "laptop",
+            "--as-of",
+            "2026-10-19T08:30:00-06:00",
+        ],
+    );
+    assert!(said.contains("revoked as of 2026-10-19T08:30:00-06:00"));
+    let entry = fs::read_to_string(folder.join("history/trust/laptop.txt")).expect("the entry");
+    assert!(entry.starts_with("trust-1\n"), "{entry}");
+    assert!(
+        entry.ends_with("revoked 2026-10-19T08:30:00-06:00\n"),
+        "{entry}"
+    );
+
+    // A later time leaves the earlier one standing.
+    let said = out(&folder, &["trust", "revoke", "laptop"]);
+    assert!(said.contains("already revoked"), "{said}");
+    assert!(out(&folder, &["trust", "list"]).contains("revoked 2026-10-19T08:30:00-06:00"));
+
+    let refused = run(
+        &folder,
+        &["trust", "revoke", "laptop", "--as-of", "yesterday"],
+    );
+    assert!(!refused.status.success());
+}
+
 #[test]
 fn a_role_that_is_not_a_role_is_a_usage_error() {
     let directory = scratch("bad-role");

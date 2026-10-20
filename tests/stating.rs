@@ -62,10 +62,7 @@ fn believe(store: &Store, key: &Key, label: &str) {
         store.filesystem(),
         store.root(),
         label,
-        &trust::Entry {
-            key: key.clone(),
-            who: format!("{label} <{label}@example.com>"),
-        },
+        &trust::Entry::new(key.clone(), format!("{label} <{label}@example.com>")),
     )
     .expect("the policy written");
 }
