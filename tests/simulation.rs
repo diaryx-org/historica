@@ -1218,7 +1218,13 @@ impl World {
         let working = self.working(at, &store)?;
         let repository = Path::new(REPOSITORY);
         // Refusals are the folder protecting work nothing recorded.
-        let planned = historica::update::plan(&store, &working, repository, &head);
+        let planned = historica::update::plan(
+            &store,
+            &working,
+            repository,
+            &head,
+            &historica::following::Following::Everything,
+        );
         self.count("update", &planned);
         if let Ok(update) = planned {
             let applied = historica::update::apply(&store, &working, repository, &update);
@@ -1486,15 +1492,12 @@ thread_local! {
     static STRICT: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
-/// The heads a person works against: superseded ones set aside, unless that
-/// leaves none. The command line's rule, restated rather than reached for,
-/// since it lives in the binary.
+/// The heads a person works against: decision 0086's, under the rule that
+/// follows everything, which is every tip.
 fn current_heads(store: &SimStore) -> BTreeSet<RevisionId> {
-    let history = store.history();
-    let heads = history.heads();
-    let superseded = history.superseded();
-    let current: BTreeSet<RevisionId> = heads.difference(&superseded).copied().collect();
-    if current.is_empty() { heads } else { current }
+    historica::following::Following::Everything
+        .heads(store)
+        .heads
 }
 
 // ---------------------------------------------------------------------------
@@ -1591,7 +1594,7 @@ impl Answers {
                 }),
         };
         Self {
-            heads: store.history().heads(),
+            heads: store.history().childless(),
             revisions,
             merged,
             items,

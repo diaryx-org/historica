@@ -945,7 +945,7 @@ impl<F: Filesystem> Store<F> {
         Ok(Offer {
             // The graph's heads, superseded ones included: a listing is not a
             // rendering, and every one of them answers relatedness.
-            heads: self.history().heads().into_iter().collect(),
+            heads: self.history().childless().into_iter().collect(),
             entries,
         })
     }

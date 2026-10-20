@@ -1435,7 +1435,14 @@ fn a_raced_edit_is_left_by_the_disk_update_too() {
     // may write the head back over them.
     fs::write(base.join("notes.md"), "First thought.\n").expect("recorded bytes");
     let working = Working::read(&base, store.skipped()).expect("the folder");
-    let plan = update::plan(&store, &working, &base, &second.revision).expect("a plan");
+    let plan = update::plan(
+        &store,
+        &working,
+        &base,
+        &second.revision,
+        &historica::following::Following::Everything,
+    )
+    .expect("a plan");
     assert_eq!(plan.writes.len(), 1, "one file differs");
 
     // The race: an edit lands after the plan looked and before apply does.
@@ -1546,7 +1553,7 @@ fn abandoning_a_head_leaves_the_change_abandoned_and_the_content_its_parents() {
     ));
 
     // The tombstone is the head, and the only current one.
-    let heads = history.heads();
+    let heads = history.childless();
     let superseded = history.superseded();
     let current: Vec<_> = heads.difference(&superseded).collect();
     assert_eq!(current, vec![&abandoned.revision]);
@@ -1701,7 +1708,7 @@ fn a_squash_states_the_tip_once_and_supersedes_the_run() {
 
     let history = store.history();
     let current: Vec<_> = history
-        .heads()
+        .childless()
         .difference(&history.superseded())
         .copied()
         .collect();

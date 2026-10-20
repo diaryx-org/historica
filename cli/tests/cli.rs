@@ -4886,6 +4886,7 @@ fn work_can_be_restated_against_a_parent_a_person_names() {
     let base = head_of(&directory);
     write(&directory, "a.txt", "a\n");
     out(recorded(&directory, &["record", "-m", "A"]));
+    let a = head_of(&directory);
     write(&directory, "b.txt", "b\n");
     out(recorded(&directory, &["record", "-m", "B"]));
     let b = head_of(&directory);
@@ -4905,6 +4906,27 @@ fn work_can_be_restated_against_a_parent_a_person_names() {
         2,
         "B moves and C follows it: {said}"
     );
+
+    // Decision 0086: nothing current stands on A any more, so A is a tip,
+    // shown rather than lost. Leaving it is an abandon, whose tombstone is a
+    // head as any other (0013), and joining that head is a merge.
+    let both = refused(&directory, &["files", "head"]);
+    assert!(both.contains(&a), "A is a tip of its own: {both}");
+    out(recorded(&directory, &["abandon", &a, "-m", "left behind"]));
+    let tips = out(recorded(&directory, &["log"]))
+        .lines()
+        .filter(|line| line.contains("(head") && !line.contains("superseded"))
+        .filter_map(|line| line.split_whitespace().nth(1).map(str::to_owned))
+        .collect::<Vec<_>>();
+    assert_eq!(tips.len(), 2, "the tombstone and C': {tips:?}");
+    // A merge records the files as they stand, and A's are still on disk.
+    fs::remove_file(directory.join("a.txt")).expect("A's file");
+    out(recorded(
+        &directory,
+        &[
+            "record", "--merge", &tips[0], "--merge", &tips[1], "-m", "Join",
+        ],
+    ));
 
     let files = out(recorded(&directory, &["files", "head"]));
     assert!(

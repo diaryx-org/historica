@@ -57,7 +57,7 @@ fn out(directory: &Path, arguments: &[&str]) -> String {
 fn record_folder(store: &mut Store, base: &Path, message: &str) {
     let mut platform = Platform;
     let working = Working::read(base, store.skipped()).expect("the folder");
-    let parents = store.history().heads().into_iter().collect();
+    let parents = store.history().childless().into_iter().collect();
     record(
         store,
         &working,

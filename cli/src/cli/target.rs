@@ -16,6 +16,7 @@ use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
 use historica::core::{ChangeId, ChangeState, FileId, RevisionId};
+use historica::following::Following;
 use historica::store::{Name, Store};
 use historica::tree::Tree;
 
@@ -344,24 +345,17 @@ pub fn parents(
     Ok(parents)
 }
 
-/// The heads a person is standing on: the ones nothing has rewritten.
+/// The heads a person is standing on, under the copy's rule (decision 0086).
 ///
-/// Decision 0001 keeps head discovery a pure graph question over parent edges
-/// and leaves it to a caller to decide whether superseded revisions are shown;
-/// decision 0023 is that caller deciding. An amended revision is still a head
-/// by parent edges — nothing names it as a parent, because its successor took
-/// its parents rather than it — so a store with one line of work in it and one
-/// amendment would otherwise have two heads forever.
-///
-/// Where filtering leaves nothing, every head is returned: a store holding a
-/// revision whose successor has not been delivered should be described as it
-/// is rather than as an empty one.
+/// Every tip, for now: the CLI's own rule, following writers, is the next
+/// step 0086 names.
 pub fn current_heads(store: &Store) -> BTreeSet<RevisionId> {
-    let history = store.history();
-    let heads = history.heads();
-    let superseded = history.superseded();
-    let current: BTreeSet<RevisionId> = heads.difference(&superseded).copied().collect();
-    if current.is_empty() { heads } else { current }
+    following(store).heads(store).heads
+}
+
+/// The rule this copy follows.
+pub fn following(_store: &Store) -> Following {
+    Following::Everything
 }
 
 /// The one head to work against, or a refusal naming the choice.

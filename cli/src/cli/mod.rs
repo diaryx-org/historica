@@ -1618,7 +1618,7 @@ fn skip(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     // this cannot cover — and refusing here means never asking for `--onto`
     // to answer a question that has the same answer at both heads anyway.
     let mut covered: Vec<String> = Vec::new();
-    for head in store.history().heads() {
+    for head in store.history().childless() {
         let tree = store
             .merged_tree_of(&[head])
             .map_err(|error| Failure::error(error.to_string()))?;

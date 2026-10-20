@@ -139,7 +139,7 @@ pub fn log(
     filter: &Filter,
 ) -> io::Result<()> {
     let history = store.history();
-    let heads = history.heads();
+    let heads = history.childless();
     let superseded = history.superseded();
     let divergent: BTreeSet<ChangeId> = history.divergent_changes().into_keys().collect();
 
@@ -234,7 +234,7 @@ pub fn fields(
     filter: &Filter,
 ) -> io::Result<()> {
     let history = store.history();
-    let heads = history.heads();
+    let heads = history.childless();
     let superseded = history.superseded();
     let divergent: BTreeSet<ChangeId> = history.divergent_changes().into_keys().collect();
 
@@ -513,7 +513,7 @@ fn position(out: &mut impl Write, store: &Store, parents: &[RevisionId]) -> io::
     }
 
     let history = store.history();
-    let heads = history.heads();
+    let heads = history.childless();
     let superseded = history.superseded();
     let divergent: BTreeSet<ChangeId> = history.divergent_changes().into_keys().collect();
     // Abbreviated against every revision the store holds, as `log` does, so

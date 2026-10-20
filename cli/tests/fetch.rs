@@ -228,8 +228,8 @@ fn an_empty_store_is_seeded_from_an_export_and_the_manifest_beside_it() {
     let report = Store::check(here.join("history"));
     assert!(report.is_ok(), "{report:?}");
     assert_eq!(
-        store(&here).history().heads(),
-        store(&origin).history().heads(),
+        store(&here).history().childless(),
+        store(&origin).history().childless(),
         "the fetched copy is not at the origin's heads"
     );
 
@@ -813,7 +813,7 @@ fn a_remote_that_has_diverged_is_fetched_from_rather_than_refused() {
         .expect("a divergent remote is still a remote");
     assert_eq!(fetched.revisions.len(), 1);
     assert_eq!(
-        store(&here).history().heads().len(),
+        store(&here).history().childless().len(),
         2,
         "the fetch did not leave this store holding the divergence"
     );
@@ -1212,8 +1212,8 @@ fn leaving_bytes_takes_the_history_and_the_text_and_not_the_picture() {
     let report = Store::check(here.join("history"));
     assert!(report.is_ok(), "{report:?}");
     assert_eq!(
-        store(&here).history().heads(),
-        store(&origin).history().heads()
+        store(&here).history().childless(),
+        store(&origin).history().childless()
     );
 
     // The folder catches up without it, and says so.

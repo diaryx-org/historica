@@ -279,7 +279,7 @@ fn a_history_is_recorded_and_read_back_with_no_filesystem_at_all() {
     let reopened = Store::open_on(memory.clone(), store.root()).expect("reopening from memory");
     assert_eq!(reopened.len(), 2);
     let history = reopened.history();
-    assert_eq!(history.heads(), BTreeSet::from([second]));
+    assert_eq!(history.childless(), BTreeSet::from([second]));
 
     // And the content materialises, which is the whole stack — walk, payload
     // index, replay, merge — over a filesystem that is two maps.
@@ -625,8 +625,14 @@ fn a_folder_that_models_no_links_refuses_rather_than_inventing_one() {
 
     let working = Working::read_on(memory.clone(), Path::new(ROOT), store.skipped())
         .expect("the working copy");
-    let refused = historica::update::plan(&store, &working, Path::new(ROOT), &linked)
-        .expect_err("a folder with no links cannot hold this tree");
+    let refused = historica::update::plan(
+        &store,
+        &working,
+        Path::new(ROOT),
+        &linked,
+        &historica::following::Following::Everything,
+    )
+    .expect_err("a folder with no links cannot hold this tree");
     let said = refused.to_string();
     assert!(said.contains("current"), "{said}: it names the link");
     assert!(
@@ -1023,7 +1029,14 @@ fn the_folder_updates_in_memory_too() {
 
     let working = Working::read_on(memory.clone(), Path::new(ROOT), store.skipped())
         .expect("the folder in memory");
-    let plan = historica::update::plan(&store, &working, Path::new(ROOT), &second).expect("a plan");
+    let plan = historica::update::plan(
+        &store,
+        &working,
+        Path::new(ROOT),
+        &second,
+        &historica::following::Following::Everything,
+    )
+    .expect("a plan");
     assert_eq!(plan.writes.len(), 1, "one file differs");
     let applied = historica::update::apply(&store, &working, Path::new(ROOT), &plan)
         .expect("applying the plan");
@@ -1047,7 +1060,13 @@ fn the_folder_updates_in_memory_too() {
     put(&memory, "notes.md", "an unrecorded edit\n");
     let working = Working::read_on(memory.clone(), Path::new(ROOT), store.skipped())
         .expect("the folder in memory");
-    let refused = historica::update::plan(&store, &working, Path::new(ROOT), &second);
+    let refused = historica::update::plan(
+        &store,
+        &working,
+        Path::new(ROOT),
+        &second,
+        &historica::following::Following::Everything,
+    );
     assert!(matches!(
         refused,
         Err(historica::update::UpdateError::Refused { .. })
@@ -1068,7 +1087,14 @@ fn a_file_that_moved_between_plan_and_apply_is_left_and_reported() {
     put(&memory, "notes.md", "First thought.\n");
     let working = Working::read_on(memory.clone(), Path::new(ROOT), store.skipped())
         .expect("the folder in memory");
-    let plan = historica::update::plan(&store, &working, Path::new(ROOT), &second).expect("a plan");
+    let plan = historica::update::plan(
+        &store,
+        &working,
+        Path::new(ROOT),
+        &second,
+        &historica::following::Following::Everything,
+    )
+    .expect("a plan");
     assert_eq!(plan.writes.len(), 1, "one file differs");
 
     // The race: an edit lands after the plan looked and before apply does.
