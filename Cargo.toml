@@ -39,7 +39,7 @@ repository = "https://github.com/diaryx-org/historica-minisign"
 # tool, and `default-features = false` is a library that only ever verifies:
 # `minisign-verify` and nothing else.
 [features]
-default = ["sign", "disk"]
+default = ["sign", "disk", "http"]
 # Writing a claim, and the secret key that requires. `minisign` is
 # rust-minisign, the reference implementation's own crate.
 sign = ["dep:minisign"]
@@ -48,6 +48,16 @@ sign = ["dep:minisign"]
 # Turning it off leaves a library that reaches the store through whatever
 # filesystem its caller hands it, which is historica's decision 0025.
 disk = ["historica/disk"]
+# Reading over HTTP with a device key: a fetch `Source` that signs every
+# request, and the token request a git credential helper is built on. The
+# platform's own HTTP stack through `nyquest`, as historica's decision 0057
+# chose for historica's own fetch, and behind a feature for 0057's reason: a
+# target with no such stack under it, wasm above all, where the hub's worker
+# and the page check and sign requests through `request` and bring their own
+# transport. In the default set because the default build is the tool, and
+# `historica minisign fetch` is a command of it; `sign` because a source that
+# signs needs the secret key.
+http = ["sign", "dep:nyquest", "dep:nyquest-preset"]
 
 # The command-line front end. `sign` because a tool that could not write a claim
 # would be a strange thing to install; `disk` because a CLI is the one caller
@@ -74,3 +84,11 @@ minisign-verify = "0.2.5"
 # Signing. Optional because a verifier should not have to build it; see the
 # `sign` feature above.
 minisign = { version = "0.9.1", optional = true }
+# The platform's own HTTP stack, behind one interface: WinRT on Windows,
+# NSURLSession on Apple, libcurl elsewhere. Historica's decision 0057 argues
+# the choice and the pin, and this takes both as historica-cli does: exactly
+# `=0.4.0`, because nyquest says its API is subject to change, so moving it is
+# somebody typing a version. `blocking` because the CLI is synchronous from
+# `main` down.
+nyquest = { version = "=0.4.0", optional = true, features = ["blocking"] }
+nyquest-preset = { version = "=0.4.0", optional = true, features = ["blocking"] }

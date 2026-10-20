@@ -622,3 +622,77 @@ fn a_file_without_its_content_is_a_usage_error() {
         assert_eq!(refused.status.code(), Some(2), "{arguments:?}");
     }
 }
+
+/// `fetch` refuses what historica's own `fetch` refuses, before asking
+/// anything of the network or of a key.
+#[cfg(feature = "http")]
+#[test]
+fn fetch_wants_the_url_of_a_manifest() {
+    let directory = scratch("fetch-url");
+    let folder = work(&directory);
+    for (arguments, said) in [
+        (&["fetch"][..], "wants the URL of a manifest"),
+        (&["fetch", "example.org/offer.txt"][..], "is not a URL"),
+        (
+            &["fetch", "file:///srv/offer.txt"][..],
+            "is not an HTTP URL",
+        ),
+        (
+            &["fetch", "https://example.org/pub/"][..],
+            "names a directory",
+        ),
+        (
+            &["fetch", "https://example.org/offer.txt?v=2"][..],
+            "cannot be part",
+        ),
+        (
+            &[
+                "fetch",
+                "https://example.org/offer.txt",
+                "--no-bytes",
+                "notes.txt",
+            ][..],
+            "takes the files of bytes named and nothing else",
+        ),
+        (
+            &["fetch", "--quickly"][..],
+            "is not an argument `fetch` takes",
+        ),
+    ] {
+        let refused = run(&folder, arguments);
+        assert_eq!(refused.status.code(), Some(2), "{arguments:?}");
+        let stderr = String::from_utf8_lossy(&refused.stderr);
+        assert!(stderr.contains(said), "{arguments:?}: {stderr}");
+    }
+    assert!(out(&folder, &["--help"]).contains("fetch <url> <path>..."));
+}
+
+/// `token` asks a hub by its origin, and refuses a URL that is not one before
+/// anything is sent.
+#[cfg(feature = "http")]
+#[test]
+fn token_wants_a_hub_by_its_origin() {
+    let directory = scratch("token-origin");
+    let folder = work(&directory);
+    key(&directory);
+    let secret = directory.join("keys").join("minisign.key");
+    let password = directory.join("password");
+
+    let refused = run(&folder, &["token"]);
+    assert_eq!(refused.status.code(), Some(2));
+
+    let refused = run(
+        &folder,
+        &[
+            "token",
+            "https://hub.example.org/adam/notes/offer.txt",
+            "--key",
+            secret.to_str().unwrap(),
+            "--password-file",
+            password.to_str().unwrap(),
+        ],
+    );
+    assert_eq!(refused.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&refused.stderr);
+    assert!(stderr.contains("named by its origin alone"), "{stderr}");
+}

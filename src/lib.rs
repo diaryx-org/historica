@@ -26,6 +26,12 @@
 //!   highest statement it has witnessed from each key, which never travels
 //!   either.
 //!
+//! Beside the files, one thing that is not a file: a **signed request**
+//! ([`request`]), the same keys saying who is asking when a server wants to
+//! know, as the forge proposal reads a private copy with a device key. With the
+//! `http` feature, `http` fetches through a source that signs every request
+//! and asks a hub for a short-lived token.
+//!
 //! Nothing here writes a Historica document, and Historica knows nothing about
 //! any of it beyond the promise 0046 extracted: a directory at the store root
 //! that Historica does not name belongs to whichever tool wrote it.
@@ -54,14 +60,18 @@
 #![forbid(unsafe_code)]
 #![deny(missing_docs)]
 
+mod base64;
 pub mod claim;
 pub mod heads;
 pub mod layout;
 pub mod naming;
+pub mod request;
 pub mod seen;
 pub mod trust;
 pub mod verify;
 
+#[cfg(feature = "http")]
+pub mod http;
 #[cfg(feature = "sign")]
 pub mod key;
 #[cfg(feature = "sign")]

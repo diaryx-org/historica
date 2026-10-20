@@ -20,7 +20,7 @@ use historica::format::digest;
 use historica::fs::Disk;
 use historica::record::{Clock, Platform};
 use historica_minisign::claim::Claim;
-use historica_minisign::{key, layout, sign, verify};
+use historica_minisign::{key, layout, request, sign, verify};
 
 const PASSWORD: &str = "not a secret";
 
@@ -166,5 +166,37 @@ fn a_claim_the_minisign_command_signed_verifies_here() {
         verify::check_signature(&bytes, &text, &claim.key),
         Ok(()),
         "this crate refused a signature minisign wrote"
+    );
+}
+
+#[test]
+fn a_signed_request_verifies_with_the_minisign_command() {
+    if !minisign() {
+        eprintln!("skipped: minisign is not on PATH");
+        return;
+    }
+    let directory = scratch("request");
+    let secret = key::mint().expect("a key");
+    let public = sign::public_key(&secret).expect("its public half");
+    let (host, path, time) = ("hub.example.org", "/adam/notes/offer.txt", 1_760_968_324);
+    let header = request::sign_request(&secret, "GET", host, path, time).expect("a header");
+
+    // The header's two signatures, put back into the four lines minisign
+    // writes, over the signed string as the message.
+    let read: request::Authorization = header.parse().expect("a header");
+    let message = directory.join("request.txt");
+    let signature = directory.join("request.txt.minisig");
+    fs::write(
+        &message,
+        request::signed_string("GET", host, path, time).expect("a request"),
+    )
+    .expect("the message written");
+    fs::write(&signature, read.to_minisig()).expect("the signature written");
+
+    let checked = run(&["-V", "-m", message.to_str().unwrap(), "-P", public.as_str()]);
+    assert!(
+        checked.status.success(),
+        "minisign refused a request signature: {}",
+        String::from_utf8_lossy(&checked.stderr)
     );
 }
