@@ -95,13 +95,19 @@ fn convert(repository: &str, folder: &str) -> Result<(), String> {
             println!("  - {bookmark}");
         }
     }
-    if report.onto {
+    if !report.removed.is_empty() {
+        println!("\nbookmarks removed, because git deleted the branch:");
+        for bookmark in &report.removed {
+            println!("  - {bookmark}");
+        }
+    }
+    if report.behind {
         println!(
             "\nthe folder was left as it was; `historica update` is what brings it \
              forward"
         );
     }
-    say(&report.uncarried);
+    say(&report.uncarried, standing(report.onto, &report.standing));
     Ok(())
 }
 
@@ -144,7 +150,7 @@ fn write(folder: &str, repository: &str) -> Result<(), String> {
         }
     }
     held_back(&report.held_back);
-    say(&report.uncarried);
+    say(&report.uncarried, standing(report.onto, &report.standing));
     Ok(())
 }
 
@@ -215,8 +221,9 @@ fn after(statement: &str, at: Option<(&str, &str)>) -> Result<(), String> {
         false => println!("git: {}", git.join("; ")),
     }
     held_back(&report.held_back);
-    // What git cannot hold is the same on every run, and a whole write says
-    // it; the run says only how much there is and where to read it.
+    // What git cannot hold about this run's revisions is counted, and where
+    // to read it said. What is true of every run is not: decision 0010, and
+    // the whole write that made the repository already said it.
     let notes = report.uncarried.len();
     if notes > 0 {
         println!(
@@ -266,14 +273,20 @@ fn held_back(lines: &[String]) {
 
 /// Decision 0001: a conversion states what it could not carry, because the
 /// person holding the result otherwise believes it is the thing it came from.
-fn say(uncarried: &[String]) {
-    if uncarried.is_empty() {
+fn say(uncarried: &[String], standing: &[String]) {
+    if uncarried.is_empty() && standing.is_empty() {
         return;
     }
     println!("\nwhat did not cross:");
-    for line in uncarried {
+    for line in uncarried.iter().chain(standing) {
         println!("  - {line}");
     }
+}
+
+/// Decision 0010: what did not cross on every run is said by a whole
+/// conversion, and a run onto what it made before leaves it out.
+fn standing(onto: bool, standing: &[String]) -> &[String] {
+    if onto { &[] } else { standing }
 }
 
 const USAGE: &str = "\

@@ -235,8 +235,13 @@ travels with `cp -r`.
 
 ## Deferred
 
-- **Removing a bookmark through historica's API**, which is the one thing an
-  import cannot carry across. Filed upstream under 0001's rule.
+- ~~**Removing a bookmark through historica's API**, which is the one thing an
+  import cannot carry across. Filed upstream under 0001's rule.~~ Answered
+  upstream: historica's 0073 made `Store::remove_name` a door a caller may
+  use. An import now removes the bookmark of a branch git deleted, where the
+  bookmark is still where the branch was, and drops the record's line for it.
+  This is this decision's rule for a move: the side that changed is the side
+  that is right. A bookmark the store moved since is still said and kept.
 - **Excluding held commits that are not ref tips.** The exclusion set is the
   refs whose commits are held, so a new branch grown from an old point re-reads
   the commits between; they are recognised and skipped, and the cost is git's
@@ -252,10 +257,11 @@ travels with `cp -r`.
   line until it reaches one it can. That works and is a second question git
   did not need to be asked; recording the empty commit against its parent's
   revision in a form that does not disturb the reverse lookup would remove it.
-- **A branch git deleted is reported on every import** until the bookmark is
+- ~~**A branch git deleted is reported on every import** until the bookmark is
   removed, since the record keeps the line that would otherwise let a write
   recreate the branch. Noisy rather than wrong, and gone the day historica's
-  API can remove a bookmark.
+  API can remove a bookmark.~~ Gone with the item above: the bookmark and the
+  line go together, and the next import has nothing to say.
 - **Colocation** — the store's folder and the repository's working tree being
   one directory — which is what the second import's rule about the folder was
   written to make possible, and which is its own decision.

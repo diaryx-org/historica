@@ -65,11 +65,24 @@ pub struct Report {
     pub bookmarks: Vec<String>,
     /// Bookmarks that existed and were moved to where git's ref now is.
     pub moved: Vec<String>,
+    /// Bookmarks removed because git deleted their branch, and the store had
+    /// not moved them since the last time the two sides agreed.
+    pub removed: Vec<String>,
     /// Whether the store existed before this conversion, in which case the
     /// folder beside it was left exactly as it was.
     pub onto: bool,
+    /// Whether the folder is behind what this conversion recorded: something
+    /// arrived that the folder does not hold yet, and `historica update` is
+    /// what brings it. A colocated folder that git already brought up to the
+    /// branch HEAD names is not behind, however much arrived.
+    pub behind: bool,
     /// One line per kind of fact that did not cross, for a person to read.
     pub uncarried: Vec<String>,
+    /// Decision 0010: the facts that did not cross and are true of every run
+    /// against this repository, such as its remote-tracking refs. A whole
+    /// conversion says them; a run onto what it made before need not, since
+    /// the first one already did.
+    pub standing: Vec<String>,
 }
 
 impl Report {
@@ -213,10 +226,19 @@ pub fn from_repository(repository: &Path, folder: &Path) -> Result<Report, Error
     // Carried forward and amended, never rewritten from scratch: a ref that
     // was held back keeps its line, and a ref a write made stays marked as
     // made even once an import finds the two sides agreeing about it again.
+    let head = repository.head()?;
+    let head_agreed = head
+        .as_ref()
+        .is_some_and(|head| converted.agreed.contains_key(head));
     let mut left = converted.known.refs.to_map();
     for (reference, oid) in converted.agreed {
         let made = converted.known.refs.made(&reference);
         left.insert(reference, Left { oid, made });
+    }
+    // A branch whose bookmark went with it leaves the record too: the line
+    // was only there so that a write would not recreate what git deleted.
+    for reference in &converted.removed {
+        left.remove(reference);
     }
     Refs::write(&git_dir, &left)?;
 
@@ -231,6 +253,13 @@ pub fn from_repository(repository: &Path, folder: &Path) -> Result<Report, Error
 
     let mut report = converted.report;
     report.onto = onto;
+    // What arrived is in `history/` and the folder was not touched, which is
+    // worth saying only where the folder does not already hold it. After a
+    // `git pull` in a colocated directory it does: git wrote the files, the
+    // branch HEAD names now has a bookmark at the same commit, and the index
+    // just refreshed shows nothing tracked differing from it.
+    let arrived = report.revisions > 0 || !report.moved.is_empty();
+    report.behind = onto && arrived && !(colocated && head_agreed && repository.is_clean()?);
     Ok(report)
 }
 
@@ -265,6 +294,9 @@ struct Converted {
     /// Every ref whose bookmark now says what git says, and the commit both
     /// point at.
     agreed: BTreeMap<String, String>,
+    /// Every branch git deleted whose bookmark went with it, so that the
+    /// record stops holding the line that kept it.
+    removed: BTreeSet<String>,
 }
 
 /// What the store and the repository already know about each other.
@@ -355,6 +387,9 @@ fn convert<R: BufRead>(
         agreed: BTreeMap::new(),
         unnameable: Vec::new(),
         elsewhere: BTreeSet::new(),
+        unheld: BTreeSet::new(),
+        ahead: BTreeSet::new(),
+        removed: BTreeSet::new(),
         dangling: 0,
         conflicts: Vec::new(),
     };
@@ -428,9 +463,22 @@ fn convert<R: BufRead>(
             // Neither a branch nor a tag was asked of the export, so its
             // commit is not dangling: it was never meant to arrive. It is
             // reported by directory, as decision 0006 says, and not counted
-            // as a ref the stream failed to deliver.
+            // as a ref the stream failed to deliver. What it names is asked
+            // about, because "every commit they named is in the store" is a
+            // claim, and after a `git fetch` a remote-tracking ref names work
+            // no branch has reached yet.
             if !reference.starts_with("refs/heads/") && !reference.starts_with("refs/tags/") {
-                conversion.elsewhere.insert(elsewhere(&reference));
+                if conversion.resolve(&pointed.commit).is_some() {
+                    conversion.elsewhere.insert(elsewhere(&reference));
+                } else if reference.starts_with(REMOTES) {
+                    // `refs/remotes/origin/HEAD` is git's note of which branch
+                    // the remote checks out, and names whatever that does.
+                    if !reference.ends_with("/HEAD") {
+                        conversion.ahead.insert(reference);
+                    }
+                } else {
+                    conversion.unheld.insert(elsewhere(&reference));
+                }
                 continue;
             }
             match conversion.resolve(&pointed.commit) {
@@ -447,6 +495,7 @@ fn convert<R: BufRead>(
     conversion.name(store)?;
     let recorded = std::mem::take(&mut conversion.recorded);
     let agreed = std::mem::take(&mut conversion.agreed);
+    let removed = std::mem::take(&mut conversion.removed);
     let known = std::mem::replace(
         &mut conversion.known,
         Known {
@@ -460,6 +509,7 @@ fn convert<R: BufRead>(
         known,
         recorded,
         agreed,
+        removed,
     })
 }
 
@@ -496,7 +546,16 @@ struct Conversion<'a> {
     /// Every ref whose bookmark now says what git says.
     agreed: BTreeMap<String, String>,
     unnameable: Vec<(String, String)>,
+    /// Directories of refs that are neither branches nor tags, whose commits
+    /// the store holds anyway.
     elsewhere: BTreeSet<String>,
+    /// The same, for refs naming a commit the store does not hold.
+    unheld: BTreeSet<String>,
+    /// Remote-tracking refs naming work the store does not hold: fetched, and
+    /// not yet merged into any branch.
+    ahead: BTreeSet<String>,
+    /// Branches git deleted whose bookmarks this conversion removed.
+    removed: BTreeSet<String>,
     dangling: usize,
     /// Bookmarks that could not be moved, and why.
     conflicts: Vec<String>,
@@ -785,9 +844,12 @@ impl Conversion<'_> {
         }
 
         // A branch the last write left and git no longer has was deleted in
-        // git. The bookmark stays, because historica's published API has no
-        // way to remove one — which is a fact to take upstream rather than a
-        // file to delete from here — and the report says so.
+        // git. Decision 0007's rule is the one for a move: where the store
+        // still has the bookmark where the branch was, git is the side that
+        // changed, and the bookmark goes — through historica's own
+        // `remove_name`, which its 0073 opened. Where the store moved it
+        // since, both sides changed, and that is said rather than settled.
+        let mut deleted = Vec::new();
         for (reference, left) in self.known.refs.iter() {
             let Some(branch) = reference.strip_prefix("refs/heads/") else {
                 continue;
@@ -802,17 +864,19 @@ impl Conversion<'_> {
             let still_there = current_revision(&history, &had.target)
                 .and_then(|standing| self.resolve(&left.oid).map(|was| was == standing))
                 .unwrap_or(false);
-            self.conflicts.push(if still_there {
-                format!(
-                    "branch `{branch}` was deleted in git; the bookmark stays where the \
-                     branch was, because historica's API has no way to remove one"
-                )
+            if still_there {
+                deleted.push((reference.to_owned(), branch.to_owned()));
             } else {
-                format!(
+                self.conflicts.push(format!(
                     "branch `{branch}` was deleted in git after the store moved its \
                      bookmark; the bookmark stays where the store put it"
-                )
-            });
+                ));
+            }
+        }
+        for (reference, branch) in deleted {
+            store.remove_name(&branch)?;
+            self.removed.insert(reference);
+            self.report.removed.push(branch);
         }
         Ok(())
     }
@@ -1017,9 +1081,34 @@ impl Conversion<'_> {
                 .cloned()
                 .collect::<Vec<_>>()
                 .join(", ");
-            self.report.note(format!(
+            self.report.standing.push(format!(
                 "refs under {elsewhere} did not cross; each is a fact about \
                  somewhere else, and every commit they named is in the store"
+            ));
+        }
+        if !self.unheld.is_empty() {
+            let unheld = self.unheld.iter().cloned().collect::<Vec<_>>().join(", ");
+            self.report.standing.push(format!(
+                "refs under {unheld} did not cross; each is a fact about somewhere \
+                 else, and what only they reach did not cross either"
+            ));
+        }
+        if !self.ahead.is_empty() {
+            let ahead = self
+                .ahead
+                .iter()
+                .map(|reference| format!("`{reference}`"))
+                .collect::<Vec<_>>()
+                .join(", ");
+            self.report.note(format!(
+                "{ahead} {} work the store does not hold; a remote-tracking ref is a \
+                 fact about somewhere else, so that work crosses when a branch \
+                 reaches it — `git merge` or `git pull`, then `import`",
+                if self.ahead.len() == 1 {
+                    "names"
+                } else {
+                    "name"
+                }
             ));
         }
         if self.dangling > 0 {
@@ -1084,6 +1173,9 @@ fn descends(history: &History, descendant: RevisionId, ancestor: RevisionId) -> 
     }
     false
 }
+
+/// Where git keeps what it last fetched from each remote.
+const REMOTES: &str = "refs/remotes/";
 
 /// The directory a ref that is neither a branch nor a tag sits in, so that a
 /// hundred remote-tracking refs are reported as `refs/remotes/` once.
