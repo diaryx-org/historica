@@ -902,15 +902,16 @@ pub fn merge(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
     // the end says their bookmark back to them rather than a digest they now
     // have to match up. A head they did not name has no such spelling.
     let mut as_typed: BTreeMap<RevisionId, String> = BTreeMap::new();
+    let found = target::following(&store)?.heads(&store);
     for spelling in &spellings {
         let head = target::resolve(&store, spelling)?;
+        target::followed(&store, &found, &head, spelling)?;
         as_typed.entry(head).or_insert_with(|| spelling.clone());
         if !heads.contains(&head) {
             heads.push(head);
         }
     }
-    let standing = target::current_heads(&store)?;
-    for head in &standing {
+    for head in &found.heads {
         if !heads.contains(head) {
             heads.push(*head);
         }

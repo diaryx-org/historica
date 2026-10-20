@@ -6899,6 +6899,7 @@ fn a_block_that_lists_follows_holds_everyone_else() {
         .output()
         .expect("the binary");
     out(stranger);
+    let theirs = head_of(&directory);
 
     let everything = identity(&directory, "author Adam Harris <adam@example.com>\n");
     assert_eq!(
@@ -6926,6 +6927,32 @@ fn a_block_that_lists_follows_holds_everyone_else() {
     );
     let shown = out(as_configured(&directory, &mine_only, &["show", "head"]));
     assert!(shown.trim_end().ends_with("\nMine"), "{shown}");
+
+    let log = out(as_configured(&directory, &mine_only, &["log"]));
+    let marked = |what: &str| {
+        log.lines()
+            .find(|line| line.split_whitespace().nth(1) == Some(what))
+            .unwrap_or_default()
+            .to_owned()
+    };
+    assert!(marked(&theirs).contains("(held)"), "{log}");
+    assert!(
+        log.lines().filter(|line| line.contains("(head)")).count() == 1,
+        "{log}"
+    );
+
+    // Held work joins only by being taken.
+    for arguments in [
+        vec!["record", "--onto", theirs.as_str(), "-m", "On theirs"],
+        vec!["merge", theirs.as_str()],
+    ] {
+        let output = as_configured(&directory, &mine_only, &arguments);
+        assert!(!output.status.success(), "{arguments:?} stood on held work");
+        let said = String::from_utf8_lossy(&output.stderr).into_owned();
+        assert!(said.contains("is held"), "{said}");
+        assert!(said.contains("Stranger <s@example.com>"), "{said}");
+        assert!(said.contains("historica carry"), "{said}");
+    }
 }
 
 /// Decision 0086: a copy that follows none of the store's tips has no head

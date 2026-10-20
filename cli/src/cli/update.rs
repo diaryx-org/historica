@@ -53,7 +53,7 @@ pub fn update(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
                     return Err(Failure::error(format!(
                         "this store has {several} heads, so nothing here is `the` latest; \
                          name the one the folder should hold:\n{}",
-                        target::described(&store, &heads)
+                        target::described_with_held(&store, &heads, &found.held)
                     )));
                 }
             }

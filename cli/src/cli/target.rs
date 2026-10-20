@@ -16,7 +16,7 @@ use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
 use historica::core::{ChangeId, ChangeState, FileId, RevisionId};
-use historica::following::{self, Following};
+use historica::following::{self, Following, Heads};
 use historica::record::identity;
 use historica::store::{Name, Store};
 use historica::tree::Tree;
@@ -318,12 +318,16 @@ pub fn parents(
     onto: Option<&str>,
     merging: &[String],
 ) -> Result<Vec<RevisionId>, Failure> {
+    let found = following(store)?.heads(store);
     let mut parents: Vec<RevisionId> = Vec::new();
     if let Some(spelling) = onto {
-        parents.push(resolve(store, spelling)?);
+        let id = resolve(store, spelling)?;
+        followed(store, &found, &id, spelling)?;
+        parents.push(id);
     }
     for spelling in merging {
         let other = resolve(store, spelling)?;
+        followed(store, &found, &other, spelling)?;
         if parents.contains(&other) {
             return Err(Failure::error(format!(
                 "`{spelling}` is named twice, and a revision is its own parent \
@@ -380,9 +384,36 @@ pub fn the_head(store: &Store) -> Result<Option<RevisionId>, Failure> {
         several => Err(Failure::error(format!(
             "this store has {several} heads, so nothing here is `the` latest; \
              name one with --onto, or join them with `historica merge`:\n{}",
-            described(store, &heads)
+            described_with_held(store, &heads, &found.held)
         ))),
     }
+}
+
+/// Refuse to stand on held work (decision 0086).
+///
+/// Recording or merging onto a held revision would make it the ancestry of
+/// the person's own work unrewritten, under its writer's name alone. Taking it
+/// restates it as the taker's act, which is the one way held work joins.
+pub fn followed(
+    store: &Store,
+    found: &Heads,
+    id: &RevisionId,
+    spelling: &str,
+) -> Result<(), Failure> {
+    if found.follows(id) {
+        return Ok(());
+    }
+    let by = store
+        .get(id)
+        .ok()
+        .flatten()
+        .map(|document| format!(", written by {}", following::writer(document)))
+        .unwrap_or_default();
+    Err(Failure::error(format!(
+        "`{spelling}` is held: this copy does not follow it{by}. Standing on it \
+         would make it the ancestry of your own work as it is; take it instead, \
+         with `historica carry {spelling} --onto <head>`"
+    )))
 }
 
 /// The refusal for a copy whose rule follows none of the store's tips.
@@ -406,6 +437,25 @@ pub fn followed_nothing(store: &Store, held: &BTreeSet<RevisionId>) -> Failure {
          the held work:\n{}",
         described(store, held)
     ))
+}
+
+/// Every head, and then every held tip, which a person choosing between heads
+/// should know is there and cannot choose (decision 0086).
+pub fn described_with_held(
+    store: &Store,
+    heads: &BTreeSet<RevisionId>,
+    held: &BTreeSet<RevisionId>,
+) -> String {
+    let mut out = described(store, heads);
+    if !held.is_empty() {
+        let _ = write!(
+            out,
+            "\nheld, which joins a head only by being taken, as \
+             `historica carry <held> --onto <head>`:\n{}",
+            described(store, held)
+        );
+    }
+    out
 }
 
 /// Every head, said in enough detail to choose between them.
@@ -488,7 +538,7 @@ fn head(store: &Store) -> Result<RevisionId, Failure> {
         several => Err(Failure::error(format!(
             "this store has {several} heads, so `head` names none of them; \
              name one, or join them with `historica merge`:\n{}",
-            described(store, &heads)
+            described_with_held(store, &heads, &found.held)
         ))),
     }
 }
