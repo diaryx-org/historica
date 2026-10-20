@@ -8,7 +8,14 @@
 //! reader was looking at. [`anchor`] finds the quoted passage again in text
 //! that has since changed, and says how sure it is. One motivation, `editing`, is
 //! a patch rather than a note — the quoted passage and what should stand in
-//! its place — and [`apply`] is the pure half of taking one.
+//! its place — and [`apply`] is the pure half of taking one. Another,
+//! `offering`, points to a fork and the revision in it offered: a forge's
+//! pull request, written in the offerer's own chain.
+//!
+//! **The thread** ([`thread`]) is what replies make of a remark. A reply may
+//! close or reopen the thread it answers, or label it, and [`fold`] turns a
+//! thread into its state, given whose replies count. It needs only the
+//! remarks, so it is in the model half.
 //!
 //! **The layer** ([`layer`]) is the transport. A layer is a companion
 //! chain — somebody else's single-writer history, fetched into a directory
@@ -77,6 +84,7 @@
 pub mod annotation;
 mod document;
 mod error;
+pub mod thread;
 
 #[cfg(feature = "layer")]
 #[cfg_attr(docsrs, doc(cfg(feature = "layer")))]
@@ -84,10 +92,12 @@ pub mod layer;
 
 pub use annotation::{
     AT_FIELD, Anchor, Annotation, AnyTarget, Applied, COLOR_FIELD, CREATOR_FIELD, EXACT_FIELD,
-    FIELDS, Fields, MOTIVATION_FIELD, Motivation, PREFIX_FIELD, REPLACEMENT_FIELD, Reader,
-    SUFFIX_FIELD, Selector, TARGET_FIELD, TargetCheck, VIA_FIELD, anchor, apply,
+    FIELDS, FORK_FIELD, Fields, LABEL_FIELD, MOTIVATION_FIELD, Motivation, Offer, PREFIX_FIELD,
+    REPLACEMENT_FIELD, Reader, SUFFIX_FIELD, Selector, Status, TARGET_FIELD, THREAD_FIELD,
+    TIP_FIELD, TargetCheck, UNLABEL_FIELD, VIA_FIELD, anchor, apply,
 };
 pub use error::{Error, Result};
+pub use thread::{Post, Thread, fold};
 
 #[cfg(feature = "layer")]
 pub use layer::{Export, Layers, Received, Remark, Repo};

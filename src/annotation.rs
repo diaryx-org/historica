@@ -72,6 +72,49 @@
 //! whether the person proposing it may have it applied without a hand — are
 //! policies, and they belong to whoever holds the store.
 //!
+//! # Offering
+//!
+//! `offering` points to a fork: a whole history that shares the target's
+//! root, published at a URL, and one revision in it the writer asks the
+//! target's owner to take. It is the forge's pull request, written in the
+//! offerer's own chain:
+//!
+//! ```yaml
+//! target: 7c1e…                         # the project: its root revision
+//! motivation: offering
+//! fork: https://hub.example/ada/historica/offer.txt
+//! tip: 9b04…                            # the revision offered
+//! ```
+//!
+//! The body is the description. `fork` is the fork's manifest — what
+//! `historica fetch` takes — and `tip` is a revision digest in it. Both are
+//! required of an offer, and neither is allowed on any other remark, for the
+//! reason `replacement` is not: a document that carries them under another
+//! motivation says two things about itself.
+//!
+//! The Web Annotation model has thirteen motivations and lets a community
+//! define its own beside them, as a narrower term of one of the thirteen
+//! (`skos:broader`). `offering` is such an extension, and its broader term is
+//! `editing`: an offer is a request to change the target, made by naming a
+//! history rather than by quoting a passage.
+//!
+//! # A thread's state
+//!
+//! A `replying` remark may also change the state of the thread it answers:
+//!
+//! ```yaml
+//! target: ada/remarks/lake-question     # the root remark
+//! motivation: replying
+//! thread: closed                        # or `open`, to reopen it
+//! label: [answered, docs]               # labels to add
+//! unlabel: triage                       # labels to remove
+//! ```
+//!
+//! These are extensions too; the Web Annotation model has no thread state.
+//! Only a reply may carry them. Who may *use* them is not a fact about the
+//! document, so it is not checked here: [`crate::thread::fold`] turns a
+//! thread into its state, given whose replies count.
+//!
 //! # Why the target is opaque
 //!
 //! A remark's target is by design in *another* store than the one the remark
@@ -102,6 +145,24 @@ pub const COLOR_FIELD: &str = "color";
 /// What an `editing` remark proposes in the quoted passage's place. Present
 /// on an edit and on nothing else; empty for a deletion.
 pub const REPLACEMENT_FIELD: &str = "replacement";
+/// The manifest of the fork an `offering` remark points to. Present on an
+/// offer and on nothing else.
+pub const FORK_FIELD: &str = "fork";
+/// The revision an `offering` remark offers, in the fork it names. Present on
+/// an offer and on nothing else.
+pub const TIP_FIELD: &str = "tip";
+/// What a `replying` remark sets its thread's status to: `open` or `closed`.
+///
+/// Spelled `thread` rather than `status` because `status` is a word other
+/// vocabularies already use in frontmatter — a draft's `status: draft` — and
+/// a remark carries whatever vocabulary its writer's tool keeps.
+pub const THREAD_FIELD: &str = "thread";
+/// The labels a `replying` remark adds to its thread. A term or a list of
+/// terms.
+pub const LABEL_FIELD: &str = "label";
+/// The labels a `replying` remark removes from its thread. A term or a list
+/// of terms.
+pub const UNLABEL_FIELD: &str = "unlabel";
 
 /// Every field a remark declares, in the order they are written.
 pub const FIELDS: &[&str] = &[
@@ -113,6 +174,11 @@ pub const FIELDS: &[&str] = &[
     MOTIVATION_FIELD,
     COLOR_FIELD,
     REPLACEMENT_FIELD,
+    FORK_FIELD,
+    TIP_FIELD,
+    THREAD_FIELD,
+    LABEL_FIELD,
+    UNLABEL_FIELD,
 ];
 
 /// Two more Web Annotation properties, written by a store that takes a copy
@@ -238,11 +304,18 @@ pub enum Motivation {
     /// stand in its place. The one motivation that is a patch — see the
     /// module note on what it requires.
     Editing,
+    /// Offering a fork's revision to be taken into the target: the forge's
+    /// pull request. Not one of the Web Annotation model's thirteen but an
+    /// extension of it, whose broader term is `editing` — see the module
+    /// note on what it requires.
+    Offering,
 }
 
 impl Motivation {
-    /// Every motivation, in the order a picker offers them.
-    pub const ALL: [Motivation; 7] = [
+    /// Every motivation, in the order a picker offers them. `offering` is
+    /// last: it needs a published fork, so it is the one a reader of prose
+    /// reaches for least.
+    pub const ALL: [Motivation; 8] = [
         Motivation::Highlighting,
         Motivation::Commenting,
         Motivation::Questioning,
@@ -250,6 +323,7 @@ impl Motivation {
         Motivation::Replying,
         Motivation::Bookmarking,
         Motivation::Editing,
+        Motivation::Offering,
     ];
 
     /// The Web Annotation spelling, which is what the field carries.
@@ -262,6 +336,7 @@ impl Motivation {
             Motivation::Replying => "replying",
             Motivation::Bookmarking => "bookmarking",
             Motivation::Editing => "editing",
+            Motivation::Offering => "offering",
         }
     }
 
@@ -320,6 +395,62 @@ impl Selector {
     }
 }
 
+/// What an `offering` remark offers: a revision in a published fork.
+///
+/// The two halves travel together, so they are one value: an offer that
+/// names a fork and no tip, or a tip in no fork, is not an offer of anything.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Offer {
+    /// The fork's manifest — its `offer.txt`, at whatever URL the fork is
+    /// published. What `historica fetch` takes.
+    pub fork: String,
+    /// The revision offered, as a historica revision digest in that fork.
+    pub tip: String,
+}
+
+impl Offer {
+    /// The revision `tip` of the fork published at `fork`.
+    pub fn new(fork: impl Into<String>, tip: impl Into<String>) -> Self {
+        Self {
+            fork: fork.into(),
+            tip: tip.into(),
+        }
+    }
+}
+
+/// Whether a thread is open — what a `replying` remark's `thread` field sets.
+///
+/// A thread starts open. Ordered so that a tie in [`crate::thread::fold`]
+/// has one answer; the order means nothing else.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Status {
+    Open,
+    Closed,
+}
+
+impl Status {
+    /// The spelling the field carries.
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Status::Open => "open",
+            Status::Closed => "closed",
+        }
+    }
+
+    /// The status a word names, or `None`.
+    pub fn parse(word: &str) -> Option<Self> {
+        [Status::Open, Status::Closed]
+            .into_iter()
+            .find(|s| s.as_str() == word.trim())
+    }
+}
+
+impl std::fmt::Display for Status {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// One remark, as read from or written to a document.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Annotation {
@@ -340,6 +471,18 @@ pub struct Annotation {
     /// a deletion. `Some` exactly when the motivation is
     /// [`Motivation::Editing`]; see [`check`](Self::check).
     pub replacement: Option<String>,
+    /// The fork and the revision an offer offers. `Some` exactly when the
+    /// motivation is [`Motivation::Offering`].
+    pub offer: Option<Offer>,
+    /// What a reply sets its thread's status to, if anything. Only a
+    /// [`Motivation::Replying`] remark may carry one.
+    pub thread: Option<Status>,
+    /// Labels a reply adds to its thread, in the order written. Only a reply
+    /// may carry them.
+    pub label: Vec<String>,
+    /// Labels a reply removes from its thread. Only a reply may carry them,
+    /// and none may also be in [`label`](Self::label).
+    pub unlabel: Vec<String>,
 }
 
 impl Annotation {
@@ -353,6 +496,23 @@ impl Annotation {
             color: None,
             body: String::new(),
             replacement: None,
+            offer: None,
+            thread: None,
+            label: Vec::new(),
+            unlabel: Vec::new(),
+        }
+    }
+
+    /// An offer to `target` of the revision `tip` in the fork whose manifest
+    /// is at `fork`. The body is left for the description.
+    pub fn offering(
+        target: impl Into<String>,
+        fork: impl Into<String>,
+        tip: impl Into<String>,
+    ) -> Self {
+        Self {
+            offer: Some(Offer::new(fork, tip)),
+            ..Self::new(target, Motivation::Offering)
         }
     }
 
@@ -366,23 +526,73 @@ impl Annotation {
         replacement: impl Into<String>,
     ) -> Self {
         Self {
-            target: target.into(),
             at: Some(at.into()),
             selector: Some(selector),
-            motivation: Motivation::Editing,
-            color: None,
-            body: String::new(),
             replacement: Some(replacement.into()),
+            ..Self::new(target, Motivation::Editing)
         }
     }
 
     /// Whether this remark says one thing about itself.
     ///
     /// An edit needs a base revision, a selector with something in it, and a
-    /// replacement; anything else must not carry a replacement. [`Reader`]
+    /// replacement; anything else must not carry a replacement. An offer
+    /// needs a fork and a tip, neither empty; anything else must not carry
+    /// them. Only a reply may set a thread's status or labels, a label is not empty,
+    /// and no label is both added and removed by one reply. [`Reader`]
     /// refuses a document that fails this, and a writer building one by hand
     /// can ask before writing it.
     pub fn check(&self) -> Result<()> {
+        self.check_edit()?;
+        self.check_offer()?;
+        self.check_reply()
+    }
+
+    fn check_offer(&self) -> Result<()> {
+        let offering = self.motivation == Motivation::Offering;
+        match (offering, &self.offer) {
+            (true, None) => Err(Error::Unreadable(
+                "an offer names no `fork` and `tip` — an offer is of a revision in a fork".into(),
+            )),
+            (true, Some(offer)) if offer.fork.trim().is_empty() => Err(Error::Unreadable(
+                "an offer's `fork` is empty — it names the fork's manifest".into(),
+            )),
+            (true, Some(offer)) if offer.tip.trim().is_empty() => Err(Error::Unreadable(
+                "an offer's `tip` is empty — it names the revision offered".into(),
+            )),
+            (false, Some(_)) => Err(Error::Unreadable(format!(
+                "a `fork` and `tip` on a remark whose motivation is {} — only an offer carries them",
+                self.motivation
+            ))),
+            _ => Ok(()),
+        }
+    }
+
+    fn check_reply(&self) -> Result<()> {
+        let changes = self.thread.is_some() || !self.label.is_empty() || !self.unlabel.is_empty();
+        if changes && self.motivation != Motivation::Replying {
+            return Err(Error::Unreadable(format!(
+                "a `thread` or labels on a remark whose motivation is {} — only a reply changes a thread",
+                self.motivation
+            )));
+        }
+        if self
+            .label
+            .iter()
+            .chain(&self.unlabel)
+            .any(|l| l.trim().is_empty())
+        {
+            return Err(Error::Unreadable("a reply names an empty label".into()));
+        }
+        if let Some(both) = self.label.iter().find(|l| self.unlabel.contains(l)) {
+            return Err(Error::Unreadable(format!(
+                "a reply both adds and removes the label {both:?}"
+            )));
+        }
+        Ok(())
+    }
+
+    fn check_edit(&self) -> Result<()> {
         let editing = self.motivation == Motivation::Editing;
         let quoted = self.selector.as_ref().is_some_and(|s| !s.exact.is_empty());
         match (
@@ -419,6 +629,9 @@ impl Annotation {
     /// Absent halves are absent keys, not empty ones — a suffix that was
     /// never recorded and a suffix that is the empty string are different
     /// facts about what the reader saw.
+    ///
+    /// A reply's labels are lists, not strings, and are in
+    /// [`lists`](Self::lists) instead.
     pub fn fields(&self) -> Vec<(&'static str, String)> {
         let mut out = Vec::with_capacity(FIELDS.len());
         let mut put = |key: &'static str, value: Option<&str>| {
@@ -436,7 +649,26 @@ impl Annotation {
         put(MOTIVATION_FIELD, Some(self.motivation.as_str()));
         put(COLOR_FIELD, self.color.as_deref());
         put(REPLACEMENT_FIELD, self.replacement.as_deref());
+        if let Some(offer) = &self.offer {
+            put(FORK_FIELD, Some(&offer.fork));
+            put(TIP_FIELD, Some(&offer.tip));
+        }
+        put(THREAD_FIELD, self.thread.map(Status::as_str));
         out
+    }
+
+    /// The metadata this remark is written with that is a list of terms —
+    /// `label` and `unlabel` — which [`fields`](Self::fields) cannot carry.
+    ///
+    /// Empty lists are absent keys. A caller writing with its own document
+    /// machinery writes these beside `fields`; each key's place in the
+    /// written order is its place in [`FIELDS`].
+    pub fn lists(&self) -> Vec<(&'static str, Vec<String>)> {
+        [(LABEL_FIELD, &self.label), (UNLABEL_FIELD, &self.unlabel)]
+            .into_iter()
+            .filter(|(_, terms)| !terms.is_empty())
+            .map(|(key, terms)| (key, terms.clone()))
+            .collect()
     }
 
     /// The whole document: this remark's metadata as a fig frontmatter
@@ -454,10 +686,20 @@ impl Annotation {
     /// prose, and a reader that decided which of its whitespace counted would
     /// be editing it.
     pub fn render(&self) -> Result<String> {
+        // `lists` holds the last keys in `FIELDS`, so writing them after
+        // `fields` keeps the written order.
+        let scalars = self
+            .fields()
+            .into_iter()
+            .map(|(key, value)| (key, fig::Value::Str(value)));
+        let lists = self.lists().into_iter().map(|(key, terms)| {
+            let terms = terms.into_iter().map(fig::Value::Str).collect();
+            (key, fig::Value::Seq(terms))
+        });
         let map = fig::Value::Map(
-            self.fields()
-                .into_iter()
-                .map(|(key, value)| (fig::Value::Str(key.to_string()), fig::Value::Str(value)))
+            scalars
+                .chain(lists)
+                .map(|(key, value)| (fig::Value::Str(key.to_string()), value))
                 .collect(),
         );
         let meta = map.serialize(fig_yaml::format()?)?;
@@ -531,6 +773,38 @@ impl<C: TargetCheck> Reader<C> {
             prefix: owned(PREFIX_FIELD),
             suffix: owned(SUFFIX_FIELD),
         });
+        let offer = match (owned(FORK_FIELD), owned(TIP_FIELD)) {
+            (Some(fork), Some(tip)) => Some(Offer { fork, tip }),
+            (None, None) => None,
+            // Half an offer. `check` would see no offer at all and say
+            // so, which is true but not what is wrong; say what is.
+            (fork, _) if motivation == Motivation::Offering => {
+                let missing = if fork.is_none() {
+                    FORK_FIELD
+                } else {
+                    TIP_FIELD
+                };
+                return Err(Error::Unreadable(format!(
+                    "an offer names no `{missing}` — an offer is of a revision in a fork"
+                )));
+            }
+            _ => {
+                return Err(Error::Unreadable(format!(
+                    "a `{FORK_FIELD}` or `{TIP_FIELD}` on a remark whose motivation is \
+                     {motivation} — only an offer carries them"
+                )));
+            }
+        };
+        let thread = match fields.text(THREAD_FIELD) {
+            Some(word) => Some(
+                Status::parse(word)
+                    .ok_or_else(|| Error::Unreadable(format!("unknown status {word:?}")))?,
+            ),
+            None => None,
+        };
+        let terms = |key: &str| -> Vec<String> {
+            fields.terms(key).into_iter().map(str::to_string).collect()
+        };
         let annotation = Annotation {
             target: target.to_string(),
             at: owned(AT_FIELD),
@@ -539,6 +813,10 @@ impl<C: TargetCheck> Reader<C> {
             color: owned(COLOR_FIELD),
             body: body.to_string(),
             replacement: owned(REPLACEMENT_FIELD),
+            offer,
+            thread,
+            label: terms(LABEL_FIELD),
+            unlabel: terms(UNLABEL_FIELD),
         };
         annotation.check()?;
         Ok(Some(annotation))
@@ -782,8 +1060,12 @@ mod tests {
             note.at = Some("3f9c".into());
             note.selector = Some(selector("freeze", None, None));
             note.body = "Does it?".into();
-            if motivation == Motivation::Editing {
-                note.replacement = Some("thaw".into());
+            match motivation {
+                Motivation::Editing => note.replacement = Some("thaw".into()),
+                Motivation::Offering => {
+                    note.offer = Some(Offer::new("https://f/offer.txt", "9b04"))
+                }
+                _ => {}
             }
             let back = Reader::new()
                 .document(&note.render().unwrap())
@@ -1070,5 +1352,122 @@ mod tests {
             Reader::new().read(&half, "").unwrap_err(),
             Error::Unreadable(_)
         ));
+    }
+
+    // -- offering ---------------------------------------------------------
+
+    fn offer() -> Annotation {
+        let mut offer = Annotation::offering(
+            "7c1e",
+            "https://hub.example/ada/historica/offer.txt",
+            "9b04",
+        );
+        offer.body = "Freeze the lake earlier.".into();
+        offer
+    }
+
+    #[test]
+    fn an_offer_round_trips_through_a_document() {
+        let offer = offer();
+        let text = offer.render().unwrap();
+        assert!(text.contains("fork: "), "{text}");
+        assert!(text.contains("tip: "), "{text}");
+        let mut back = Reader::new().document(&text).unwrap().unwrap();
+        assert_eq!(back.motivation, Motivation::Offering);
+        assert_eq!(back.body.trim(), offer.body);
+        back.body = offer.body.clone();
+        assert_eq!(back, offer);
+    }
+
+    /// Half an offer is refused, and the refusal names the half that is
+    /// missing.
+    #[test]
+    fn an_offer_missing_its_fork_or_tip_is_refused() {
+        let base = [(TARGET_FIELD, "7c1e"), (MOTIVATION_FIELD, "offering")];
+        let read = |extra: &[(&str, &str)]| {
+            let pairs: Vec<_> = base.iter().chain(extra).copied().collect();
+            Reader::new()
+                .read(&meta(&pairs), "")
+                .unwrap_err()
+                .to_string()
+        };
+        assert!(read(&[(FORK_FIELD, "https://f/offer.txt")]).contains("`tip`"));
+        assert!(read(&[(TIP_FIELD, "9b04")]).contains("`fork`"));
+        assert!(read(&[]).contains("`fork` and `tip`"));
+        assert!(read(&[(FORK_FIELD, "https://f/offer.txt"), (TIP_FIELD, " ")]).contains("empty"));
+
+        let mut half = offer();
+        half.offer = None;
+        assert!(half.check().is_err());
+    }
+
+    /// The converse: a fork and a tip on anything but an offer.
+    #[test]
+    fn a_comment_carrying_an_offer_is_refused() {
+        let mut comment = offer();
+        comment.motivation = Motivation::Commenting;
+        assert!(
+            comment
+                .check()
+                .unwrap_err()
+                .to_string()
+                .contains("commenting")
+        );
+        let odd = meta(&[
+            (TARGET_FIELD, "doc:1"),
+            (MOTIVATION_FIELD, "commenting"),
+            (TIP_FIELD, "9b04"),
+        ]);
+        assert!(matches!(
+            Reader::new().read(&odd, "").unwrap_err(),
+            Error::Unreadable(_)
+        ));
+    }
+
+    // -- a thread's state -------------------------------------------------
+
+    #[test]
+    fn a_closing_reply_round_trips_with_its_labels() {
+        let mut close = Annotation::new("ada/remarks/lake-question", Motivation::Replying);
+        close.thread = Some(Status::Closed);
+        close.label = vec!["answered".into(), "docs".into()];
+        close.unlabel = vec!["triage".into()];
+        close.body = "Fixed in the offer Ada sent.".into();
+        let text = close.render().unwrap();
+        let mut back = Reader::new().document(&text).unwrap().unwrap();
+        back.body = close.body.clone();
+        assert_eq!(back, close);
+
+        // A single label may be written as a bare term.
+        let bare = meta(&[
+            (TARGET_FIELD, "r"),
+            (MOTIVATION_FIELD, "replying"),
+            (THREAD_FIELD, "open"),
+            (LABEL_FIELD, "bug"),
+        ]);
+        let read = Reader::new().read(&bare, "").unwrap().unwrap();
+        assert_eq!(read.thread, Some(Status::Open));
+        assert_eq!(read.label, vec!["bug"]);
+    }
+
+    #[test]
+    fn a_thread_change_off_a_reply_or_out_of_shape_is_refused() {
+        let read = |pairs: &[(&str, &str)]| Reader::new().read(&meta(pairs), "");
+        let comment = [(TARGET_FIELD, "r"), (MOTIVATION_FIELD, "commenting")];
+        for extra in [
+            (THREAD_FIELD, "closed"),
+            (LABEL_FIELD, "bug"),
+            (UNLABEL_FIELD, "bug"),
+        ] {
+            let pairs: Vec<_> = comment.iter().copied().chain([extra]).collect();
+            assert!(read(&pairs).is_err(), "{extra:?} on a comment");
+        }
+        let reply = [(TARGET_FIELD, "r"), (MOTIVATION_FIELD, "replying")];
+        let with = |extra: &[(&'static str, &'static str)]| -> Vec<(&str, &str)> {
+            reply.iter().chain(extra).copied().collect()
+        };
+        assert!(read(&with(&[(THREAD_FIELD, "resolved")])).is_err());
+        assert!(read(&with(&[(LABEL_FIELD, " ")])).is_err());
+        assert!(read(&with(&[(LABEL_FIELD, "bug"), (UNLABEL_FIELD, "bug")])).is_err());
     }
 }
