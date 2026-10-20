@@ -26,6 +26,11 @@
 //!   highest statement it has witnessed from each key, which never travels
 //!   either.
 //!
+//! What a copy does with all of that is [`verify`]'s report, or [`following`]:
+//! a rule for historica's decision 0086 that follows the revisions a set of
+//! keys vouched for, with each key's history in `trust/` deciding which of its
+//! claims still count.
+//!
 //! Nothing here writes a Historica document, and Historica knows nothing about
 //! any of it beyond the promise 0046 extracted: a directory at the store root
 //! that Historica does not name belongs to whichever tool wrote it.
@@ -55,6 +60,7 @@
 #![deny(missing_docs)]
 
 pub mod claim;
+pub mod following;
 pub mod heads;
 pub mod layout;
 pub mod naming;
@@ -68,6 +74,7 @@ pub mod key;
 pub mod sign;
 
 pub use claim::{Claim, ClaimError, ContentDigest, Key, Role, Scope};
+pub use following::Vouched;
 pub use heads::{Statement, StatementError};
 pub use trust::Trust;
 pub use verify::{FileCheck, Finding, Report, Severity};

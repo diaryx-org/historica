@@ -61,6 +61,13 @@
 //! by omission. 0046's answer to the half of that which is answerable offline
 //! is head statements, which decision 0005 builds.
 //!
+//! # A revoked key
+//!
+//! A trust entry may say when its key was revoked ([`crate::trust`]). A claim
+//! or a head statement by that key counts when its `when` is before the
+//! revocation, and is [`Finding::Revoked`] otherwise: a note, like a claim by
+//! a key nobody here believes, because the store holds nothing wrong.
+//!
 //! # Head statements
 //!
 //! A statement says *at count N, this key's history had these heads*. For
@@ -85,7 +92,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use historica::core::{FileId, RevisionId};
-use historica::format::digest;
+use historica::format::{Timestamp, digest};
 use historica::fs::{Filesystem, Kind, read_to_string};
 use historica::store::{Store, platform_name};
 use minisign_verify::Signature;
@@ -172,6 +179,18 @@ pub enum Finding {
     },
     /// A claim by a key the policy does not hold.
     Untrusted {
+        /// The claim.
+        path: PathBuf,
+        /// The key that signed it.
+        key: Key,
+    },
+    /// A claim by a key the policy holds, made at or after the moment the
+    /// policy says the key was revoked.
+    ///
+    /// A note, as [`Finding::Untrusted`] is: the claim is real, and this copy
+    /// does not count it. The claim may be a thief's, or an old device that
+    /// was never told; nothing here can say which.
+    Revoked {
         /// The claim.
         path: PathBuf,
         /// The key that signed it.
@@ -273,6 +292,7 @@ impl Finding {
             | Self::Withheld { .. }
             | Self::RolledBack { .. } => Severity::Error,
             Self::Untrusted { .. }
+            | Self::Revoked { .. }
             | Self::Absent { .. }
             | Self::Unvouched { .. }
             | Self::Misfiled { .. }
@@ -332,6 +352,12 @@ impl fmt::Display for Finding {
             Self::Untrusted { path, key } => write!(
                 f,
                 "{} is signed by {key}, which nothing in trust/ speaks for",
+                path.display()
+            ),
+            Self::Revoked { path, key } => write!(
+                f,
+                "{} is signed by {key} after trust/ says that key was revoked, \
+                 and does not count",
                 path.display()
             ),
             Self::Absent { path, revision } => write!(
@@ -410,7 +436,8 @@ pub struct Held {
     pub claim: Claim,
     /// Whether its signature verified under the key it names.
     pub verified: bool,
-    /// Who the policy takes that key to speak for, if it holds it.
+    /// Who the policy takes that key to speak for, if it holds it and had
+    /// not revoked it by the time this says it was made.
     pub who: Option<String>,
     /// For a claim over one file, what the revision's tree says about it.
     pub file: FileCheck,
@@ -460,7 +487,8 @@ pub struct HeldStatement {
     pub statement: Statement,
     /// Whether its signature verified under the key it names.
     pub verified: bool,
-    /// Who the policy takes that key to speak for, if it holds it.
+    /// Who the policy takes that key to speak for, if it holds it and had
+    /// not revoked it by the time this says it was made.
     pub who: Option<String>,
 }
 
@@ -745,13 +773,7 @@ pub fn verify<F: Filesystem>(store: &Store<F>) -> io::Result<Report> {
             },
         };
 
-        let who = policy.who(&claim.key).map(str::to_owned);
-        if who.is_none() {
-            report.findings.push(Finding::Untrusted {
-                path: path.clone(),
-                key: claim.key.clone(),
-            });
-        }
+        let who = judge_key(&policy, &claim.key, &claim.when, &path, &mut report);
 
         // A `claim-2` is over a document of the store and not a revision
         // (decision 0006): present when the store holds that document.
@@ -888,13 +910,7 @@ fn read_statements<F: Filesystem + ?Sized>(
                 }
             },
         };
-        let who = policy.who(&statement.key).map(str::to_owned);
-        if who.is_none() {
-            report.findings.push(Finding::Untrusted {
-                path: path.clone(),
-                key: statement.key.clone(),
-            });
-        }
+        let who = judge_key(policy, &statement.key, &statement.when, &path, report);
         report.statements.push(HeldStatement {
             path,
             statement,
@@ -903,6 +919,29 @@ fn read_statements<F: Filesystem + ?Sized>(
         });
     }
     Ok(())
+}
+
+/// Who the policy takes `key` to speak for at `when`, saying why when it
+/// takes it to speak for nobody: a key it does not hold, or one it revoked
+/// before then.
+fn judge_key(
+    policy: &Trust,
+    key: &Key,
+    when: &Timestamp,
+    path: &Path,
+    report: &mut Report,
+) -> Option<String> {
+    let who = policy.speaks_for(key, when).map(str::to_owned);
+    if who.is_none() {
+        let path = path.to_path_buf();
+        let key = key.clone();
+        report.findings.push(if policy.holds(&key) {
+            Finding::Revoked { path, key }
+        } else {
+            Finding::Untrusted { path, key }
+        });
+    }
+    who
 }
 
 /// Decision 0005's three questions, for every key this copy believes.
@@ -1037,14 +1076,14 @@ pub fn current_heads<F: Filesystem>(store: &Store<F>) -> BTreeSet<RevisionId> {
 /// A claim is keyed by its path relative to `claims/`, so a signature pairs
 /// with the claim beside it rather than with any file of the same basename
 /// filed under another month.
-type Looked = (
+pub(crate) type Looked = (
     Vec<(String, PathBuf)>,
     BTreeMap<String, PathBuf>,
     Vec<PathBuf>,
     Vec<(String, PathBuf)>,
 );
 
-fn look<F: Filesystem + ?Sized>(files: &F, directory: &Path) -> io::Result<Looked> {
+pub(crate) fn look<F: Filesystem + ?Sized>(files: &F, directory: &Path) -> io::Result<Looked> {
     let mut looked: Looked = Default::default();
     walk(files, directory, "", &mut looked)?;
     looked.0.sort();
