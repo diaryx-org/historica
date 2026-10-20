@@ -966,13 +966,15 @@ depend on each other in.
   evidence; `record` refuses where it follows no tip at all.
 
 - [0087 — A glob for what a name cannot say](0087-a-glob-for-what-a-name-cannot-say.md)
-  `skip-glob` and `private-glob` take one gitignore pattern with git's
-  meaning, so the lines a name cannot say (anchored wildcards, `**`, sets)
-  are said exactly. `!` lines in a glob rule's file narrow that rule and no
-  other, which says any `.gitignore` as an order-free union. `skip` and
-  `skip-name` stay, and `check` names the readable spelling where one exists.
-  The matcher is historica's own, tested against a corpus whose verdicts
-  are checked with `git check-ignore`.
+  `skip-glob` and `private-glob` take a gitignore pattern, so the lines a name
+  cannot say (anchored wildcards, `**`, sets) are said exactly. A glob is
+  always anchored, with any depth spelled `**/`; without a trailing `/` it
+  covers a file, with one a directory; and each meaning has one spelling.
+  `except` lines in a glob rule's file narrow that rule and no other, which
+  says any `.gitignore` as an order-free union. `skip` and `skip-name` stay,
+  and `check` names the readable spelling where one exists. The matcher is
+  historica's own, tested against a corpus whose verdicts are checked with
+  `git check-ignore`.
 
 Not a decision, but the evaluation one of them rests on:
 [`docs/loro.md`](../loro.md) — the initial Loro evaluation, and the conditions
