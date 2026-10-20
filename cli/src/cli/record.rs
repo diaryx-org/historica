@@ -909,7 +909,7 @@ pub fn merge(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
             heads.push(head);
         }
     }
-    let standing = target::current_heads(&store);
+    let standing = target::current_heads(&store)?;
     for head in &standing {
         if !heads.contains(head) {
             heads.push(*head);

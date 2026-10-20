@@ -6849,3 +6849,120 @@ fn a_tracked_file_inside_a_store_further_down_is_refused_rather_than_dropped() {
         "{planned}"
     );
 }
+
+/// Run as whoever the identity file in `config` says, with no
+/// `$HISTORICA_AUTHOR` to beat it.
+fn as_configured(directory: &Path, config: &Path, arguments: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_historica"))
+        .env(
+            "HISTORICA_CACHE_DIR",
+            concat!(env!("CARGO_TARGET_TMPDIR"), "/caches"),
+        )
+        .arg("-C")
+        .arg(directory)
+        .args(arguments)
+        .env_remove("HISTORICA_AUTHOR")
+        .env("XDG_CONFIG_HOME", config)
+        .output()
+        .expect("the binary this test crate builds")
+}
+
+/// An identity file beside the repository rather than in it, where the folder
+/// would track it.
+fn identity(directory: &Path, text: &str) -> PathBuf {
+    let config = directory.with_extension("config");
+    fs::create_dir_all(config.join("historica")).expect("a config directory");
+    fs::write(config.join("historica/identity"), text).expect("an identity file");
+    config
+}
+
+/// Decision 0086: a block with `follow` lines follows its author and those
+/// names, and holds everyone else's work; a block without them follows every
+/// tip.
+#[test]
+fn a_block_that_lists_follows_holds_everyone_else() {
+    let directory = repository("follow-opt-in");
+    write(&directory, "f.md", "mine\n");
+    out(recorded(&directory, &["record", "-m", "Mine"]));
+
+    // Someone else, in the same folder, under their own name.
+    write(&directory, "f.md", "theirs\n");
+    let stranger = Command::new(env!("CARGO_BIN_EXE_historica"))
+        .env(
+            "HISTORICA_CACHE_DIR",
+            concat!(env!("CARGO_TARGET_TMPDIR"), "/caches"),
+        )
+        .arg("-C")
+        .arg(&directory)
+        .args(["record", "-m", "Theirs"])
+        .env("HISTORICA_AUTHOR", "Stranger <s@example.com>")
+        .output()
+        .expect("the binary");
+    out(stranger);
+
+    let everything = identity(&directory, "author Adam Harris <adam@example.com>\n");
+    assert_eq!(
+        out(as_configured(
+            &directory,
+            &everything,
+            &["cat", "head", "f.md"]
+        )),
+        "theirs\n",
+        "no `follow` line, so every tip is a head"
+    );
+
+    let mine_only = identity(
+        &directory,
+        "author Adam Harris <adam@example.com>\nfollow Adam Harris <adam@example.com>\n",
+    );
+    assert_eq!(
+        out(as_configured(
+            &directory,
+            &mine_only,
+            &["cat", "head", "f.md"]
+        )),
+        "mine\n",
+        "the stranger's revision is held"
+    );
+    let shown = out(as_configured(&directory, &mine_only, &["show", "head"]));
+    assert!(shown.trim_end().ends_with("\nMine"), "{shown}");
+}
+
+/// Decision 0086: a copy that follows none of the store's tips has no head
+/// to stand on, and `record` says so rather than making a new root.
+#[test]
+fn a_changed_name_that_follows_nothing_is_refused_rather_than_a_new_root() {
+    let directory = repository("follow-renamed");
+    write(&directory, "f.md", "one\n");
+    out(recorded(&directory, &["record", "-m", "Old name"]));
+    let old = head_of(&directory);
+
+    write(&directory, "f.md", "one\ntwo\n");
+    let renamed = identity(
+        &directory,
+        "author Adam <adam@new.example>\nfollow Adam <adam@new.example>\n",
+    );
+    let output = as_configured(&directory, &renamed, &["record", "-m", "New name"]);
+    assert!(!output.status.success(), "a new root was recorded");
+    let said = String::from_utf8_lossy(&output.stderr).into_owned();
+    assert!(
+        said.contains("follow Adam Harris <adam@example.com>"),
+        "the refusal names the line to add: {said}"
+    );
+    assert!(said.contains(&old[..8]), "{said}");
+
+    let both = identity(
+        &directory,
+        "author Adam <adam@new.example>\nfollow Adam Harris <adam@example.com>\n",
+    );
+    out(as_configured(
+        &directory,
+        &both,
+        &["record", "-m", "New name"],
+    ));
+    let shown = out(as_configured(&directory, &both, &["show", "head"]));
+    assert!(
+        shown.contains(&format!("\nparent {old}")),
+        "the new name stands on the old: {shown}"
+    );
+}

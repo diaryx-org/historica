@@ -1087,7 +1087,7 @@ fn read_at(
     if let Some(id) = from {
         return Ok(id);
     }
-    let heads = target::current_heads(store);
+    let heads = target::current_heads(store)?;
     match heads.len() {
         0 => Err(Failure::error("this store holds no revisions yet")),
         1 => Ok(heads.into_iter().next().expect("one head")),

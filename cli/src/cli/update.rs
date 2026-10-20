@@ -41,9 +41,13 @@ pub fn update(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
     let target = match &spelling {
         Some(spelling) => target::resolve(&store, spelling)?,
         None => {
-            let heads = target::current_heads(&store);
+            let found = target::following(&store)?.heads(&store);
+            let heads = found.heads;
             match heads.len() {
-                0 => return Err(Failure::error("nothing is recorded here yet")),
+                0 if found.held.is_empty() => {
+                    return Err(Failure::error("nothing is recorded here yet"));
+                }
+                0 => return Err(target::followed_nothing(&store, &found.held)),
                 1 => heads.into_iter().next().expect("one head"),
                 several => {
                     return Err(Failure::error(format!(
@@ -58,7 +62,7 @@ pub fn update(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
 
     let working = super::cache::working(&repository, &store).map_err(Failure::error)?;
 
-    let following = target::following(&store);
+    let following = target::following(&store)?;
     let update =
         plan(&store, &working, &repository, &target, &following).map_err(|error| match error {
             UpdateError::NotAHead { target, heads } => Failure::error(format!(

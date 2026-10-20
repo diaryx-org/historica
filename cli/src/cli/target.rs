@@ -16,7 +16,8 @@ use std::collections::BTreeSet;
 use std::fmt::Write as _;
 
 use historica::core::{ChangeId, ChangeState, FileId, RevisionId};
-use historica::following::Following;
+use historica::following::{self, Following};
+use historica::record::identity;
 use historica::store::{Name, Store};
 use historica::tree::Tree;
 
@@ -346,16 +347,23 @@ pub fn parents(
 }
 
 /// The heads a person is standing on, under the copy's rule (decision 0086).
-///
-/// Every tip, for now: the CLI's own rule, following writers, is the next
-/// step 0086 names.
-pub fn current_heads(store: &Store) -> BTreeSet<RevisionId> {
-    following(store).heads(store).heads
+pub fn current_heads(store: &Store) -> Result<BTreeSet<RevisionId>, Failure> {
+    Ok(following(store)?.heads(store).heads)
 }
 
-/// The rule this copy follows.
-pub fn following(_store: &Store) -> Following {
-    Following::Everything
+/// The rule this copy follows (decision 0086).
+///
+/// Writers, once the identity block that states the author `record` would
+/// write in the folder around the store lists `follow` names: that author and
+/// those names. Every tip until then.
+pub fn following(store: &Store) -> Result<Following, Failure> {
+    let repository = store.root().parent().unwrap_or(store.root());
+    Ok(
+        match identity::writers_for(repository).map_err(Failure::error)? {
+            Some(writers) => Following::Writers(writers),
+            None => Following::Everything,
+        },
+    )
 }
 
 /// The one head to work against, or a refusal naming the choice.
@@ -363,9 +371,11 @@ pub fn following(_store: &Store) -> Following {
 /// `None` where a store holds no revisions yet, which is a root about to be
 /// recorded rather than a problem.
 pub fn the_head(store: &Store) -> Result<Option<RevisionId>, Failure> {
-    let heads = current_heads(store);
+    let found = following(store)?.heads(store);
+    let heads = found.heads;
     match heads.len() {
-        0 => Ok(None),
+        0 if found.held.is_empty() => Ok(None),
+        0 => Err(followed_nothing(store, &found.held)),
         1 => Ok(heads.into_iter().next()),
         several => Err(Failure::error(format!(
             "this store has {several} heads, so nothing here is `the` latest; \
@@ -373,6 +383,29 @@ pub fn the_head(store: &Store) -> Result<Option<RevisionId>, Failure> {
             described(store, &heads)
         ))),
     }
+}
+
+/// The refusal for a copy whose rule follows none of the store's tips.
+///
+/// Without it, `record` would make a new root and claim the whole folder for
+/// whoever is recording, which is what a person who changed their address in
+/// the identity file would meet first (decision 0086).
+pub fn followed_nothing(store: &Store, held: &BTreeSet<RevisionId>) -> Failure {
+    let writers = held
+        .iter()
+        .filter_map(|id| store.get(id).ok().flatten())
+        .map(|document| following::writer(document).to_owned())
+        .collect::<BTreeSet<_>>();
+    let mut lines = String::new();
+    for writer in &writers {
+        let _ = write!(lines, "\n  follow {writer}");
+    }
+    Failure::error(format!(
+        "this copy follows none of the work in this store, so there is no head \
+         to stand on; to follow it, add to your identity block:{lines}\n\
+         the held work:\n{}",
+        described(store, held)
+    ))
 }
 
 /// Every head, said in enough detail to choose between them.
@@ -446,9 +479,11 @@ pub fn bookmarks(store: &Store, id: &RevisionId) -> Vec<String> {
 
 /// The one head, or a refusal naming the choice a person has to make.
 fn head(store: &Store) -> Result<RevisionId, Failure> {
-    let heads = current_heads(store);
+    let found = following(store)?.heads(store);
+    let heads = found.heads;
     match heads.len() {
-        0 => Err(Failure::error("this store holds no revisions yet")),
+        0 if found.held.is_empty() => Err(Failure::error("this store holds no revisions yet")),
+        0 => Err(followed_nothing(store, &found.held)),
         1 => Ok(heads.into_iter().next().expect("one head")),
         several => Err(Failure::error(format!(
             "this store has {several} heads, so `head` names none of them; \

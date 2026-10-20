@@ -35,9 +35,9 @@ pub mod identity;
 pub mod source;
 pub mod squash;
 
+pub use identity::{Identities, IdentityError, author_for_on, writers_for_on};
 #[cfg(feature = "disk")]
-pub use identity::author_for;
-pub use identity::{Identities, IdentityError, author_for_on};
+pub use identity::{author_for, writers_for};
 pub use source::{Clock, Entropy, Platform, SourceError};
 
 /// What one path's content contributes to a revision.

@@ -303,7 +303,7 @@ fn files_of_bytes(
     // Every head's files by path, once, so that a thousand paths a shell
     // expanded are a thousand lookups rather than a thousand passes.
     let mut held: BTreeMap<String, Vec<(Kind, Option<RevisionId>)>> = BTreeMap::new();
-    for head in target::current_heads(store) {
+    for head in target::current_heads(store)? {
         for (_, entry) in store.tree(&head).map_err(Failure::error)?.entries() {
             held.entry(entry.path.clone())
                 .or_default()

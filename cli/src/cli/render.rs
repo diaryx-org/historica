@@ -646,7 +646,12 @@ pub fn names(out: &mut impl Write, store: &Store) -> io::Result<()> {
     // it resolves to is where that file sits now — which is the question a
     // person made the bookmark to stop having to ask.
     let here = store
-        .merged_tree_of(&target::current_heads(store).into_iter().collect::<Vec<_>>())
+        .merged_tree_of(
+            &target::current_heads(store)
+                .unwrap_or_default()
+                .into_iter()
+                .collect::<Vec<_>>(),
+        )
         .ok();
 
     for (name, bookmark) in bookmarks {
