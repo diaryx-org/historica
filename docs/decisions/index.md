@@ -965,14 +965,14 @@ depend on each other in.
   then its own author and those names, which is a convenience and not
   evidence; `record` refuses where it follows no tip at all.
 
-- [0087 — A name with its parents](0087-a-name-with-its-parents.md)
-  A `skip-name` value may hold a `/`: its components, each a 0051 pattern,
-  match a path's last components at any depth, so
-  `skip-name .claude/settings.local.json` says git's
-  `**/.claude/settings.local.json` exactly. A star still never meets a
-  separator, because matching happens after the split; a component of only
-  stars, a leading `/` and empty components are refused. No key is added, and
-  a one-component value means what it meant.
+- [0087 — A glob for what a name cannot say](0087-a-glob-for-what-a-name-cannot-say.md)
+  `skip-glob` and `private-glob` take one gitignore pattern with git's
+  meaning, so the lines a name cannot say (anchored wildcards, `**`, sets)
+  are said exactly. `!` lines in a glob rule's file narrow that rule and no
+  other, which says any `.gitignore` as an order-free union. `skip` and
+  `skip-name` stay, and `check` names the readable spelling where one exists.
+  The matcher is historica's own, tested against a corpus checked with git
+  and against `gix-glob` as a dev-dependency.
 
 Not a decision, but the evaluation one of them rests on:
 [`docs/loro.md`](../loro.md) — the initial Loro evaluation, and the conditions
