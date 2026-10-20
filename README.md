@@ -18,6 +18,14 @@ finds the quoted passage again in text that has since changed, and says how
 sure it is. One motivation, `editing`, is a patch rather than a note — the
 quoted passage and what should stand in its place — and `apply` is the pure
 half of taking one; whether it lands without a hand is the store's policy.
+Another, `offering`, is a forge's pull request: it names a fork's `offer.txt`
+and the revision in it offered, and its body is the description. It is an
+extension of the model, a narrower kind of `editing`.
+
+A `replying` remark may also close or reopen the thread it answers, and add or
+remove labels. `thread::fold` turns a thread into its state, given whose
+replies count: the owner or the root's writer sets the status, the latest such
+reply winning, and only the owner labels. It needs nothing but the remarks.
 
 **The layer** is the transport. A layer is a companion chain — somebody else's
 single-writer history, fetched into a directory beside your own, kept current
@@ -85,7 +93,34 @@ motivation: questioning
 Which lake?
 ```
 
-A highlight is a remark with no body.
+A highlight is a remark with no body. An offer, and a reply that closes a
+thread, look like this:
+
+```yaml
+---
+target: 7c1e                          # the project: its root revision
+motivation: offering
+fork: https://hub.example/ada/historica/offer.txt
+tip: 9b04                             # the revision offered
+---
+
+Freeze the lake earlier.
+```
+
+```yaml
+---
+target: ada/remarks/lake-question     # the remark it answers
+motivation: replying
+thread: closed
+label: [answered, docs]
+unlabel: [triage]
+---
+
+Fixed by Ada's offer.
+```
+
+A reply's labels are lists, so a caller writing with its own machinery takes
+them from `Annotation::lists` beside `fields`.
 
 ### Why the fields are quoted, and why the format is fig's
 
