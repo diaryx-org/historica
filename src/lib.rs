@@ -25,6 +25,7 @@
 pub mod carried;
 pub mod export;
 pub mod identity;
+pub mod ignored;
 pub mod import;
 pub mod plumbing;
 pub mod remembered;

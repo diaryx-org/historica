@@ -229,6 +229,21 @@ bookmarks moved to where git has the branch:
   - main
 ```
 
+`colocate` follows the branch HEAD is on — [decision
+0011](docs/decisions/0011-a-colocated-store-follows-the-folder.md). Other
+branches, such as a worktree's or an agent's, stay in git and are named, so the
+store's head is the line the folder holds. What git ignores becomes historica
+skip rules, where the rules can say it exactly, so `record` does not take
+`target/` or a `.env`:
+
+```console
+skip rules added, from what git ignores:
+  - skip target
+  - skip target/
+  - skip-name .env
+  - skip-name .env/
+```
+
 `git pull` writes the folder, so after the import the folder already holds what
 arrived, and nothing asks for `historica update`. A `git fetch` with no merge
 records nothing, and the import names what is waiting:

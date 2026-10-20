@@ -268,13 +268,7 @@ impl Repository {
     /// Existing local exclusions are preserved and the managed line is added
     /// at most once.
     pub fn exclude_history(&self) -> Result<(), Error> {
-        let out = self.ask(&["rev-parse", "--git-path", "info/exclude"], &[])?;
-        let named = PathBuf::from(String::from_utf8_lossy(&out).trim());
-        let path = if named.is_absolute() {
-            named
-        } else {
-            self.at.join(named)
-        };
+        let path = self.info_exclude()?;
         let mut contents = match fs::read_to_string(&path) {
             Ok(contents) => contents,
             Err(error) if error.kind() == io::ErrorKind::NotFound => String::new(),
@@ -294,6 +288,62 @@ impl Repository {
             })?;
         }
         fs::write(&path, contents).map_err(|error| Error::Io { path, error })
+    }
+
+    /// Where the repository's own exclusions are. Asked of git rather than
+    /// formed under `.git`, because a linked worktree spells `.git` as a file.
+    pub fn info_exclude(&self) -> Result<PathBuf, Error> {
+        let out = self.ask(&["rev-parse", "--git-path", "info/exclude"], &[])?;
+        let named = PathBuf::from(String::from_utf8_lossy(&out).trim());
+        Ok(if named.is_absolute() {
+            named
+        } else {
+            self.at.join(named)
+        })
+    }
+
+    /// The person's global excludes file: `core.excludesFile`, or git's
+    /// default under the XDG config directory where that is unset.
+    pub fn excludes_file(&self) -> Result<Option<PathBuf>, Error> {
+        let out = Process::new("git")
+            .arg("-C")
+            .arg(&self.at)
+            .args(["config", "--path", "--get", "core.excludesFile"])
+            .stderr(Stdio::null())
+            .output()
+            .map_err(Error::Spawn)?;
+        let named = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+        if out.status.success() && !named.is_empty() {
+            return Ok(Some(PathBuf::from(named)));
+        }
+        let config = std::env::var_os("XDG_CONFIG_HOME")
+            .filter(|value| !value.is_empty())
+            .map(PathBuf::from)
+            .or_else(|| std::env::var_os("HOME").map(|home| PathBuf::from(home).join(".config")));
+        Ok(config.map(|config| config.join("git").join("ignore")))
+    }
+
+    /// Every path git tracks, as the index has it.
+    pub fn tracked(&self) -> Result<Vec<String>, Error> {
+        let out = self.ask(&["ls-files", "-z"], &[])?;
+        Ok(out
+            .split(|byte| *byte == 0)
+            .filter(|path| !path.is_empty())
+            .map(|path| String::from_utf8_lossy(path).into_owned())
+            .collect())
+    }
+
+    /// Every tag whose commit `reference` reaches.
+    pub fn tags_reached_from(&self, reference: &str) -> Result<BTreeSet<String>, Error> {
+        let merged = format!("--merged={reference}");
+        let out = self.ask(
+            &["for-each-ref", &merged, "--format=%(refname)", "refs/tags/"],
+            &[],
+        )?;
+        Ok(String::from_utf8_lossy(&out)
+            .lines()
+            .map(str::to_owned)
+            .collect())
     }
 
     /// Bring git's index to HEAD without touching the working tree.

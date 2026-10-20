@@ -934,3 +934,86 @@ fn a_separate_folder_is_behind_only_when_something_arrived() {
     let again = import::from_repository(&origin, &store).expect("the second import");
     assert!(again.behind, "{again:?}");
 }
+
+/// Decision 0011: a colocated store follows the branch HEAD is on, the
+/// bookmarks it already has, and the tags those reach. A branch beside it — a
+/// worktree's, an agent's — stays in git and is named, so that the store's one
+/// head is the line the folder holds.
+#[test]
+fn a_colocated_store_follows_the_branch_head_is_on() {
+    let Some(_) = git() else { return };
+    let at = folder("follows-head");
+    build(&at);
+    run(&at, &["tag", "v1"]);
+    run(&at, &["switch", "--quiet", "-c", "feature"]);
+    commit(&at, "c.txt", "Ahead of main");
+    run(&at, &["tag", "v-feature"]);
+    run(&at, &["switch", "--quiet", "main"]);
+    fs::remove_file(at.join("c.txt")).ok();
+
+    let report = import::from_repository(&at, &at).expect("the colocated import");
+    assert_eq!(report.bookmarks, ["main", "v1"], "{report:?}");
+    let said = report.uncarried.join("\n");
+    assert!(
+        said.contains(
+            "`refs/heads/feature`, `refs/tags/v-feature` name work the store does not hold"
+        ),
+        "{said}"
+    );
+    let store = Store::open(at.join(STORE_DIR)).expect("the store opens");
+    let heads: Vec<RevisionId> = store.history().heads().into_iter().collect();
+    assert_eq!(heads, [main_points_at(&at)]);
+    drop(store);
+
+    // An import with HEAD on the branch brings it in, and from then on the
+    // store follows it as a bookmark it has.
+    run(&at, &["switch", "--quiet", "feature"]);
+    let switched = import::from_repository(&at, &at).expect("the import on feature");
+    assert_eq!(switched.bookmarks, ["feature", "v-feature"], "{switched:?}");
+    assert!(switched.uncarried.is_empty(), "{switched:?}");
+}
+
+/// Decision 0011: what git ignores becomes a skip rule where historica's rules
+/// can say it exactly, and is said where they cannot. A rule that covered a
+/// tracked file would record that file's deletion, so it is not made.
+#[test]
+fn a_colocated_store_skips_what_git_ignores() {
+    let Some(_) = git() else { return };
+    let at = folder("skips-ignored");
+    build(&at);
+    run(&at, &["config", "core.excludesFile", "/dev/null"]);
+    fs::write(at.join(".gitignore"), "/target\n*.log\nfile?.tmp\n").expect("a file");
+    fs::write(at.join("kept.log"), "kept\n").expect("a file");
+    run(&at, &["add", "-f", ".gitignore", "kept.log"]);
+    run(&at, &["commit", "--quiet", "-m", "Ignore"]);
+    fs::create_dir_all(at.join("target")).expect("a directory");
+    fs::write(at.join("target/build"), "out\n").expect("a file");
+
+    let report = import::from_repository(&at, &at).expect("the colocated import");
+    assert_eq!(
+        report.skipped,
+        ["skip target", "skip target/"],
+        "{report:?}"
+    );
+    let standing = report.standing.join("\n");
+    assert!(
+        standing.contains("2 of git's ignore lines")
+            && standing.contains(".gitignore:2, because it covers a file git tracks")
+            && standing.contains(".gitignore:3"),
+        "{standing}"
+    );
+    let store = Store::open(at.join(STORE_DIR)).expect("the store opens");
+    assert!(store.skipped().skips("target/build"));
+    assert!(!store.skipped().skips("kept.log"));
+    let working = format!(
+        "{:?}",
+        Working::read(&at, store.skipped()).expect("the folder reads")
+    );
+    assert!(working.contains("kept.log"), "{working}");
+    assert!(!working.contains("target/build"), "{working}");
+    drop(store);
+
+    // Said once: a run onto it adds nothing and names nothing.
+    let again = import::from_repository(&at, &at).expect("the import again");
+    assert!(again.skipped.is_empty(), "{again:?}");
+}
