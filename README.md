@@ -106,6 +106,26 @@ it accepts a revision that a claim by one of its keys vouches for, so a copy's
 heads are the lines those keys signed.
 [Decision 0007](docs/decisions/0007-a-key-has-a-history.md) has both.
 
+## Reading with a device key
+
+Historica's fetch sends nothing about who is asking. A server that keeps a
+copy to its members can ask for the same key that signs claims instead:
+
+```console
+$ historica minisign fetch https://hub.example.org/adam/notes/offer.txt
+$ historica minisign token https://hub.example.org
+{"token":"…","expires":"2026-10-20T18:05:00Z"}
+```
+
+`fetch` is `historica fetch`, with every request signed:
+`Authorization: Minisign <key-id> <time> <signature>`, over the method, host,
+path and time. A server takes it within five minutes of its own clock, so a
+copied header reads one path, for minutes. `token` gets a short-lived token
+for `git clone`, which cannot sign. The grammar, the window, and the token
+contract are in the `request` and `http` modules' documentation. The
+`request` half needs no feature, for a server or a page that brings its own
+HTTP.
+
 ## Checking a claim without this tool
 
 Two commands, and neither is Historica nor this program:

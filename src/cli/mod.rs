@@ -6,6 +6,8 @@
 //! of what it has seen there. `verify` reads, and Historica's decision 0046
 //! says so in as many words. Nothing here writes a Historica document, ever.
 
+#[cfg(feature = "http")]
+mod fetch;
 mod target;
 
 use std::fmt;
@@ -27,7 +29,12 @@ use historica_minisign::verify::{FileCheck, Finding, Severity};
 use historica_minisign::{key, naming, seen, sign, trust, verify};
 
 /// What `historica-minisign` with no arguments prints.
-pub const USAGE: &str = "\
+pub fn usage() -> String {
+    format!("{COMMANDS}{READING}\n{NOTES}")
+}
+
+/// The commands every build has.
+const COMMANDS: &str = "\
 usage: historica-minisign [-C <dir>] <command> [<arguments>]
 
   sign [<target>] [--role <role>] [--key <path>] [--password-file <path>]
@@ -88,7 +95,36 @@ usage: historica-minisign [-C <dir>] <command> [<arguments>]
   key show [--public <path>]
                            the public key line, which is what goes in a trust
                            entry and in `minisign -Vm -P`
+";
 
+/// The commands that read over HTTP, in a build that has a transport.
+///
+/// `#[cfg]`ed as historica's own `fetch` line is (its decision 0057): a usage
+/// text naming a command this binary does not have would be the one line in
+/// it that is not true.
+#[cfg(feature = "http")]
+const READING: &str = "\
+  fetch <url> [--join-unrelated] [--no-bytes] [--fields] [--key <path>]
+        [--password-file <path>]
+                           `historica fetch`, with every request signed by
+                           your key, for a copy a server keeps to the people
+                           it lets read. <url> is the manifest's,
+                           conventionally offer.txt. Each request carries
+                           `Authorization: Minisign <key-id> <time>
+                           <signature>`, good for that one path for minutes
+  fetch <url> <path>...    take the bytes of the files named, and nothing else
+  token <hub> [--key <path>] [--password-file <path>]
+                           ask a hub for a short-lived token for your key, and
+                           print it as JSON: what `git clone` takes as a
+                           password where it cannot sign
+";
+
+/// Nothing, in a build without one.
+#[cfg(not(feature = "http"))]
+const READING: &str = "";
+
+/// What the commands share.
+const NOTES: &str = "\
 a <target> is `head`, a bookmark, a change ID, or a revision digest; the last
 two may be abbreviated to any unambiguous prefix, and their alphabets do not
 overlap, so one argument accepts either.
@@ -163,7 +199,7 @@ pub fn run(arguments: impl IntoIterator<Item = String>) -> Result<u8, Failure> {
 
     let command = loop {
         let Some(argument) = arguments.next() else {
-            return printing(|out| out.write_all(USAGE.as_bytes()));
+            return printing(|out| out.write_all(usage().as_bytes()));
         };
         match argument.as_str() {
             "-C" => {
@@ -172,7 +208,7 @@ pub fn run(arguments: impl IntoIterator<Item = String>) -> Result<u8, Failure> {
                     .ok_or_else(|| Failure::usage("`-C` wants a directory"))?;
                 base = Some(PathBuf::from(directory));
             }
-            "-h" | "--help" | "help" => return printing(|out| out.write_all(USAGE.as_bytes())),
+            "-h" | "--help" | "help" => return printing(|out| out.write_all(usage().as_bytes())),
             "-V" | "--version" => {
                 return printing(|out| {
                     writeln!(out, "historica-minisign {}", env!("CARGO_PKG_VERSION"))
@@ -196,6 +232,19 @@ pub fn run(arguments: impl IntoIterator<Item = String>) -> Result<u8, Failure> {
         "arrange" => arrange_command(&base, &rest),
         "trust" => trust_command(&base, &rest),
         "key" => key_command(&rest),
+        #[cfg(feature = "http")]
+        "fetch" => fetch::fetch(&base, &rest),
+        #[cfg(feature = "http")]
+        "token" => fetch::token(&rest),
+        // Named rather than left to fall through, as historica's own build
+        // without a transport names its `fetch`: "not a command" would be
+        // true of this binary and false of this tool.
+        #[cfg(not(feature = "http"))]
+        "fetch" | "token" => Err(Failure::usage(format!(
+            "this historica-minisign was built without the `http` feature, so \
+             it has no transport for `{command}`; `historica_minisign::request` \
+             signs a request for a host that brings its own"
+        ))),
         other => Err(Failure::usage(format!("`{other}` is not a command"))),
     }
 }
@@ -270,17 +319,7 @@ fn sign_command(base: &Path, arguments: &[String]) -> Result<u8, Failure> {
         })?,
     };
 
-    let path = match key_path {
-        Some(path) => path,
-        None => key::default_secret_key().ok_or_else(|| {
-            Failure::error(
-                "this platform will not say where home is, so there is no \
-                 default key; name one with --key",
-            )
-        })?,
-    };
-    let password = password(password_file.as_deref())?;
-    let secret = key::load(&path, password).map_err(Failure::error)?;
+    let secret = secret_key(key_path, password_file.as_deref())?;
 
     let (claim, path_in_tree) = match one_file {
         None => (
@@ -560,17 +599,7 @@ fn state_command(base: &Path, arguments: &[String]) -> Result<u8, Failure> {
     }
 
     let store = open(base)?;
-    let path = match key_path {
-        Some(path) => path,
-        None => key::default_secret_key().ok_or_else(|| {
-            Failure::error(
-                "this platform will not say where home is, so there is no \
-                 default key; name one with --key",
-            )
-        })?,
-    };
-    let password = password(password_file.as_deref())?;
-    let secret = key::load(&path, password).map_err(Failure::error)?;
+    let secret = secret_key(key_path, password_file.as_deref())?;
     let key = sign::public_key(&secret).map_err(Failure::error)?;
 
     let report = verify::verify(&store)?;
@@ -1108,6 +1137,25 @@ fn key_show(arguments: &[String]) -> Result<u8, Failure> {
 /// The store containing `base`, found by walking up, as `historica` does it.
 fn open(base: &Path) -> Result<Store, Failure> {
     Store::discover(base).map_err(Failure::from)
+}
+
+/// The secret key at `path`, or at minisign's default where none was named,
+/// unlocked with the password in `password_file` or asked for at a terminal.
+fn secret_key(
+    path: Option<PathBuf>,
+    password_file: Option<&Path>,
+) -> Result<sign::SecretKey, Failure> {
+    let path = match path {
+        Some(path) => path,
+        None => key::default_secret_key().ok_or_else(|| {
+            Failure::error(
+                "this platform will not say where home is, so there is no \
+                 default key; name one with --key",
+            )
+        })?,
+    };
+    let password = password(password_file)?;
+    key::load(&path, password).map_err(Failure::error)
 }
 
 /// The password to unlock or protect a key with, or `None` to ask a terminal.
