@@ -85,15 +85,25 @@ Finding the childless among the *current* revisions fixes it: `C` is not
 current, so nothing current stands on `B`, and `B` is a tip, held, exactly
 what it is. Amending and squashing reach the same answers under either order,
 because each leaves the superseded revision's parent with a current child,
-the amendment or the squash. Abandoning supersedes nothing, since its
-tombstone is a child. That is why the difference went unnoticed until now.
+the amendment or the squash. Abandoning does too, because its tombstone
+stands on the abandoned run's parents. That is why the difference went unnoticed until now.
 
 One case does change, and the change is the rule working. Move a revision off
 its parent onto an unrelated line, `carry X --onto Y` where `X` stood on `P`
 and nothing else does, and `P` is now a tip. Under the old order it vanished.
 `P`'s work is in no line anyone stands on. The person may have meant to leave
-it, and showing it costs them an `abandon`. Hiding it would cost the work
-itself, with nothing in any list to say so. The same move with `P` among `Y`'s
+it, and showing it costs them an `abandon` and a `merge`. The tombstone stands
+on `P`'s parent and is a head like any other (0013), so leaving `P` and joining
+the tombstone to the line are two acts. Hiding `P` would cost the work itself,
+with nothing in any list to say so.
+
+A tombstone could instead stop being a tip when its parent has another current
+child. That makes the clean-up one act, but whether a revision is a tip would
+then depend on its siblings: abandon the sibling later and the tombstone is a
+tip again, though nothing touched it. The causal read would also have to parse
+every tombstone to know it is one. 0013 stands. If the second act proves
+tiresome, `abandon` can offer to write the merge, which keeps the rule and
+removes the step. The same move with `P` among `Y`'s
 ancestors changes nothing, because then `P` has a current child on the way
 to `Y`. This is a `Behavioural-change:` on the commit that
 builds it.
