@@ -243,3 +243,8 @@ write moved exactly one branch, the report names it and gives `git
 symbolic-ref HEAD refs/heads/<it> && git reset`, which moves git there without
 writing a file. `git switch` is refused in that position, because the folder
 already holds the other branch's files.
+
+The directory also had two facts that only git read: which branch the folder
+holds, and what is not part of the project. [0011](0011-a-colocated-store-follows-the-folder.md)
+makes a colocated import follow HEAD's branch, so that a branch beside it does
+not become the store's head, and turns git's ignore files into skip rules.

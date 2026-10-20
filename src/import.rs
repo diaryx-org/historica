@@ -34,6 +34,7 @@ use historica::working::{Rule, Scope, Skipped, Working};
 
 use crate::carried;
 use crate::identity::Identity;
+use crate::ignored;
 use crate::plumbing::{Pointed, Repository};
 use crate::remembered::{Commits, Left, Refs};
 use crate::stream::{Change, Command, Commit, DataRef, Mark, Person, Reader};
@@ -83,6 +84,9 @@ pub struct Report {
     /// conversion says them; a run onto what it made before need not, since
     /// the first one already did.
     pub standing: Vec<String>,
+    /// Decision 0011: the skip rules this conversion added to the store, read
+    /// from git's ignore files, as the lines `historica skip` prints.
+    pub skipped: Vec<String>,
 }
 
 impl Report {
@@ -128,7 +132,13 @@ pub fn from_repository(repository: &Path, folder: &Path) -> Result<Report, Error
         refs: Refs::read(&git_dir)?,
         history: store.history(),
     };
-    let current = repository.refs()?;
+    let mut current = repository.refs()?;
+    // Decision 0011: colocated, the store follows the branch this folder has
+    // checked out, and not every branch the repository holds.
+    let stayed = match colocated {
+        true => follow(&repository, &store, &mut current)?,
+        false => None,
+    };
 
     // Branches and tags, and not `--all`. Decision 0006: a ref that is neither
     // is a fact about somewhere else, and so is everything reachable only
@@ -141,10 +151,19 @@ pub fn from_repository(repository: &Path, folder: &Path) -> Result<Report, Error
     // export, and with it everything beneath. A held commit that is reachable
     // only through a ref that has since moved on still arrives, and is
     // recognised when it does.
-    let mut arguments = vec![
-        "fast-export".to_owned(),
-        "--branches".to_owned(),
-        "--tags".to_owned(),
+    let mut arguments = vec!["fast-export".to_owned()];
+    match &stayed {
+        Some(_) => arguments.extend(
+            current
+                .keys()
+                .filter(|reference| {
+                    reference.starts_with("refs/heads/") || reference.starts_with("refs/tags/")
+                })
+                .cloned(),
+        ),
+        None => arguments.extend(["--branches".to_owned(), "--tags".to_owned()]),
+    }
+    arguments.extend([
         "-M".to_owned(),
         "--show-original-ids".to_owned(),
         "--reencode=yes".to_owned(),
@@ -156,7 +175,7 @@ pub fn from_repository(repository: &Path, folder: &Path) -> Result<Report, Error
         "--signed-commits=verbatim".to_owned(),
         "--signed-tags=strip".to_owned(),
         "--reference-excluded-parents".to_owned(),
-    ];
+    ]);
     for pointed in current.values() {
         if known.revision_of(&pointed.commit).is_some() {
             arguments.push(format!("^{}", pointed.commit));
@@ -199,7 +218,10 @@ pub fn from_repository(repository: &Path, folder: &Path) -> Result<Report, Error
         &materialise_in,
         known,
         Some(&repository),
-        Some(current),
+        Some(Asked {
+            current,
+            stayed: stayed.unwrap_or_default(),
+        }),
         colocated,
     );
     drop(scratch);
@@ -250,8 +272,36 @@ pub fn from_repository(repository: &Path, folder: &Path) -> Result<Report, Error
         repository.exclude_history()?;
         repository.reset_index()?;
     }
-
     let mut report = converted.report;
+    if colocated {
+        let tracked = repository.tracked()?;
+        let translated = ignored::translate(
+            &ignore_files(&repository, folder)?,
+            &nested_ignore_files(&tracked, folder)?,
+            &tracked,
+        );
+        report.skipped = translated
+            .rules
+            .iter()
+            .filter(|rule| !store.skipped().rules().any(|had| had == *rule))
+            .map(ToString::to_string)
+            .collect();
+        store.add_skipped(&translated.rules)?;
+        if !translated.left.is_empty() {
+            let left = translated
+                .left
+                .iter()
+                .map(|(place, because)| format!("{place}, because {because}"))
+                .collect::<Vec<_>>()
+                .join("; ");
+            report.standing.push(format!(
+                "{} of git's ignore lines did not become skip rules, so `record` may \
+                 take what they match; `historica skip` says each by hand: {left}",
+                translated.left.len()
+            ));
+        }
+    }
+
     report.onto = onto;
     // What arrived is in `history/` and the folder was not touched, which is
     // worth saying only where the folder does not already hold it. After a
@@ -280,6 +330,14 @@ pub fn from_stream<R: BufRead>(input: R, folder: &Path) -> Result<Report, Error>
         history: store.history(),
     };
     convert(input, &mut store, folder, known, None, None, false).map(|converted| converted.report)
+}
+
+/// Where git's refs stand, where git can be asked.
+struct Asked {
+    /// Every ref the conversion crosses, and the commit it reaches.
+    current: BTreeMap<String, Pointed>,
+    /// Decision 0011: the branches and tags a colocated store does not follow.
+    stayed: BTreeMap<String, Pointed>,
 }
 
 /// What a conversion leaves for the repository's record, beside its report.
@@ -364,7 +422,7 @@ fn convert<R: BufRead>(
     folder: &Path,
     known: Known,
     repository: Option<&Repository>,
-    current: Option<BTreeMap<String, Pointed>>,
+    asked: Option<Asked>,
     git_wins: bool,
 ) -> Result<Converted, Error> {
     let mut conversion = Conversion {
@@ -389,6 +447,8 @@ fn convert<R: BufRead>(
         elsewhere: BTreeSet::new(),
         unheld: BTreeSet::new(),
         ahead: BTreeSet::new(),
+        stayed_held: BTreeSet::new(),
+        stayed_unheld: BTreeSet::new(),
         removed: BTreeSet::new(),
         dangling: 0,
         conflicts: Vec::new(),
@@ -442,7 +502,7 @@ fn convert<R: BufRead>(
             // crossed when what crossed is where it pointed. Counted here only
             // where the stream is the sole account of the refs; where git is
             // asked, git's answer counts them once.
-            (Command::Tag(_), _, _) if current.is_none() => conversion.tags += 1,
+            (Command::Tag(_), _, _) if asked.is_none() => conversion.tags += 1,
             (Command::Reset(reset), _, _) => conversion.moved(reset),
             _ => {}
         }
@@ -451,7 +511,7 @@ fn convert<R: BufRead>(
     // Where the refs stand: from git where git can be asked, since an
     // excluded commit's ref never reaches the stream; from the stream
     // otherwise.
-    if let Some(current) = current {
+    if let Some(Asked { current, stayed }) = asked {
         conversion.refs.clear();
         for (reference, pointed) in current {
             if pointed.annotated {
@@ -490,6 +550,16 @@ fn convert<R: BufRead>(
                 }
                 None => conversion.dangling += 1,
             }
+        }
+        // Branches and tags the colocated store does not follow. Like a
+        // remote-tracking ref, each is a fact about somewhere else — another
+        // worktree, a line of work not checked out here — and what is said
+        // about it depends on whether the store holds its work anyway.
+        for (reference, pointed) in stayed {
+            match conversion.resolve(&pointed.commit) {
+                Some(_) => conversion.stayed_held.insert(reference),
+                None => conversion.stayed_unheld.insert(reference),
+            };
         }
     }
     conversion.name(store)?;
@@ -554,6 +624,11 @@ struct Conversion<'a> {
     /// Remote-tracking refs naming work the store does not hold: fetched, and
     /// not yet merged into any branch.
     ahead: BTreeSet<String>,
+    /// Decision 0011: branches and tags a colocated store does not follow,
+    /// whose work it holds anyway.
+    stayed_held: BTreeSet<String>,
+    /// The same, naming work the store does not hold.
+    stayed_unheld: BTreeSet<String>,
     /// Branches git deleted whose bookmarks this conversion removed.
     removed: BTreeSet<String>,
     dangling: usize,
@@ -1094,17 +1169,39 @@ impl Conversion<'_> {
             ));
         }
         if !self.ahead.is_empty() {
-            let ahead = self
-                .ahead
-                .iter()
-                .map(|reference| format!("`{reference}`"))
-                .collect::<Vec<_>>()
-                .join(", ");
+            let ahead = quoted(&self.ahead);
             self.report.note(format!(
                 "{ahead} {} work the store does not hold; a remote-tracking ref is a \
                  fact about somewhere else, so that work crosses when a branch \
                  reaches it — `git merge` or `git pull`, then `import`",
                 if self.ahead.len() == 1 {
+                    "names"
+                } else {
+                    "name"
+                }
+            ));
+        }
+        if !self.stayed_held.is_empty() {
+            let held = quoted(&self.stayed_held);
+            self.report.standing.push(format!(
+                "{held} did not cross; colocated, the store follows the branch HEAD \
+                 is on and the bookmarks it already has, and the work {} is in the \
+                 store anyway",
+                if self.stayed_held.len() == 1 {
+                    "that ref names"
+                } else {
+                    "those refs name"
+                }
+            ));
+        }
+        if !self.stayed_unheld.is_empty() {
+            let unheld = quoted(&self.stayed_unheld);
+            self.report.note(format!(
+                "{unheld} {} work the store does not hold, and stayed in git; \
+                 colocated, the store follows the branch HEAD is on and the bookmarks \
+                 it already has, so that work crosses when one of those reaches it — \
+                 `git merge`, then `import` — or when HEAD is on it for an `import`",
+                if self.stayed_unheld.len() == 1 {
                     "names"
                 } else {
                     "name"
@@ -1135,6 +1232,113 @@ impl Conversion<'_> {
         }
         self.report
     }
+}
+
+/// Refs as a note names them.
+fn quoted(references: &BTreeSet<String>) -> String {
+    references
+        .iter()
+        .map(|reference| format!("`{reference}`"))
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Decision 0011: narrow `current` to what a colocated store follows, and hand
+/// back the branches and tags that stay in git.
+///
+/// The store follows the branch HEAD is on, every branch it already has a
+/// bookmark for, and the tags those reach or it already names. Every other
+/// branch, and every other tag, is another line of work: a worktree beside
+/// this one, a branch an agent made, a release on a line not checked out. In a
+/// store, any of them ahead of HEAD's branch would be the head that `record`,
+/// `status` and `update` default to, and the folder holds HEAD's branch.
+///
+/// A HEAD on no branch follows everything, as before this decision, since
+/// there is no branch to say which line is the folder's.
+fn follow(
+    repository: &Repository,
+    store: &Store,
+    current: &mut BTreeMap<String, Pointed>,
+) -> Result<Option<BTreeMap<String, Pointed>>, Error> {
+    let Some(head) = repository.head()? else {
+        return Ok(None);
+    };
+    let named = |reference: &str, directory: &str| {
+        reference
+            .strip_prefix(directory)
+            .is_some_and(|name| store.bookmark(name).is_some())
+    };
+    let followed: BTreeSet<String> = current
+        .keys()
+        .filter(|reference| **reference == head || named(reference, "refs/heads/"))
+        .cloned()
+        .collect();
+    let mut reached = BTreeSet::new();
+    for branch in &followed {
+        reached.extend(repository.tags_reached_from(branch)?);
+    }
+    let staying: Vec<String> = current
+        .keys()
+        .filter(|reference| {
+            (reference.starts_with("refs/heads/") && !followed.contains(*reference))
+                || (reference.starts_with("refs/tags/")
+                    && !reached.contains(*reference)
+                    && !named(reference, "refs/tags/"))
+        })
+        .cloned()
+        .collect();
+    let mut stayed = BTreeMap::new();
+    for reference in staying {
+        if let Some(pointed) = current.remove(&reference) {
+            stayed.insert(reference, pointed);
+        }
+    }
+    Ok(Some(stayed))
+}
+
+/// git's ignore files that apply to the whole folder, lowest precedence first.
+fn ignore_files(repository: &Repository, folder: &Path) -> Result<Vec<ignored::Source>, Error> {
+    let read = |path: &Path, name: String, shared: bool| {
+        ignored::Source::read(path, name, shared).map_err(|error| Error::io(path, error))
+    };
+    let mut sources = Vec::new();
+    if let Some(global) = repository.excludes_file()? {
+        sources.extend(read(&global, global.display().to_string(), false)?);
+    }
+    let exclude = repository.info_exclude()?;
+    if let Some(mut source) = read(&exclude, ".git/info/exclude".to_owned(), false)? {
+        // 0008's own line, which keeps the store out of git; historica's walk
+        // already skips its own store directory.
+        source.text = source
+            .text
+            .lines()
+            .map(|line| if line.trim() == "/history/" { "" } else { line })
+            .collect::<Vec<_>>()
+            .join("\n");
+        sources.push(source);
+    }
+    sources.extend(read(
+        &folder.join(".gitignore"),
+        ".gitignore".to_owned(),
+        true,
+    )?);
+    Ok(sources)
+}
+
+/// Every tracked `.gitignore` below the root.
+fn nested_ignore_files(tracked: &[String], folder: &Path) -> Result<Vec<ignored::Source>, Error> {
+    let mut sources = Vec::new();
+    for path in tracked {
+        if !path.ends_with("/.gitignore") {
+            continue;
+        }
+        let at = folder.join(path);
+        sources.extend(
+            ignored::Source::read(&at, path.clone(), true)
+                .map_err(|error| Error::io(&at, error))?,
+        );
+    }
+    Ok(sources)
 }
 
 /// What naming a bookmark did.

@@ -101,6 +101,12 @@ fn convert(repository: &str, folder: &str) -> Result<(), String> {
             println!("  - {bookmark}");
         }
     }
+    if !report.skipped.is_empty() {
+        println!("\nskip rules added, from what git ignores:");
+        for rule in &report.skipped {
+            println!("  - {rule}");
+        }
+    }
     if report.behind {
         println!(
             "\nthe folder was left as it was; `historica update` is what brings it \
