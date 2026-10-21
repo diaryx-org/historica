@@ -188,6 +188,32 @@ fn check_takes_a_store_or_what_holds_one() {
 }
 
 #[test]
+fn check_describes_a_store_without_its_header_only_from_beside_it() {
+    // Outside the repository, as `a_command_outside_a_store_says_which_one_makes_it` is: a
+    // walk that passes over this store must find nothing above it either.
+    let directory = std::env::temp_dir().join("historica-cli-headerless");
+    let _ = fs::remove_dir_all(&directory);
+    fs::create_dir_all(&directory).expect("a scratch directory outside the repository");
+    assert!(run(&directory, &["init"]).status.success());
+    fs::remove_file(directory.join("history/historica.txt")).expect("removing the header");
+
+    // Beside it, `check` is where a person learns the header is gone.
+    let output = run(&directory, &["check"]);
+    let report = String::from_utf8(output.stdout).expect("printed text");
+    assert_eq!(output.status.code(), Some(1), "{report}");
+    assert!(report.contains("historica"), "{report}");
+
+    // From further down, a `history` without one is not a store, and every
+    // command, `check` included, walks past it.
+    let below = directory.join("notes");
+    fs::create_dir_all(&below).expect("a subdirectory");
+    let complaint = stderr(&below, &["check"]);
+    assert!(complaint.contains("historica init"), "{complaint}");
+    let complaint = stderr(&directory, &["log"]);
+    assert!(complaint.contains("historica init"), "{complaint}");
+}
+
+#[test]
 fn check_reports_a_note_without_failing() {
     let directory = store_from("check-note", "tree");
     // Decision 0027: a sync tool's conflicted copy is a legitimate duplicate,
@@ -6889,6 +6915,18 @@ fn a_folder_only_called_history_is_recorded_like_any_other() {
     out(recorded(&directory, &["record", "-m", "Start"]));
     let files = out(recorded(&directory, &["files", &head_of(&directory)]));
     assert!(files.contains("family/history/1850.md"), "{files}");
+
+    // Nor is it the store a command run beside it finds: the walk passes over
+    // it to the `history` that holds `historica.txt`.
+    write(&directory, "family/history/1851.md", "another census\n");
+    let status = out(recorded(&directory.join("family"), &["status"]));
+    assert!(status.contains("family/history/1851.md"), "{status}");
+    out(recorded(
+        &directory.join("family"),
+        &["record", "-m", "More"],
+    ));
+    let files = out(recorded(&directory, &["files", &head_of(&directory)]));
+    assert!(files.contains("family/history/1851.md"), "{files}");
 }
 
 #[test]
