@@ -502,7 +502,7 @@ fn check(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     let mut rest = rest.into_iter();
     let root = match rest.next() {
         Some(path) => named(base, &path),
-        None => locate(base)?,
+        None => located_for_check(base)?,
     };
     if let Some(extra) = rest.next() {
         return Err(Failure::usage(format!(
@@ -1821,25 +1821,44 @@ fn named(base: &Path, path: &str) -> PathBuf {
 
 /// The store directory containing `base`, found by walking up.
 ///
-/// Deliberately laxer than [`Store::discover`], which wants a readable
-/// `historica` file: `check` exists to describe a store whose header is
-/// missing or from a future version, and it cannot describe what it refuses to
-/// find. Every other command hands the directory to [`Store::open`], which
-/// says so in those words.
+/// Decision 0006's rule, the one [`Store::discover`] keeps: a `history`
+/// directory is a store when it holds `historica.txt`, so a folder that is
+/// only called `history` is passed over rather than opened and refused. The
+/// file is looked for, not read, which leaves a header from a future version
+/// to [`Store::open`] to say so in those words.
 fn locate(base: &Path) -> Result<PathBuf, Failure> {
-    let start = base
-        .canonicalize()
-        .map_err(|error| Failure::error(format!("{}: {error}", base.display())))?;
+    let start = canonical(base)?;
     for directory in start.ancestors() {
         let candidate = directory.join(STORE_DIR);
-        if candidate.is_dir() {
+        if candidate.join(HEADER_FILE).is_file() {
             return Ok(candidate);
         }
     }
     Err(Failure::error(format!(
-        "no `{STORE_DIR}` directory here or above {}; `historica init` makes one",
+        "no `{STORE_DIR}/{HEADER_FILE}` here or above {}; `historica init` makes one",
         start.display()
     )))
+}
+
+/// The store `check` describes when it is not pointed at one.
+///
+/// A `history` directory right here, header or not, and failing that
+/// [`locate`]'s: `check` exists to describe a store whose header is missing,
+/// and it cannot describe what it refuses to find. Only here, never further
+/// up, because a person standing beside the folder means it, and a folder
+/// above them may be anything.
+fn located_for_check(base: &Path) -> Result<PathBuf, Failure> {
+    let here = canonical(base)?.join(STORE_DIR);
+    if here.is_dir() {
+        Ok(here)
+    } else {
+        locate(base)
+    }
+}
+
+fn canonical(base: &Path) -> Result<PathBuf, Failure> {
+    base.canonicalize()
+        .map_err(|error| Failure::error(format!("{}: {error}", base.display())))
 }
 
 /// Print, to a stdout that may be a pipe somebody closed.
