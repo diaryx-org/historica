@@ -207,6 +207,32 @@ fn importing_again_takes_what_the_repository_gained() {
 
 /// A second write sends what the store gained and names the rest by object
 /// ID, so the commits it wrote before are exactly the commits still there.
+/// The repository's record is about the store an earlier conversion made, and
+/// says nothing about a new one. An import into an empty folder, after the
+/// repository was imported somewhere else, converts every commit rather than
+/// recognising them as held by a store that is not there.
+#[test]
+fn importing_into_a_new_folder_ignores_what_another_store_holds() {
+    let Some(_) = git() else { return };
+    let origin = folder("again-elsewhere-origin");
+    build(&origin);
+    let first = folder("again-elsewhere-first");
+    import::from_repository(&origin, &first).expect("the first import");
+
+    let second = folder("again-elsewhere-second");
+    let report = import::from_repository(&origin, &second).expect("the second import");
+    assert_eq!(report.held, 0, "the new store held nothing");
+    assert_eq!(
+        report.revisions, 2,
+        "every commit should have been converted"
+    );
+    assert_eq!(
+        main_points_at(&second),
+        main_points_at(&first),
+        "two conversions of one repository are one history (decision 0003)"
+    );
+}
+
 #[test]
 fn writing_again_sends_only_what_the_store_gained() {
     let Some(_) = git() else { return };

@@ -374,8 +374,15 @@ impl Known {
     /// own record; a commit this tool *imported* has a change ID that is its
     /// object ID's first twelve bytes (decision 0003), and the revision that
     /// came from the commit is the one of that change that supersedes nothing.
+    ///
+    /// The record is the repository's, and says what *a* store held, not this
+    /// one: an import into a new folder, after the repository was imported
+    /// somewhere else, finds a record naming revisions it has never seen. So an
+    /// entry counts only where this store holds the revision it names.
     fn revision_of(&self, oid: &str) -> Option<RevisionId> {
-        if let Some(revision) = self.commits.revision_of(oid) {
+        if let Some(revision) = self.commits.revision_of(oid)
+            && self.history.get(&revision).is_some()
+        {
             return Some(revision);
         }
         let change = Identity::from_oid(oid).ok()?.change_id();
