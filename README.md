@@ -287,8 +287,10 @@ $ git pull && historica-git import . .
 $ historica hub push --public
 ```
 
-The hub writes its git mirror from the store, by the conversion above, so
-`git clone <hub>/<you>/project.git` gives the same commits this directory has.
+The hub writes its git mirror from the store, by the conversion above. For
+now `git clone <hub>/<you>/project.git` can give other commits than this
+directory has, from the first merge whose parents historica keeps in another
+order: [the task](docs/tasks/merge-parent-order.md) has the repro.
 
 `historica git <command>` is `historica-git <command>`: historica runs a tool
 called `historica-<word>` on `PATH`, so either spelling works.
