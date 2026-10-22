@@ -3,7 +3,7 @@ title: Tasks
 description: Deferred work in historica-git — one file each, every one with a done state
 created: 2026-09-02
 updated: 2026-10-13
-contents: ['[A merge comes back with its parents in another order](/historica-git/docs/tasks/merge-parent-order.md)']
+contents: []
 ---
 
 # Tasks

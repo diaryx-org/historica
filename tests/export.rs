@@ -189,6 +189,106 @@ fn a_repository_historica_can_hold_converts_back_to_itself() {
     assert_eq!(worktree(&back), "", "the working tree should be clean");
 }
 
+/// Decision 0012: a merge comes back with its parents in the order git named
+/// them, which historica's sorted `parent` lines do not keep.
+///
+/// `left` merged into `right` and `right` merged into `left` join the same two
+/// commits in opposite orders, so one of the two disagrees with the sort
+/// whatever the digests turn out to be. The octopus has three parents, and so
+/// six orders to get wrong.
+#[test]
+fn a_merge_comes_back_with_its_parents_in_git_order() {
+    let Some(_) = git() else { return };
+
+    let origin = folder("merge-order-origin");
+    fs::create_dir_all(&origin).expect("a fresh directory");
+    build_merges(&origin);
+    let before = commits(&origin);
+
+    let store = folder("merge-order-store");
+    import::from_repository(&origin, &store).expect("the repository imports");
+    let back = folder("merge-order-back");
+    let report = export::to_repository(&store, &back).expect("the store writes out");
+
+    assert_eq!(
+        commits(&back),
+        before,
+        "a merge came back with its parents in another order"
+    );
+    assert_eq!(references(&back), references(&origin));
+    assert!(
+        !report
+            .uncarried
+            .iter()
+            .any(|note| note.contains("historica's order")),
+        "nothing was rewritten, so every order should have crossed: {:?}",
+        report.uncarried
+    );
+}
+
+fn build_merges(at: &Path) {
+    let run = |args: &[&str]| {
+        let status = std::process::Command::new("git")
+            .arg("-C")
+            .arg(at)
+            .args(args)
+            .env("GIT_AUTHOR_DATE", "2026-01-02T03:04:05-07:00")
+            .env("GIT_COMMITTER_DATE", "2026-01-02T03:04:05-07:00")
+            .env("GIT_AUTHOR_NAME", "Ada")
+            .env("GIT_AUTHOR_EMAIL", "ada@example.com")
+            .env("GIT_COMMITTER_NAME", "Ada")
+            .env("GIT_COMMITTER_EMAIL", "ada@example.com")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .expect("git runs");
+        assert!(status.success(), "git {args:?} failed");
+    };
+    let commit = |file: &str, message: &str| {
+        fs::write(at.join(file), format!("{message}\n")).expect("a file");
+        run(&["add", file]);
+        run(&["commit", "--quiet", "-m", message]);
+    };
+
+    run(&["init", "--quiet", "--initial-branch=main", "."]);
+    run(&["config", "commit.gpgsign", "false"]);
+    commit("base.txt", "Start");
+
+    run(&["switch", "--quiet", "-c", "left"]);
+    commit("left.txt", "Left");
+    run(&["switch", "--quiet", "-c", "right", "main"]);
+    commit("right.txt", "Right");
+
+    // The same two parents, each way round.
+    run(&[
+        "merge",
+        "--quiet",
+        "--no-ff",
+        "-m",
+        "Left into right",
+        "left",
+    ]);
+    run(&["switch", "--quiet", "left"]);
+    run(&[
+        "merge",
+        "--quiet",
+        "--no-ff",
+        "-m",
+        "Right into left",
+        "right~1",
+    ]);
+
+    // An octopus, from main, of two branches that each touch a file of their
+    // own so git can merge all three at once.
+    run(&["switch", "--quiet", "-c", "one", "main"]);
+    commit("one.txt", "One");
+    run(&["switch", "--quiet", "-c", "two", "main"]);
+    commit("two.txt", "Two");
+    run(&["switch", "--quiet", "main"]);
+    commit("main.txt", "Main");
+    run(&["merge", "--quiet", "--no-ff", "-m", "Octopus", "two", "one"]);
+}
+
 /// Every ref and what it points at, so two repositories can be compared.
 fn references(at: &Path) -> Vec<String> {
     let out = std::process::Command::new("git")

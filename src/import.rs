@@ -701,6 +701,23 @@ impl Conversion<'_> {
                 carried::spell(&signature.kind),
             );
         }
+        // A merge's parents are an ordered list in git and a set in historica,
+        // which writes them sorted by digest. The first parent is the line the
+        // merge was made on, and the order is in the commit's bytes, so it is
+        // carried on every merge — decision 0012 — rather than only where the
+        // sort happens to disagree with it now, which a rewrite can change.
+        if parents.len() > 1 {
+            let changes: Option<Vec<_>> = parents
+                .iter()
+                .map(|parent| store.revision(parent).map(|revision| revision.change))
+                .collect();
+            if let Some(changes) = changes {
+                extensions.insert(
+                    carried::PARENTS.to_owned(),
+                    carried::spell_parents(&changes),
+                );
+            }
+        }
         if commit.encoding.is_some() {
             self.encodings += 1;
         }

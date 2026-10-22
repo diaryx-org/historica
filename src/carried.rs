@@ -2,8 +2,9 @@
 //!
 //! Decision 0004 makes a commit a function of the revision it came from, and
 //! measured the set that does not hold: a committer distinct from the author,
-//! and a signature. Both are in the commit's own bytes, so a revision that
-//! cannot state them cannot be written back as the commit it came from.
+//! and a signature. Decision 0012 found a third, the order of a merge's
+//! parents. All three are in the commit's own bytes, so a revision that cannot
+//! state them cannot be written back as the commit it came from.
 //!
 //! Historica's decision 0065 has the door and its 0070 opened it: a key with a
 //! dot in it is another tool's vocabulary, parsed, hashed with everything else,
@@ -13,6 +14,8 @@
 //!
 //! The keys are `git.`-qualified for the tool that owns them, which is this
 //! one.
+
+use historica::core::{ChangeId, RevisionId};
 
 use crate::stream::{Person, quote, unquote};
 
@@ -31,6 +34,56 @@ pub const SIGNATURE: &str = "git.signature";
 /// fact — what the bytes are — and joining two facts in one value would need a
 /// grammar to take them apart again.
 pub const SIGNATURE_KIND: &str = "git.signature-kind";
+
+/// A merge's parents in the order git named them, by change.
+///
+/// Historica keeps `parent` lines sorted by digest, and git's first parent is
+/// the line the merge was made on, so the order is a fact of its own. By change
+/// rather than by digest, because a change survives the amendment or the carry
+/// that gives a parent a new digest. Decision 0012.
+pub const PARENTS: &str = "git.parents";
+
+/// Change IDs as one header value, single-spaced.
+///
+/// A change ID is letters only, so the value needs no quoting and is the same
+/// bytes every time.
+pub fn spell_parents(changes: &[ChangeId]) -> String {
+    changes
+        .iter()
+        .map(ChangeId::to_string)
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// The same list, read back. `None` where a word is not a change ID.
+pub fn read_parents(value: &str) -> Option<Vec<ChangeId>> {
+    value.split(' ').map(|word| word.parse().ok()).collect()
+}
+
+/// A revision's parents in the order `stated` gives their changes.
+///
+/// `None` unless `stated` names each parent's change exactly once and nothing
+/// else. A rewrite that took a parent away or brought one in leaves a header
+/// that describes a different merge, and putting part of it to use would be a
+/// guess.
+pub fn in_stated_order(
+    parents: &[(RevisionId, ChangeId)],
+    stated: &[ChangeId],
+) -> Option<Vec<RevisionId>> {
+    if stated.len() != parents.len() {
+        return None;
+    }
+    let mut ordered = Vec::with_capacity(parents.len());
+    for change in stated {
+        let mut matching = parents.iter().filter(|(_, of)| of == change);
+        let (revision, _) = matching.next()?;
+        if matching.next().is_some() || ordered.contains(revision) {
+            return None;
+        }
+        ordered.push(*revision);
+    }
+    Some(ordered)
+}
 
 /// Bytes as a header value: raw where they can be read, quoted where they
 /// cannot.
@@ -284,6 +337,47 @@ mod tests {
         assert_eq!(read.seconds, padded.seconds);
     }
 
+    fn change(byte: u8) -> ChangeId {
+        ChangeId::from_bytes([byte; historica::core::CHANGE_ID_LEN])
+    }
+
+    fn revision(byte: u8) -> RevisionId {
+        historica::format::digest(&[byte])
+    }
+
+    #[test]
+    fn a_merges_parents_read_back_in_the_order_they_were_spelled() {
+        let changes = [change(9), change(1), change(5)];
+        let spelled = spell_parents(&changes);
+        assert_eq!(read_parents(&spelled).as_deref(), Some(&changes[..]));
+        assert_eq!(read_parents("not a change"), None);
+        assert_eq!(read_parents(""), None);
+    }
+
+    /// The order a header gives is used only where it describes this merge:
+    /// every parent's change named once, and nothing else.
+    #[test]
+    fn a_stated_order_is_used_only_where_it_names_every_parent_once() {
+        let parents = [(revision(1), change(1)), (revision(2), change(2))];
+        assert_eq!(
+            in_stated_order(&parents, &[change(2), change(1)]),
+            Some(vec![revision(2), revision(1)])
+        );
+        // A parent a rewrite took away, or brought in.
+        assert_eq!(in_stated_order(&parents, &[change(2)]), None);
+        assert_eq!(in_stated_order(&parents, &[change(2), change(3)]), None);
+        assert_eq!(
+            in_stated_order(&parents, &[change(2), change(1), change(3)]),
+            None
+        );
+        // One change named twice, which leaves the other parent unplaced.
+        assert_eq!(in_stated_order(&parents, &[change(2), change(2)]), None);
+        // Two parents that are versions of one change, which a change ID
+        // cannot tell apart.
+        let divergent = [(revision(1), change(1)), (revision(2), change(1))];
+        assert_eq!(in_stated_order(&divergent, &[change(1), change(1)]), None);
+    }
+
     /// What historica will accept, checked here rather than discovered by a
     /// `record` that refuses halfway through a conversion.
     #[test]
@@ -295,6 +389,7 @@ mod tests {
             (SIGNATURE_KIND, spell(b"sha1 openpgp")),
             // A name somebody padded, which is the case `spell` falls back for.
             (COMMITTER, spell(b"  padded  ")),
+            (PARENTS, spell_parents(&[change(9), change(1), change(5)])),
         ] {
             historica::format::check_extension(key, &value)
                 .unwrap_or_else(|because| panic!("`{key}` = `{value}` refused: {because:?}"));

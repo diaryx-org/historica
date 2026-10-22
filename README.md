@@ -68,6 +68,13 @@ carries them across as headers this tool owns — `git.committer`,
 repository's own eighteen commits are all signed, all round-trip, and
 `git log --show-signature` calls them good in the copy that was written back.
 
+A merge's parents are a third such fact. Git's first parent is the line the
+merge was made on, and historica keeps parents sorted by digest, so
+[decision 0012](docs/decisions/0012-a-merge-keeps-the-order-of-its-parents.md)
+carries git's order as `git.parents`, by change. A store imported before that
+holds its merges without it, and only a fresh import gives them their order
+back.
+
 Refs cross too, and the mapping was already written into both designs:
 [decision 0006](docs/decisions/0006-a-ref-that-is-only-a-pointer-crosses.md)
 makes a branch a bookmark on a *change*, which follows the work through every
@@ -287,10 +294,9 @@ $ git pull && historica-git import . .
 $ historica hub push --public
 ```
 
-The hub writes its git mirror from the store, by the conversion above. For
-now `git clone <hub>/<you>/project.git` can give other commits than this
-directory has, from the first merge whose parents historica keeps in another
-order: [the task](docs/tasks/merge-parent-order.md) has the repro.
+The hub writes its git mirror from the store, by the conversion above, so
+`git clone <hub>/<you>/project.git` gives the commits this directory has, for
+a store whose merges carry their order (decision 0012).
 
 `historica git <command>` is `historica-git <command>`: historica runs a tool
 called `historica-<word>` on `PATH`, so either spelling works.

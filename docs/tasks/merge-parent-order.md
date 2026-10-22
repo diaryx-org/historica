@@ -2,11 +2,17 @@
 title: A merge comes back with its parents in another order
 part_of: '[Tasks](/historica-git/docs/tasks/tasks.md)'
 created: 2026-10-21
-status: open
+status: done
 description: historica sorts a revision's parents by digest, so write can give a merge its parents in another order than git had, and a different object ID
 ---
 
 # A merge comes back with its parents in another order
+
+**Status.** Done, by `fix(merge): keep the order of a merge's parents`.
+[Decision 0012](../decisions/0012-a-merge-keeps-the-order-of-its-parents.md)
+carries the order as `git.parents`, by change, on every merge. A merge already
+recorded without it keeps historica's order; a fresh import is the remedy, and
+saying which merges those are is deferred there.
 
 A commit's parents are an ordered list in git: the first is the line the merge
 was made on, and the order is part of the bytes the object ID is the digest of.

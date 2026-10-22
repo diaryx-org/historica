@@ -508,6 +508,7 @@ fn convert<W: Write>(folder: &Path, out: W, known: &Known) -> Result<Written, Er
         private: 0,
         linked: 0,
         invalidated: 0,
+        unordered: 0,
         unreadable: BTreeSet::new(),
         branches: Vec::new(),
         ours: BTreeMap::new(),
@@ -546,6 +547,8 @@ struct Conversion<W> {
     private: usize,
     linked: usize,
     invalidated: usize,
+    /// Merges whose `git.parents` no longer names their parents.
+    unordered: usize,
     unreadable: BTreeSet<String>,
     /// Every branch a bookmark named, in the order they were written, so that
     /// one of them can be checked out. Nothing in the store says which — see
@@ -801,7 +804,7 @@ impl<W: Write> Conversion<W> {
         document: &historica::format::RevisionDocument,
     ) -> Vec<DataRef> {
         let mut parents = Vec::new();
-        for parent in &document.parents {
+        for parent in &self.in_git_order(history, document) {
             let mut standing = *parent;
             let mut guard = 0;
             while !visible.contains(&standing) && superseded.contains(&standing) {
@@ -825,6 +828,40 @@ impl<W: Write> Conversion<W> {
             }
         }
         parents
+    }
+
+    /// A revision's parents in the order git named them, where import kept it.
+    ///
+    /// Historica holds parents as a set and writes them sorted by digest, which
+    /// for about half of all merges is not the order git had, and the order is
+    /// in the commit's bytes. Import keeps it under `git.parents` by change —
+    /// decision 0012 — so it still applies after an amendment or a carry gave a
+    /// parent a new digest. Where it no longer names exactly these parents, the
+    /// merge is not the one git made, and historica's order is all there is.
+    fn in_git_order(
+        &mut self,
+        history: &historica::core::History,
+        document: &historica::format::RevisionDocument,
+    ) -> Vec<RevisionId> {
+        let sorted: Vec<RevisionId> = document.parents.iter().copied().collect();
+        let Some(value) = document.extensions.get(carried::PARENTS) else {
+            return sorted;
+        };
+        let Some(stated) = carried::read_parents(value) else {
+            self.unreadable.insert(carried::PARENTS.to_owned());
+            return sorted;
+        };
+        let parents: Option<Vec<_>> = sorted
+            .iter()
+            .map(|id| history.get(id).map(|revision| (*id, revision.change)))
+            .collect();
+        match parents.and_then(|parents| carried::in_stated_order(&parents, &stated)) {
+            Some(ordered) => ordered,
+            None => {
+                self.unordered += 1;
+                sorted
+            }
+        }
     }
 
     /// Move the refs, delete the ones this tool made that nothing names any
@@ -1066,6 +1103,21 @@ impl<W: Write> Conversion<W> {
                      they were imported; the signatures did not cross, since a \
                      commit that says it was signed and was not is worse than one \
                      that says nothing"
+                )
+            });
+        }
+        if self.unordered > 0 {
+            let unordered = self.unordered;
+            self.report.note(if unordered == 1 {
+                "one merge was rewritten until its parents are not the ones git \
+                 named, so the order git gave them did not cross; its parents are \
+                 in historica's order"
+                    .to_owned()
+            } else {
+                format!(
+                    "{unordered} merges were rewritten until their parents are not \
+                     the ones git named, so the order git gave them did not cross; \
+                     their parents are in historica's order"
                 )
             });
         }
