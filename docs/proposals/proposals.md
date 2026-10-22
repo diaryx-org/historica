@@ -5,6 +5,8 @@ created: 2026-09-28
 updated: 2026-09-28
 contents:
   - '[Bytes held elsewhere](/docs/proposals/bytes-held-elsewhere.md)'
+  - '[A fetch moves the bookmarks its copy follows](/docs/proposals/a-fetch-moves-the-bookmarks-its-copy-follows.md)'
+  - '[History held elsewhere](/docs/proposals/history-held-elsewhere.md)'
 part_of: '[historica](/README.md)'
 ---
 
