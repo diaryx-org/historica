@@ -278,6 +278,18 @@ not followed:
 - **`git branch -d feature`**, after the work is merged, removes the bookmark
   too on the next import, where the store has not moved it since.
 
+The [historica hub](https://github.com/diaryx-org/historica-view/tree/main/hub)
+publishes the store, not the repository. So a pull request merged on GitHub
+reaches the hub only after `git pull` and the import have recorded it:
+
+```console
+$ git pull && historica-git import . .
+$ historica hub push --public
+```
+
+The hub writes its git mirror from the store, by the conversion above, so
+`git clone <hub>/<you>/project.git` gives the same commits this directory has.
+
 `historica git <command>` is `historica-git <command>`: historica runs a tool
 called `historica-<word>` on `PATH`, so either spelling works.
 
