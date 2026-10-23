@@ -1,0 +1,129 @@
+# Changelog
+
+What has changed in historica-git, release by release, for someone deciding
+whether to move to a newer one.
+
+Two halves, written two different ways.
+
+The bulleted groups below — **Added**, **Fixed**, **Changed**, and a
+**Behavioural changes** section under them — are **generated** from the commit
+log by `dx changelog --write`, which reads one shared `cliff.toml` — the same
+file, and the same style, in every repository here.
+Anything inside a `git-cliff:begin` / `git-cliff:end` pair is rewritten on every
+run, so an edit made there is an edit thrown away.
+
+Everything else is handwritten and stays: this prose, and any intro a release
+needs under its own heading, below the end marker where regeneration cannot
+reach it.
+
+**Behavioural changes** are collected from `Behavioural-change:` trailers on the
+commits themselves, not from their subjects — because "would a reader who
+upgrades without editing a line of their own code observe a difference" is a
+judgment about the change that no subject can carry. Write one trailer per
+observable difference, as prose someone can act on.
+
+historica-git has not been released, and cannot be until historica is: decision
+0001 explains why the dependency is spelled with both a version and a path.
+
+## Unreleased
+
+<!-- git-cliff:begin — generated; edits here are overwritten -->
+
+### Breaking
+
+- **carried** — carry the committer and the signature across as headers ([`5090b85`](https://github.com/diaryx-org/historica-git/commit/5090b8510e3df210f3fc536015f3aacb643445cb))
+- **naming** — cross a ref that is only a pointer ([`f3f4f9a`](https://github.com/diaryx-org/historica-git/commit/f3f4f9aa37290676e02499fd564393b85b640b31))
+- **remembered** — run a conversion again onto what it made before ([`c4e5aee`](https://github.com/diaryx-org/historica-git/commit/c4e5aee448c37ce9a637e3be13b221f6e74229c3))
+- **colocation** — derive git in the store folder ([`a37e412`](https://github.com/diaryx-org/historica-git/commit/a37e412e11f222a0b3ae7b56044685239646b1b4))
+
+### Added
+
+- the repository, its CI, and the boundary a conversion works under ([`b35d2af`](https://github.com/diaryx-org/historica-git/commit/b35d2af90e4486a9053b8010c36b597425f20219))
+- **stream** — read what git fast-export writes ([`5261ef1`](https://github.com/diaryx-org/historica-git/commit/5261ef12da01564e0c3bd0a220169f87e863d660))
+- **tree** — replay a stream into the tree at each commit ([`a3f8dd0`](https://github.com/diaryx-org/historica-git/commit/a3f8dd05d1859fe77933a3c66c6e1d174f0e86c1))
+- **identity** — derive a change from the commit's object ID ([`0be7985`](https://github.com/diaryx-org/historica-git/commit/0be798563d1f7eb762249b683cba90f81e3bdf56))
+- **import** — convert a git repository into a store ([`5ce6710`](https://github.com/diaryx-org/historica-git/commit/5ce671063b245957c2badb327bb0964da4d79dbc))
+- **export** — write a store out as a git repository ([`784e768`](https://github.com/diaryx-org/historica-git/commit/784e7687815106f391b74f4bb54f7d517d5b9357))
+- **naming** — cross a branch whose name has structure in it ([`715361d`](https://github.com/diaryx-org/historica-git/commit/715361d8c82c3410cffb161ef36663834dcce880))
+
+### Fixed
+
+- **stream** — read the object ID a tag carries ([`ff8e64c`](https://github.com/diaryx-org/historica-git/commit/ff8e64caa69107692bad6f57d496b53a2b20b961))
+- **import** — state no kind, which is what git has to say about one ([`28eb29d`](https://github.com/diaryx-org/historica-git/commit/28eb29d61e4c27baf20704eb89fa94392d27c6b0))
+- **import** — export branches and tags, not every ref ([`de2a8a7`](https://github.com/diaryx-org/historica-git/commit/de2a8a7cb0d52c9a3c7ce6141a8718cf47aa13cc))
+
+### Changed
+
+- **xtask** — cut releases with the shared tooling, not a sixth copy ([`aad15b2`](https://github.com/diaryx-org/historica-git/commit/aad15b2a7af842bc9883b5c44e90281486100a91))
+- **release** — read the shared cliff config, not a local copy ([`f5834d9`](https://github.com/diaryx-org/historica-git/commit/f5834d92ea49a7ce0f489b4404d42b34591f96c6))
+
+### Behavioural changes
+
+- A revision imported from git now carries `git.committer` and
+  `git.signature` headers where the commit had them, and those headers are in
+  the canonical bytes. So the same repository imported by this version and by
+  the last one produces different revision IDs, and two such stores will not
+  fold together — `receive` will union them as unrelated history. Re-import
+  rather than mix them.
+
+- `import` asks git for `--signed-commits=verbatim` rather
+  than `--signed-commits=warn-strip`. A signed commit's signature now reaches
+  the store instead of a warning reaching stderr, and the report no longer says
+  that signatures were stripped, because they no longer are.
+
+- `stream::Commit` gained a `signature` field and
+  `stream::Signature` is new, so code constructing a `Commit` literal no longer
+  compiles until it states one. `None` is what a stream carrying no signature
+  reads as.
+
+- `import` now writes bookmarks. A ref under `refs/heads/`
+  becomes a bookmark on the change and one under `refs/tags/` a bookmark on the
+  revision, where before neither crossed and both were reported as uncarried.
+  A store converted by this version therefore holds names a store converted by
+  the last one did not, and `import::Report` gained a `bookmarks` field listing
+  them.
+
+- `write` now writes `refs/heads/` and `refs/tags/` from
+  bookmarks, sets HEAD, and checks the branch out. It used to leave every head
+  under `refs/historica/heads/` and leave HEAD wherever `git init` put it, so a
+  written repository reported every file as deleted. `export::Report` gained a
+  `branch` field naming the branch checked out, which is `None` when no bookmark
+  named one.
+
+- A branch or tag whose name holds a `/` now crosses, where it
+  was reported as uncarried before. A store converted by this version therefore
+  holds bookmarks a store converted by the last one did not, and the names nest
+  as directories below `names/`. This needs historica 0071 or later; against an
+  earlier one the names are refused as they were.
+
+- `write` chooses `main` or `master` as the branch to check
+  out where either is a bookmark, rather than the first branch in name order.
+  A store whose bookmarks include both `main` and a name sorting above it now
+  checks out `main`.
+
+- `cargo xtask version`, `bump`, `changelog`, `release`, and
+  `release-notes` no longer exist. Each now exits non-zero naming its
+  replacement — `release <command>`, from diaryx-org/devtools, which must be on
+  PATH. `cargo xtask ci` and the individual CI jobs are unchanged.
+
+- releasing this repository needs diaryx-org/devtools on PATH
+  for its git-cliff config as well as for `release` itself. Nothing in the tree
+  configures git-cliff any more.
+
+- `import` into a folder holding `history/` and `write` into a directory holding `.git` are accepted and brought up to date; both were refused as non-empty targets before.
+
+- both conversions write `.git/historica/commits` and `.git/historica/refs` into the repository; an import now writes into the repository's git directory, and nothing under `refs/` or `objects/`.
+
+- `import::Report` gains `held`, `moved`, and `onto`; `export::Report` gains `reused`, `deleted`, and `onto`, and its `branch` is `None` for an existing repository unless the working tree was brought up to it.
+
+- a directory rename in an imported commit is expanded against the commit's own parent tree rather than against the last tree materialised in stream order, which was another branch's whenever the stream switched branches.
+
+- `import::from_repository` on a path holding no `.git` fails with `NotARepository` rather than with git's own `fast-export` error.
+
+- historica-git colocate now builds a missing store or git projection in place without checking out over the working files.
+
+- Passing the same directory to import adopts git crossed refs even when their Historica bookmarks also moved; passing it to write initializes or refreshes only git derived state and index.
+
+- A commit reachable only through a ref outside `refs/heads/` and `refs/tags/` — a remote-tracking ref, a note, an editor's checkpoint — is no longer converted into a revision. A store made from such a repository holds fewer roots than before, and a conversion run again onto a store made earlier does not remove the roots that earlier run wrote.
+
+<!-- git-cliff:end -->

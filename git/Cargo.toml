@@ -1,0 +1,52 @@
+[package]
+name = "historica-git"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Conversion between git repositories and Historica stores"
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+documentation = "https://docs.rs/historica-git"
+# What a person searching crates.io would type. They arrive holding a git
+# repository and wanting it somewhere else, or holding a store and wanting it
+# where their colleagues are, so `git` and `version-control` are the shelf and
+# `convert`, `import`, `export` are the errand.
+keywords = ["git", "version-control", "convert", "import", "export"]
+categories = ["development-tools", "command-line-utilities"]
+
+# A workspace of one package, kept for `[workspace.package]` below. CI is not a
+# crate here: it is the jobs in .config/ship.figl, run by `ship ci`.
+[workspace]
+
+# One `version = "…"` line for the whole repository, which is what `ship bump`
+# rewrites and what the package inherits. Keeping it here rather than in
+# `[package]` is what lets the shared release tooling assert that exactly one
+# such line exists.
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+# Minimum supported Rust version, enforced by the `msrv` CI job, which reads
+# this value. It cannot go below historica's own floor; it will rise to whatever
+# the git library chosen in a later decision needs.
+rust-version = "1.88"
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/diaryx-org/historica-git"
+
+[dependencies]
+# A version and no path, which is the whole of decision 0001's boundary made
+# mechanical: what this crate can reach is what historica published, because a
+# registry dependency is the only thing it has. A `pub(crate)` is not merely
+# discouraged here, it is unreachable, and a fact the API does not expose is a
+# change to historica rather than a hole opened on this side.
+#
+# The consequence is deliberate. This repository builds against a historica that
+# has been published and no other, so a change over there arrives here when it
+# is released and bumped, and never before.
+historica = {version = "1.0.0-rc.8"}
+# Decision 0003 derives a file identifier as `SHA-256` of the commit's object ID
+# and a counter, so that a conversion re-run produces the store it produced
+# before. It is the hash historica already uses, and the derivation is one a
+# person can check with the `shasum` they already have.
+jiff = "0.2"
+sha2 = "0.11.0"
