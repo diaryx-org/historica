@@ -152,7 +152,7 @@ a `Reader`, which also says what was wrong with one it refuses.
 Nothing this crate arranges. Historica carries a reserved directory by its
 class (its decision 0053), and its registry says `claims/` travels and
 `trust/` does not — so the signed claims that vouch for a chain
-([historica-minisign](https://github.com/diaryx-org/historica-minisign)) are
+([historica-minisign](../minisign)) are
 in the offer as `reserved` entries, named by the digest of their bytes like
 everything else, and a fetch verifies them like everything else.
 
@@ -188,9 +188,15 @@ takes.
 
 ## Development
 
-`ship ci` runs every CI job in order, and the workflow runs nothing else;
-`ship ci --list` lists them, from `.config/ship.figl`. See
-[ship](https://github.com/diaryx-org/ship).
+This crate lives in the [historica](https://github.com/diaryx-org/historica)
+repository, under `remark/`, as a member of its Cargo workspace; it moved there
+from its own repository with its history. It depends on historica, and on
+historica-minisign for one test, by path and by version.
+
+CI is historica's: `ship ci` at the repository root runs every job in order,
+and the workflow runs nothing else; `ship ci --list` lists them, from its
+`.config/ship.figl`. The `remark-model-only` job is the build with no default
+features. See [ship](https://github.com/diaryx-org/ship).
 
 ## License
 

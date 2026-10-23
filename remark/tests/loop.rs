@@ -46,7 +46,7 @@ impl Chain {
     /// Snapshot whatever is in the folder. Returns the new head.
     fn record(&self, author: &str, when: &str, message: &str) -> String {
         let mut store = Store::open(self.root.join(STORE_DIR)).unwrap();
-        let parents: Vec<_> = store.history().heads().into_iter().collect();
+        let parents: Vec<_> = store.history().childless().into_iter().collect();
         let working = Working::read(&self.root, store.skipped()).unwrap();
         let recording = Recording {
             parents,

@@ -1,6 +1,8 @@
 [package]
 name = "historica-minisign"
-version.workspace = true
+# Its own version rather than the workspace's, which is historica's: each
+# crate in this repository is released on its own.
+version = "0.2.0"
 edition.workspace = true
 rust-version.workspace = true
 description = "Signed claims that vouch for Historica revisions"
@@ -14,21 +16,6 @@ documentation = "https://docs.rs/historica-minisign"
 # underneath it — decision 0046 of historica is "who vouches for a revision".
 keywords = ["historica", "minisign", "signing", "version-control", "trust"]
 categories = ["development-tools", "command-line-utilities", "cryptography"]
-
-# A workspace of one package, kept for `[workspace.package]` below. CI is not a
-# crate here: it is the jobs in .config/ship.figl, run by `ship ci`.
-[workspace]
-
-# One `version = "…"` line for the whole repository, which is what `ship bump`
-# rewrites and what the package inherits.
-[workspace.package]
-version = "0.2.0"
-edition = "2024"
-# Minimum supported Rust version, enforced by the `msrv` CI job, which reads
-# this value. It cannot go below historica's own floor.
-rust-version = "1.88"
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/diaryx-org/historica-minisign"
 
 # `verify` is the half that has to be cheap to depend on. Historica's decision
 # 0046 defers enforcement at `receive` — a store refusing history no trusted key
@@ -68,16 +55,16 @@ path = "src/main.rs"
 required-features = ["sign", "disk"]
 
 [dependencies]
-# A version and no path, as in historica-git: what this crate can reach is what
-# historica published, because a registry dependency is the only thing it has.
-# The version states the promise this crate is written against, and historica's
+# The library beside it, by path, and by version for publishing, as in
+# historica-git: `cargo publish` uploads the version as the requirement. The
+# version states the promise this crate is written against, and historica's
 # decision 0053 promises the other end of it.
 #
 # What is taken from it is deliberately small — the store's revision set, the
 # filesystem seam, and the one spelling of a moment. Nothing here writes a
 # historica document, and historica's decision 0046 is why: the trust layer
 # needs nothing from the inside.
-historica = {version = "1.0.0-rc.8"}
+historica = { version = "1.0.0-rc.8", path = ".." }
 # Verification, which is the operation that must work everywhere. Zero
 # dependencies of its own, which is the whole reason 0046 names it.
 minisign-verify = "0.2.5"

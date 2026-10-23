@@ -303,43 +303,35 @@ called `historica-<word>` on `PATH`, so either spelling works.
 
 ## Building
 
-A clone and a build, with nothing beside it:
+This crate lives in the [historica](https://github.com/diaryx-org/historica)
+repository, under `git/`, as a member of its Cargo workspace. It moved there
+from its own repository with its history.
 
 ```console
-git clone git@github.com:diaryx-org/historica-git.git
-cd historica-git && cargo build
+git clone git@github.com:diaryx-org/historica.git
+cd historica && cargo build -p historica-git
 ```
 
-The historica dependency is a version and no path, which is decision 0001's
-boundary made mechanical: this crate reaches the published API and has no way to
-reach anything else. A change in historica arrives here when it is released and
-bumped, and to work against an unreleased one you add the `[patch]` yourself,
-deliberately and temporarily.
+The historica dependency is a path and a version. Decision 0001's boundary does
+not rest on the registry: this crate reaches historica's public API and nothing
+else, because a `pub(crate)` there is unreachable from another crate either way.
+What the path changes is when a change arrives: on the commit that makes it,
+with this crate's tests run on that commit.
 
 ## Development
 
-CI is a list rather than a YAML file. Every job the workflow runs is one entry
-in `.config/ship.figl`, and [ship](https://github.com/diaryx-org/ship) runs all
-of them locally, in the same order, with the same commands:
-
-```console
-ship ci --list         # what the jobs are
-ship ci                # all of them: fmt, clippy, test, msrv
-ship ci clippy         # or one
-```
+CI is historica's: the jobs in its `.config/ship.figl`, which
+[ship](https://github.com/diaryx-org/ship) runs from the repository root
+(`ship ci`, or `ship ci --list` for the jobs). This crate's tests run in the
+workspace's `test` job.
 
 ### Releasing
 
-`ship <patch|minor|major|X.Y.Z>` does the mechanical half — bump the
-version, regenerate the changelog's unreleased region into a section under the
-new version, commit both, tag — and stops before the push, which is asked for
-explicitly each time. ship is a maintainer's tool: nothing here is needed to
-build, test, or send a change. See [`docs/CHANGELOG.md`](docs/CHANGELOG.md) for which half of
-that file is generated and which is written by hand.
-
-Publishing this crate needs the historica version it names to be on crates.io,
-which is decision 0001's boundary again: what can be published is what can be
-resolved.
+This crate keeps its own version in `git/Cargo.toml` and is released on its own.
+See [`CHANGELOG.md`](CHANGELOG.md) for which half of that file is
+generated and which is written by hand. Publishing it needs the historica
+version it names to be on crates.io: `cargo publish` uploads that version as the
+requirement.
 
 ## Licence
 

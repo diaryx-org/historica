@@ -74,6 +74,25 @@ job
 > > runner
 > > > components = clippy
 > *
+> > # historica-minisign with no default features: verification alone, the half
+> > # a version-control core could take without key generation or a secret-key
+> > # parser.
+> > id = minisign-verify-only
+> > name = Minisign verify only
+> > run = '''
+cargo build -p historica-minisign --lib --no-default-features
+cargo test -p historica-minisign --lib --no-default-features
+'''
+> *
+> > # historica-remark with no default features: the remark model alone, with
+> > # no historica, filesystem or store under it.
+> > id = remark-model-only
+> > name = Remark model only
+> > run = '''
+cargo build -p historica-remark --lib --no-default-features
+cargo test -p historica-remark --lib --no-default-features
+'''
+> *
 > > # The whole CLI built for both wasi previews with no HTTP stack under it
 > > # (decision 0057). The task installs the targets it builds for.
 > > id = wasi

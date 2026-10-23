@@ -1,6 +1,8 @@
 [package]
 name = "historica-remark"
-version.workspace = true
+# Its own version rather than the workspace's, which is historica's: each
+# crate in this repository is released on its own.
+version = "0.6.1"
 edition.workspace = true
 rust-version.workspace = true
 description = "Reader's remarks on a Historica chain, and the layer that carries them back"
@@ -14,21 +16,6 @@ documentation = "https://docs.rs/historica-remark"
 # Annotation Data Model, flattened); `comments` is the word they will try first.
 keywords = ["historica", "annotation", "comments", "version-control", "markup"]
 categories = ["development-tools", "text-processing"]
-
-# A workspace of one package, kept for `[workspace.package]` below. CI is not a
-# crate here: it is the jobs in .config/ship.figl, run by `ship ci`.
-[workspace]
-
-# One `version = "…"` line for the whole repository, which is what `ship bump`
-# rewrites and what the package inherits.
-[workspace.package]
-version = "0.6.1"
-edition = "2024"
-# Minimum supported Rust version, enforced by the `msrv` CI job, which reads
-# this value. It cannot go below historica's own floor.
-rust-version = "1.88"
-license = "MIT OR Apache-2.0"
-repository = "https://github.com/diaryx-org/historica-remark"
 
 # One split, and it is the one historica-minisign draws for the same reason:
 # the half that only reads has to be cheap to depend on.
@@ -68,21 +55,20 @@ fig = "7"
 fig-yaml = { version = "7", default-features = false, features = ["fig"] }
 fig-json = { version = "7", default-features = false, features = ["fig"] }
 fig-toml = { version = "7", default-features = false, features = ["fig"] }
-# The chains this is about. A version and no path, as everywhere in this org:
-# what this crate can reach is what historica published.
+# The chains this is about. The library beside it, by path, and by version for
+# publishing, as in historica-git.
 #
 # What is taken from it is the store, the filesystem seam, and the tree at a
 # revision. Nothing here writes a historica document — a remark is content, and
 # content is the caller's — which is why `layer` can be turned off at all.
-historica = { version = "1.0.0-rc.2", optional = true }
-
+historica = { version = "1.0.0-rc.8", path = "..", optional = true }
 
 [dev-dependencies]
 # The claims and trust directories' spellings, for the test that pins which of
 # them travels. Nothing in the library names either: historica carries a
 # reserved directory by its class, so the tool that writes claims is a
 # dependency of the *test* and not of the crate.
-historica-minisign = { version = "0.1.0", default-features = false }
+historica-minisign = { version = "0.2.0", path = "../minisign", default-features = false }
 
 [package.metadata.docs.rs]
 all-features = true

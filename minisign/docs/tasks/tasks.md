@@ -19,7 +19,7 @@ findable by grep.
 
 What does not belong here: what shipped, which is the README and the
 [decisions](../decisions); and a commitment to consumers, which is the
-[changelog](../CHANGELOG.md)'s unreleased region or a `Behavioural-change:`
+[changelog](../../CHANGELOG.md)'s unreleased region or a `Behavioural-change:`
 trailer.
 
 `status` takes `open`, `in-progress`, `done`, or `dropped`, and nothing else,

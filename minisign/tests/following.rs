@@ -40,7 +40,7 @@ fn store_of(directory: &Path, revisions: usize) -> (Store, Vec<RevisionId>) {
         fs::write(folder.join("notes.txt"), format!("line {step}\n")).expect("a file");
         let working = Working::read(&folder, store.skipped()).expect("the folder");
         let recording = Recording {
-            parents: store.history().heads().into_iter().collect(),
+            parents: store.history().childless().into_iter().collect(),
             author: "Adam Harris <adam@example.com>".to_owned(),
             when: Platform.now().expect("a clock"),
             message: format!("step {step}"),

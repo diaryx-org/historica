@@ -912,7 +912,7 @@ impl<W: Write> Conversion<W> {
         // still work somebody did, and a commit no ref reaches is a commit git
         // will collect. So it goes somewhere out of the way rather than
         // nowhere.
-        for head in history.heads() {
+        for head in history.childless() {
             if !visible.contains(&head) || named.contains(&head) {
                 continue;
             }

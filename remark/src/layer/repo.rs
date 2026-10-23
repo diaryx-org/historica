@@ -461,7 +461,7 @@ pub fn check_name(name: &str) -> Result<()> {
 /// down to nothing readable, and the raw heads are better than no answer.
 pub(crate) fn current_heads<F: Filesystem>(store: &Store<F>) -> Vec<RevisionId> {
     let history = store.history();
-    let heads = history.heads();
+    let heads = history.childless();
     let superseded = history.superseded();
     let current: Vec<RevisionId> = heads.difference(&superseded).copied().collect();
     match current.is_empty() {

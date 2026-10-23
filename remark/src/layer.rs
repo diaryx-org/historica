@@ -79,7 +79,7 @@ pub struct Layers<F = Disk> {
 
 impl Layers {
     /// Layers under `root` on [`Disk`], each keeping its notes under
-    /// [`NOTES_DIR`](repo::NOTES_DIR).
+    /// [`NOTES_DIR`].
     pub fn at(root: impl Into<PathBuf>) -> Self {
         Self::on(Disk, root)
     }

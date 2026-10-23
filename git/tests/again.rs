@@ -98,7 +98,7 @@ fn references(at: &Path) -> BTreeMap<String, String> {
 /// Record one more file in the store's folder, on the store's one head.
 fn record(folder: &Path, name: &str, message: &str) -> RevisionId {
     let mut store = Store::open(folder.join(STORE_DIR)).expect("the store opens");
-    let heads = store.history().heads();
+    let heads = store.history().childless();
     assert_eq!(heads.len(), 1, "the store should have one head: {heads:?}");
     fs::write(folder.join(name), format!("{name}\n")).expect("a file");
     let working = Working::read(folder, store.skipped()).expect("the folder reads");
@@ -703,7 +703,7 @@ fn a_ref_that_is_neither_branch_nor_tag_brings_no_commits() {
     );
 
     let store = Store::open(into.join(STORE_DIR)).expect("the store opens");
-    let heads = store.history().heads();
+    let heads = store.history().childless();
     assert_eq!(heads.len(), 1, "one root, one head: {heads:?}");
 }
 
@@ -987,7 +987,7 @@ fn a_colocated_store_follows_the_branch_head_is_on() {
         "{said}"
     );
     let store = Store::open(at.join(STORE_DIR)).expect("the store opens");
-    let heads: Vec<RevisionId> = store.history().heads().into_iter().collect();
+    let heads: Vec<RevisionId> = store.history().childless().into_iter().collect();
     assert_eq!(heads, [main_points_at(&at)]);
     drop(store);
 

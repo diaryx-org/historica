@@ -219,19 +219,17 @@ push, so the promise cannot rot.
 
 ## Building it
 
-`historica-minisign` depends on historica by version and not by path, so a
-clone builds on its own — and so what this crate can reach is the published API
-and nothing else, which is the boundary historica's decision 0053 promises from
-the other side. Publishing it needs the historica version it names to be on
-crates.io, for the same reason.
+This crate lives in the [historica](https://github.com/diaryx-org/historica)
+repository, under `minisign/`, as a member of its Cargo workspace; it moved
+there from its own repository with its history. It depends on historica by path
+and by version: what it can reach is still the public API and nothing else,
+which is the boundary historica's decision 0053 promises from the other side.
+Publishing it needs the historica version it names to be on crates.io.
 
-```console
-$ ship ci
-```
-
-is every CI job, in the order CI runs them, from the list in
-`.config/ship.figl`; [ship](https://github.com/diaryx-org/ship) is what reads
-it, here and in the workflow.
+CI is historica's: `ship ci` at the repository root runs every job, from the
+list in its `.config/ship.figl`; the `minisign-verify-only` job is the build
+described above. [ship](https://github.com/diaryx-org/ship) is what reads it,
+here and in the workflow.
 
 ## Licence
 

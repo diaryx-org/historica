@@ -790,7 +790,7 @@ fn state_command(base: &Path, arguments: &[String]) -> Result<u8, Failure> {
             Failure::error("this key has stated as many times as a count can hold")
         })?,
     };
-    let statement = sign::statement_for(store.history().heads(), counter, &secret, &Platform)
+    let statement = sign::statement_for(store.history().childless(), counter, &secret, &Platform)
         .map_err(Failure::error)?;
     let existing: Vec<(RevisionId, historica_minisign::Statement)> = report
         .statements()

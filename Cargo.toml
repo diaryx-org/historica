@@ -41,8 +41,14 @@ unexpected_cfgs = { level = "warn", check-cfg = ['cfg(verus_keep_ghost)', 'cfg(v
 # and the tasks that are not CI. Both are members so `cargo test --workspace`
 # checks them; `xtask` also carries `publish = false`, which keeps it off
 # crates.io.
+#
+# `git`, `minisign` and `remark` are the crates built on the library from
+# outside it: historica-git, historica-minisign and historica-remark. Each was
+# its own repository until it moved here with its history. Each takes the
+# library by path and by version, and keeps a `[package] version` of its own,
+# because each is released on its own; the version below is historica's alone.
 [workspace]
-members = ["cli", "xtask"]
+members = ["cli", "xtask", "git", "minisign", "remark"]
 
 # The version lives here rather than in `[package]` above so that one line is
 # the whole answer to "what does this repository call itself" — `ship bump`

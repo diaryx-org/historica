@@ -189,7 +189,7 @@ fn verify_asks_about_one_revision_when_told_to() {
     let head = Store::discover(&folder)
         .expect("the store")
         .history()
-        .heads()
+        .childless()
         .into_iter()
         .next()
         .expect("a head");

@@ -34,7 +34,7 @@ fn store_of(directory: &Path, revisions: usize) -> Store {
         fs::write(folder.join("notes.txt"), format!("line {step}\n")).expect("a file");
         let working = Working::read(&folder, store.skipped()).expect("the folder");
         let recording = Recording {
-            parents: store.history().heads().into_iter().collect(),
+            parents: store.history().childless().into_iter().collect(),
             author: "Adam Harris <adam@example.com>".to_owned(),
             when: Platform.now().expect("a clock"),
             message: format!("step {step}"),
@@ -104,7 +104,7 @@ fn state(store: &Store, secret: &SecretKey) -> Statement {
     let counter = report
         .highest_counter(&key)
         .map_or(1, |highest| highest + 1);
-    state_these(store, secret, store.history().heads(), counter)
+    state_these(store, secret, store.history().childless(), counter)
 }
 
 fn report(store: &Store) -> Report {
@@ -144,7 +144,7 @@ fn a_store_holding_less_than_a_key_stated_is_an_error() {
     believe(&store, &key, "adam");
 
     let elsewhere = digest(b"a revision this store was never shown");
-    let mut heads = store.history().heads();
+    let mut heads = store.history().childless();
     heads.insert(elsewhere);
     state_these(&store, &secret, heads, 1);
 
@@ -164,7 +164,7 @@ fn a_key_nobody_believes_cannot_fail_the_store() {
     let store = store_of(&directory, 1);
     let (secret, _) = keys(&directory, "keys");
 
-    let mut heads = store.history().heads();
+    let mut heads = store.history().childless();
     heads.insert(digest(b"nothing"));
     state_these(&store, &secret, heads.clone(), 1);
     heads.insert(digest(b"something else"));
@@ -186,7 +186,7 @@ fn two_statements_at_one_count_are_an_equivocation() {
     let (secret, key) = keys(&directory, "keys");
     believe(&store, &key, "adam");
 
-    let all = store.history().heads();
+    let all = store.history().childless();
     let one = state_these(&store, &secret, all.clone(), 1);
     let mut more = all;
     more.insert(digest(b"a second story"));

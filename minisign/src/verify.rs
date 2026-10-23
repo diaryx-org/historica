@@ -1064,7 +1064,7 @@ fn in_tree(tree: Option<&historica::tree::Tree>, file: &FileId) -> FileCheck {
 /// revision whose successor has not arrived is described as it is.
 pub fn current_heads<F: Filesystem>(store: &Store<F>) -> BTreeSet<RevisionId> {
     let history = store.history();
-    let heads = history.heads();
+    let heads = history.childless();
     let superseded = history.superseded();
     let current: BTreeSet<RevisionId> = heads.difference(&superseded).copied().collect();
     if current.is_empty() { heads } else { current }
