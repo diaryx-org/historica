@@ -84,7 +84,7 @@ pub fn diff_command(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> 
     }
 
     let root = locate(base)?;
-    let store = super::cache::open(&root)?;
+    let mut store = super::cache::open(&root)?;
 
     // One argument is a target or a path, and 0001's disjoint alphabets are
     // what decide which without guessing: `diff notes.md` is the folder's own
@@ -122,6 +122,42 @@ pub fn diff_command(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> 
         Some(spelling) => Some(one_file(&store, right, left, spelling)?),
         None => None,
     };
+
+    // Decision 0089: the content of both sides, fetched from the copy where
+    // a fetch left it there, before anything is compared.
+    let limited: Option<Vec<String>> = match &limit {
+        None => None,
+        Some(Named::Path(path)) => Some(vec![path.clone()]),
+        Some(Named::File(file)) => {
+            let mut paths = Vec::new();
+            for side in right.iter().chain(left.iter()) {
+                if let Some(path) = store.tree(side).map_err(Failure::error)?.path(file) {
+                    paths.push(path.to_owned());
+                }
+            }
+            Some(paths)
+        }
+    };
+    match right {
+        Some(id) => {
+            let sides: Vec<RevisionId> = left.into_iter().chain([id]).collect();
+            super::elsewhere::held_whole(&mut store, &sides, limited.as_deref())?;
+        }
+        None => {
+            if let Some(left) = left {
+                let repository = root
+                    .parent()
+                    .ok_or_else(|| Failure::error("this store has no repository around it"))?;
+                let working = super::cache::working(repository, &store).map_err(Failure::error)?;
+                super::elsewhere::folder_held_whole(
+                    &mut store,
+                    &working,
+                    &[left],
+                    limited.as_deref(),
+                )?;
+            }
+        }
+    }
 
     let pairs = match right {
         Some(id) => recorded(&store, left, id, limit.as_ref())?,

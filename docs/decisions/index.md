@@ -985,6 +985,16 @@ depend on each other in.
   both readings and why. A bookmark the publisher deleted stays and is
   reported. One ancestry walk serves every bookmark.
 
+- [0089 — History held elsewhere](0089-history-held-elsewhere.md)
+  Bytes held elsewhere stopped at bytes, because a copy without a file's text
+  chain could neither read nor change it. With the copy it came from to ask,
+  it can. `fetch --history` takes every revision and no content, and `fetch
+  --name <bookmark>` the content of one line. `cat`, `diff`, `blame`,
+  `update`, `status` and `record` fetch the chains they lack from the copy
+  last fetched from, and refuse whole without it. A file of lines the folder
+  lacks and the store does not hold whole is held elsewhere, not dropped.
+  `evict` for text is deferred.
+
 Not a decision, but the evaluation one of them rests on:
 [`docs/loro.md`](../loro.md) — the initial Loro evaluation, and the conditions
 that would reverse it.

@@ -32,7 +32,7 @@ pub fn update(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
         }
     }
 
-    let store = super::cache::open(&root)?;
+    let mut store = super::cache::open(&root)?;
     let repository = root
         .parent()
         .ok_or_else(|| Failure::error("this store has no repository around it"))?
@@ -59,6 +59,15 @@ pub fn update(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
             }
         }
     };
+
+    // Decision 0089: a folder missing its text files is not a folder anybody
+    // asked for, so the content the target and the folder's own position
+    // need is fetched from the copy first, and without it nothing is written
+    // (decision 0030).
+    let mut sides: Vec<historica::core::RevisionId> =
+        target::current_heads(&store)?.into_iter().collect();
+    sides.push(target);
+    super::elsewhere::held_whole(&mut store, &sides, None)?;
 
     let working = super::cache::working(&repository, &store).map_err(Failure::error)?;
 
@@ -203,7 +212,7 @@ fn absent(out: &mut impl std::io::Write, elsewhere: &[String]) -> std::io::Resul
     for path in elsewhere {
         writeln!(
             out,
-            "{:<7} {path}: this store does not hold its bytes; `fetch` brings them",
+            "{:<7} {path}: this store does not hold its content; `fetch` brings it",
             "absent"
         )?;
     }

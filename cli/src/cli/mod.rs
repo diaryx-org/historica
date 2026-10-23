@@ -25,6 +25,7 @@ mod cache;
 mod diff;
 #[cfg(feature = "dispatch")]
 mod dispatch;
+mod elsewhere;
 mod export;
 #[cfg(feature = "http")]
 mod fetch;
@@ -46,14 +47,19 @@ pub fn usage() -> String {
 
 /// The `fetch` entry, in a build that has a transport.
 #[cfg(feature = "http")]
-const FETCHING: &str = "  fetch <url> [--join-unrelated] [--no-bytes] [--fields]
-                           take what a published copy holds and this store
+const FETCHING: &str =
+    "  fetch <url> [--join-unrelated] [--no-bytes] [--history] [--name <bookmark>]...
+        [--fields]         take what a published copy holds and this store
                            lacks: the URL is the manifest `offer` wrote, and
                            every path in it resolves against the directory
                            that manifest sits in. adds history and stops —
                            `update` is the folder's catch-up. --no-bytes
-                           leaves every file of bytes with the copy
-  fetch <url> <path>...    take the bytes of the files named, and nothing else
+                           leaves every file of bytes with the copy; --history
+                           takes no content at all, and --name the content of
+                           one line. a command that reads a file fetches the
+                           content it lacks from the copy fetched from last
+  fetch <url> <path>...    take the content of the files named, and nothing
+                           else
   evict <url> <path>... [--dry-run]
                            let go of the bytes of the files named, from the
                            store and the folder, where the copy holds them
@@ -930,7 +936,7 @@ fn status(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     }
 
     let root = locate(base)?;
-    let store = cache::open(&root)?;
+    let mut store = cache::open(&root)?;
     let repository = root
         .parent()
         .ok_or_else(|| Failure::error("this store has no repository around it"))?
@@ -941,6 +947,9 @@ fn status(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     // suggestion beside them is where the survey says it noticed.
     let parents = target::parents(&store, onto.as_deref(), &joining)?;
     let working = cache::working(&repository, &store).map_err(Failure::error)?;
+    // Decision 0089: a file the folder holds is compared with its content
+    // here, which is fetched from the copy where a fetch left it there.
+    elsewhere::folder_held_whole(&mut store, &working, &parents, None)?;
     // The whole folder: `status` says how the folder and the store differ, and
     // a report of some of that difference is a report a person has to
     // remember the shape of.
@@ -1289,7 +1298,7 @@ fn files(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
 
 /// `cat <target> <path>` — one file, materialised.
 fn cat(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
-    let store = open(base)?;
+    let mut store = open(base)?;
     let mut arguments = arguments.into_iter();
     let spelling = arguments
         .next()
@@ -1317,6 +1326,12 @@ fn cat(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
             historica::update::materialise(&tree, tree.path(&file).unwrap_or(&path), target)
                 .unwrap_or_else(|| target.to_string())
         )));
+    }
+    // Decision 0089: a file of lines whose content a fetch left with the
+    // copy is fetched from it before a byte is printed, or refused whole.
+    if let Some(at) = tree.path(&file) {
+        let at = [at.to_owned()];
+        elsewhere::held_whole(&mut store, &[id], Some(&at))?;
     }
     // Decision 0017: whichever kind of file it is, byte for byte. A picture
     // written to a terminal is a mess and a picture written to a pipe is a

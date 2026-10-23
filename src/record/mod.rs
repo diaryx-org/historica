@@ -170,8 +170,11 @@ pub struct Survey {
     pub links: BTreeMap<String, Targeted>,
     /// Files the tree holds and the folder does not, with where they sat.
     pub dropped: BTreeMap<FileId, String>,
-    /// Files of bytes the folder does not hold and this store does not hold
+    /// Files the folder does not hold whose content this store does not hold
     /// either, with where they sit: not compared, so not dropped.
+    ///
+    /// Files of bytes, and since decision 0089 files of lines whose base or
+    /// operations a fetch left with the copy.
     ///
     /// The proposal *Bytes held elsewhere*. `update` cannot write bytes the
     /// store does not have, so a folder lacking them is not a person deleting
@@ -1079,11 +1082,48 @@ fn survey_laid<F: Filesystem>(
     // the revision being amended: a file it dropped is dropped, and a file of
     // bytes it states differently from the parents cannot be stated again
     // without its bytes, which is a refusal rather than a quiet revert.
+    let laid_revision = laid;
     let laid = match laid {
         Some(laid) => Some(store.tree(laid)?),
         None => None,
     };
     let laid_from = laid.as_ref().unwrap_or(&tree);
+    // Decision 0089: a file of lines whose content this store does not hold
+    // whole, which nothing here could have put in the folder either. Asked
+    // only of the files the folder lacks, since a file it holds is diffed,
+    // and the caller fetched what that needs.
+    let absent_lines: BTreeSet<FileId> = placed
+        .iter()
+        .filter(|(file, path)| {
+            only.covers(path)
+                && !working.holds(path)
+                && laid_from
+                    .entry(file)
+                    .is_some_and(|entry| entry.kind == Kind::Lines)
+        })
+        .map(|(file, _)| *file)
+        .collect();
+    let laid_at: Vec<RevisionId> = match laid_revision {
+        Some(laid) => vec![*laid],
+        None => parents.to_vec(),
+    };
+    let text_elsewhere = store.text_lacking(&laid_at, &absent_lines)?;
+    // What the amended revision itself said about a file, which an
+    // amendment cannot restate without the file's content.
+    let laid_states: BTreeSet<FileId> = match laid_revision {
+        Some(laid) => store
+            .get(laid)?
+            .map(|document| {
+                document
+                    .edited
+                    .keys()
+                    .chain(document.text.keys())
+                    .copied()
+                    .collect()
+            })
+            .unwrap_or_default(),
+        None => BTreeSet::new(),
+    };
     let mut unstatable = Vec::new();
     for (file, path) in &placed {
         if !only.covers(path) || working.holds(path) {
@@ -1107,6 +1147,14 @@ fn survey_laid<F: Filesystem>(
                 survey.elsewhere.insert(*file, path.clone());
             } else {
                 unstatable.push(path.clone());
+            }
+            continue;
+        }
+        if !named && text_elsewhere.contains_key(file) {
+            if laid_states.contains(file) {
+                unstatable.push(path.clone());
+            } else {
+                survey.elsewhere.insert(*file, path.clone());
             }
             continue;
         }
@@ -2514,8 +2562,8 @@ pub enum RecordError {
         /// Each file, and how many marker lines still stand in it.
         files: Vec<(String, usize)>,
     },
-    /// Files of bytes an amendment would state as the amended revision does,
-    /// whose bytes this store does not hold.
+    /// Files an amendment would state as the amended revision does, whose
+    /// content this store does not hold: bytes, or a file of lines' chain.
     HeldElsewhere {
         /// Each path.
         paths: Vec<String>,
@@ -2881,9 +2929,9 @@ impl fmt::Display for RecordError {
             ),
             RecordError::HeldElsewhere { paths } => write!(
                 f,
-                "the revision being amended states {} as bytes this store does not \
-                 hold, and the folder has nothing to state {} with; `fetch <url> \
-                 <path>` brings them:{}",
+                "the revision being amended states {} whose content this store \
+                 does not hold, and the folder has nothing to state {} with; \
+                 `fetch <url> <path>` brings them:{}",
                 if paths.len() == 1 { "a file" } else { "files" },
                 if paths.len() == 1 { "it" } else { "them" },
                 paths
