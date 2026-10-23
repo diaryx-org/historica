@@ -1,0 +1,982 @@
+//! The commands, as a person meets them.
+//!
+//! Exit codes are part of the interface here rather than an afterthought:
+//! `verify --complete` failing is how a store's own CI refuses history nobody
+//! has vouched for, which is decision 0046's deferred enforcement done from the
+//! outside, where this tool is allowed to do it.
+
+use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
+use std::io::Write;
+use std::path::{Path, PathBuf};
+use std::process::{Command, Output, Stdio};
+
+use historica::record::{Clock, Kinds, Platform, Recording, Restriction, record};
+use historica::store::Store;
+use historica::working::Working;
+use historica::wrote::Statement;
+
+const PASSWORD: &str = "not a secret";
+
+fn scratch(test: &str) -> PathBuf {
+    let path = Path::new(env!("CARGO_TARGET_TMPDIR")).join(format!("cli-{test}"));
+    let _ = fs::remove_dir_all(&path);
+    fs::create_dir_all(&path).expect("a scratch directory");
+    path
+}
+
+/// A folder with a store in it and one revision recorded, and a password file
+/// beside it.
+fn work(directory: &Path) -> PathBuf {
+    let folder = directory.join("work");
+    fs::create_dir_all(&folder).expect("a folder");
+    let mut store = Store::init(folder.join("history")).expect("a store");
+    fs::write(folder.join("notes.txt"), "one line\n").expect("a file");
+    let working = Working::read(&folder, store.skipped()).expect("the folder");
+    let recording = Recording {
+        parents: Vec::new(),
+        author: "Adam Harris <adam@example.com>".to_owned(),
+        when: Platform.now().expect("a clock"),
+        message: "a first line".to_owned(),
+        moves: Vec::new(),
+        at: Vec::new(),
+        accepted: BTreeSet::new(),
+        only: Restriction::Everything,
+        kinds: Kinds::default(),
+        extensions: BTreeMap::new(),
+    };
+    record(&mut store, &working, &recording, &mut Platform).expect("a revision");
+    fs::write(directory.join("password"), PASSWORD).expect("a password file");
+    folder
+}
+
+fn run(folder: &Path, arguments: &[&str]) -> Output {
+    Command::new(env!("CARGO_BIN_EXE_historica-minisign"))
+        .arg("-C")
+        .arg(folder)
+        .args(arguments)
+        .output()
+        .expect("the binary this test crate builds")
+}
+
+/// Run with `input` on stdin, as the far end of a pipe.
+fn piped(folder: &Path, arguments: &[&str], input: &str) -> Output {
+    let mut child = Command::new(env!("CARGO_BIN_EXE_historica-minisign"))
+        .arg("-C")
+        .arg(folder)
+        .args(arguments)
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .expect("the binary this test crate builds");
+    // A command refused at its arguments exits without reading, and the pipe
+    // it closed is no failure of the test's.
+    let _ = child
+        .stdin
+        .take()
+        .expect("its stdin")
+        .write_all(input.as_bytes());
+    child.wait_with_output().expect("it ran")
+}
+
+fn out(folder: &Path, arguments: &[&str]) -> String {
+    let output = run(folder, arguments);
+    assert!(
+        output.status.success(),
+        "`{}` failed: {}",
+        arguments.join(" "),
+        String::from_utf8_lossy(&output.stderr)
+    );
+    String::from_utf8(output.stdout).expect("printed text")
+}
+
+/// Make a key pair in `directory` and hand back its public key line.
+fn key(directory: &Path) -> String {
+    let keys = directory.join("keys");
+    let password = directory.join("password");
+    let printed = out(
+        directory,
+        &[
+            "key",
+            "new",
+            "--at",
+            keys.to_str().unwrap(),
+            "--password-file",
+            password.to_str().unwrap(),
+        ],
+    );
+    printed
+        .lines()
+        .next()
+        .expect("the key on the first line")
+        .to_owned()
+}
+
+#[test]
+fn a_store_nobody_has_vouched_for_verifies_but_is_not_complete() {
+    let directory = scratch("empty");
+    let folder = work(&directory);
+
+    assert!(run(&folder, &["verify"]).status.success());
+    let refused = run(&folder, &["verify", "--complete"]);
+    assert_eq!(refused.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&refused.stdout).contains("no trusted key vouches"),
+        "the refusal says which head, on stdout, where the report is"
+    );
+}
+
+#[test]
+fn signing_and_then_believing_the_key_makes_a_store_complete() {
+    let directory = scratch("whole");
+    let folder = work(&directory);
+    let key = key(&directory);
+    let secret = directory.join("keys/minisign.key");
+    let password = directory.join("password");
+
+    let signed = out(
+        &folder,
+        &[
+            "sign",
+            "--key",
+            secret.to_str().unwrap(),
+            "--password-file",
+            password.to_str().unwrap(),
+        ],
+    );
+    assert!(signed.contains("vouches for"));
+    assert!(
+        signed.contains("nothing in trust/ speaks for that key"),
+        "signing says plainly that this copy does not yet believe the signer"
+    );
+
+    // Signed but not believed: still not complete.
+    assert_eq!(
+        run(&folder, &["verify", "--complete"]).status.code(),
+        Some(1)
+    );
+
+    out(
+        &folder,
+        &["trust", "add", &key, "The Test <test@example.com>"],
+    );
+    assert!(out(&folder, &["trust", "list"]).contains("The Test"));
+
+    let verified = out(&folder, &["verify", "--complete"]);
+    assert!(
+        verified.contains("1 claim, 1 by a key this copy believes"),
+        "{verified}"
+    );
+    assert!(
+        verified.contains("1 of 1 revisions are vouched for"),
+        "{verified}"
+    );
+}
+
+#[test]
+fn verify_asks_about_one_revision_when_told_to() {
+    let directory = scratch("one-revision");
+    let folder = work(&directory);
+    let key = key(&directory);
+    let secret = directory.join("keys/minisign.key");
+    let password = directory.join("password");
+    out(
+        &folder,
+        &["trust", "add", &key, "The Test <test@example.com>"],
+    );
+
+    let head = Store::discover(&folder)
+        .expect("the store")
+        .history()
+        .heads()
+        .into_iter()
+        .next()
+        .expect("a head");
+
+    assert_eq!(
+        run(&folder, &["verify", &head.to_string()]).status.code(),
+        Some(1),
+        "a revision nobody vouches for is not a passing answer to `is this vouched for`"
+    );
+
+    out(
+        &folder,
+        &[
+            "sign",
+            &head.to_string(),
+            "--role",
+            "reviewer",
+            "--key",
+            secret.to_str().unwrap(),
+            "--password-file",
+            password.to_str().unwrap(),
+        ],
+    );
+
+    let printed = out(&folder, &["verify", &head.to_string()]);
+    assert!(printed.contains("is vouched for"), "{printed}");
+    assert!(printed.contains("as reviewer"), "{printed}");
+}
+
+#[test]
+fn a_key_is_never_overwritten() {
+    let directory = scratch("key-twice");
+    work(&directory);
+    key(&directory);
+
+    let again = run(
+        &directory,
+        &[
+            "key",
+            "new",
+            "--at",
+            directory.join("keys").to_str().unwrap(),
+            "--password-file",
+            directory.join("password").to_str().unwrap(),
+        ],
+    );
+    assert_eq!(again.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&again.stderr).contains("destroys every signature"),
+        "the refusal says what overwriting a key would cost"
+    );
+}
+
+#[test]
+fn a_label_can_be_chosen_and_removed() {
+    let directory = scratch("labels");
+    let folder = work(&directory);
+    let key = key(&directory);
+
+    out(
+        &folder,
+        &[
+            "trust",
+            "add",
+            &key,
+            "The Test <test@example.com>",
+            "--label",
+            "the-test",
+        ],
+    );
+    assert!(out(&folder, &["trust", "list"]).starts_with("the-test  "));
+    out(&folder, &["trust", "remove", "the-test"]);
+    assert!(out(&folder, &["trust", "list"]).contains("believes nobody yet"));
+}
+
+/// A revocation is written into the entry, and only ever moves earlier.
+#[test]
+fn a_key_is_revoked_as_of_a_time() {
+    let directory = scratch("revoke");
+    let folder = work(&directory);
+    let key = key(&directory);
+    out(
+        &folder,
+        &["trust", "add", &key, "The Test", "--label", "laptop"],
+    );
+
+    let said = out(
+        &folder,
+        &[
+            "trust",
+            "revoke",
+            "laptop",
+            "--as-of",
+            "2026-10-19T08:30:00-06:00",
+        ],
+    );
+    assert!(said.contains("revoked as of 2026-10-19T08:30:00-06:00"));
+    let entry = fs::read_to_string(folder.join("history/trust/laptop.txt")).expect("the entry");
+    assert!(entry.starts_with("trust-1\n"), "{entry}");
+    assert!(
+        entry.ends_with("revoked 2026-10-19T08:30:00-06:00\n"),
+        "{entry}"
+    );
+
+    // A later time leaves the earlier one standing.
+    let said = out(&folder, &["trust", "revoke", "laptop"]);
+    assert!(said.contains("already revoked"), "{said}");
+    assert!(out(&folder, &["trust", "list"]).contains("revoked 2026-10-19T08:30:00-06:00"));
+
+    let refused = run(
+        &folder,
+        &["trust", "revoke", "laptop", "--as-of", "yesterday"],
+    );
+    assert!(!refused.status.success());
+}
+
+#[test]
+fn a_role_that_is_not_a_role_is_a_usage_error() {
+    let directory = scratch("bad-role");
+    let folder = work(&directory);
+    let refused = run(&folder, &["sign", "--role", "Second Reviewer"]);
+    assert_eq!(refused.status.code(), Some(2));
+    let said = String::from_utf8_lossy(&refused.stderr);
+    assert!(
+        said.contains("a role is one to thirty-two characters"),
+        "{said}"
+    );
+    assert!(said.contains("usage:"), "a usage error prints the usage");
+}
+
+#[test]
+fn an_unknown_command_is_a_usage_error() {
+    let directory = scratch("unknown");
+    let folder = work(&directory);
+    let refused = run(&folder, &["vouch"]);
+    assert_eq!(refused.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&refused.stderr).contains("`vouch` is not a command"));
+}
+
+#[test]
+fn the_usage_names_the_two_commands_that_check_a_claim_by_hand() {
+    let directory = scratch("usage");
+    let folder = work(&directory);
+    let printed = out(&folder, &["--help"]);
+    assert!(printed.contains("minisign -Vm"));
+    assert!(printed.contains("shasum -a 256"));
+}
+
+/// Decision 0003's migration and repair, as a person meets it: a claim under a
+/// name nobody computed is counted, told where it belongs, and moved there.
+#[test]
+fn arrange_files_a_hand_written_claim_where_it_belongs() {
+    let directory = scratch("arrange");
+    let folder = work(&directory);
+    let public = key(&directory);
+    let secret = directory.join("keys").join("minisign.key");
+    let password = directory.join("password");
+
+    out(
+        &folder,
+        &["trust", "add", &public, "Adam Harris <adam@example.com>"],
+    );
+    out(
+        &folder,
+        &[
+            "sign",
+            "--key",
+            secret.to_str().unwrap(),
+            "--password-file",
+            password.to_str().unwrap(),
+        ],
+    );
+
+    // Move the claim and its signature somewhere nobody would compute, which is
+    // exactly what a person writing one by hand produces.
+    let claims = folder.join("history").join("claims");
+    let filed = under(&claims);
+    assert_eq!(filed.len(), 2, "one claim and one signature: {filed:?}");
+    for path in &filed {
+        let name = path.file_name().and_then(|name| name.to_str()).unwrap();
+        let moved =
+            claims.join(name.replace(name.split(".claim.txt").next().unwrap(), "a claim I wrote"));
+        fs::rename(path, &moved).expect("it moved");
+    }
+
+    let printed = out(&folder, &["verify"]);
+    assert!(
+        printed.contains("1 claim, 1 by a key this copy believes"),
+        "{printed}"
+    );
+    assert!(printed.contains("belongs at"), "{printed}");
+
+    let dry = out(&folder, &["arrange", "--dry-run"]);
+    assert!(dry.contains("would move"), "{dry}");
+    assert_eq!(under(&claims).len(), 2, "--dry-run moves nothing");
+
+    let done = out(&folder, &["arrange"]);
+    assert!(done.contains("moved"), "{done}");
+
+    let after = under(&claims);
+    assert_eq!(
+        after.len(),
+        2,
+        "still one claim and one signature: {after:?}"
+    );
+    assert!(
+        after
+            .iter()
+            .all(|path| !path.to_str().unwrap().contains("a claim I wrote")),
+        "{after:?}"
+    );
+
+    let printed = out(&folder, &["verify"]);
+    assert!(
+        printed.contains("1 claim, 1 by a key this copy believes"),
+        "{printed}"
+    );
+    assert!(
+        !printed.contains("belongs at"),
+        "arranged is arranged: {printed}"
+    );
+}
+
+/// Every file under a directory, at any depth.
+fn under(directory: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let Ok(entries) = fs::read_dir(directory) else {
+        return out;
+    };
+    for entry in entries.flatten() {
+        if entry.path().is_dir() {
+            out.extend(under(&entry.path()));
+        } else {
+            out.push(entry.path());
+        }
+    }
+    out.sort();
+    out
+}
+
+/// A duplicate is left alone unless asked about, and what `--prune` deletes is
+/// checked byte for byte first.
+#[test]
+fn arrange_prunes_a_duplicate_only_when_asked() {
+    let directory = scratch("prune");
+    let folder = work(&directory);
+    let public = key(&directory);
+    let secret = directory.join("keys").join("minisign.key");
+    let password = directory.join("password");
+
+    out(
+        &folder,
+        &["trust", "add", &public, "Adam Harris <adam@example.com>"],
+    );
+    out(
+        &folder,
+        &[
+            "sign",
+            "--key",
+            secret.to_str().unwrap(),
+            "--password-file",
+            password.to_str().unwrap(),
+        ],
+    );
+
+    // The same claim again under another name, which is what a copy that had
+    // not yet received the revision would have written.
+    let claims = folder.join("history").join("claims");
+    for path in under(&claims) {
+        let name = path.file_name().and_then(|name| name.to_str()).unwrap();
+        let copy = claims.join(name.replace(
+            name.split(".claim.txt").next().unwrap(),
+            "the same claim twice",
+        ));
+        fs::copy(&path, &copy).expect("a duplicate");
+    }
+    assert_eq!(under(&claims).len(), 4);
+
+    let printed = out(&folder, &["verify"]);
+    assert!(
+        printed.contains("1 claim, 1 by a key this copy believes"),
+        "{printed}"
+    );
+    assert!(printed.contains("counted once"), "{printed}");
+
+    let left = out(&folder, &["arrange"]);
+    assert!(left.contains("--prune deletes"), "{left}");
+    assert_eq!(under(&claims).len(), 4, "arrange alone deletes nothing");
+
+    let pruned = out(&folder, &["arrange", "--prune"]);
+    assert!(pruned.contains("deleted"), "{pruned}");
+    assert_eq!(under(&claims).len(), 2, "one claim and one signature");
+
+    let printed = out(&folder, &["verify"]);
+    assert!(
+        printed.contains("1 claim, 1 by a key this copy believes"),
+        "{printed}"
+    );
+    assert!(
+        printed.contains("1 of 1 revisions are vouched for"),
+        "{printed}"
+    );
+}
+
+/// A trust entry is a file a person opens, so its default name is the person
+/// it speaks for. Nothing reads it either way — that is the point of being
+/// free to choose it.
+#[test]
+fn a_trust_entry_is_named_for_who_it_speaks_for() {
+    let directory = scratch("trust-label");
+    let folder = work(&directory);
+    let public = key(&directory);
+
+    let added = out(
+        &folder,
+        &["trust", "add", &public, "Adam Harris <adam@example.com>"],
+    );
+    assert!(added.contains("Adam Harris.txt"), "{added}");
+
+    let trust = folder.join("history").join("trust");
+    assert!(trust.join("Adam Harris.txt").exists());
+
+    let listed = out(&folder, &["trust", "list"]);
+    assert!(
+        listed.contains("Adam Harris  Adam Harris <adam@example.com>"),
+        "{listed}"
+    );
+
+    // The label is the handle `remove` takes, and it is what `list` printed.
+    out(&folder, &["trust", "remove", "Adam Harris"]);
+    assert!(!trust.join("Adam Harris.txt").exists());
+}
+
+/// One person, two keys, one name — parted by the key, and neither entry lost.
+#[test]
+fn a_second_key_for_one_person_takes_a_name_of_its_own() {
+    let directory = scratch("trust-two-keys");
+    let folder = work(&directory);
+    let first = key(&directory);
+    let password = directory.join("password");
+    let elsewhere = directory.join("other-keys");
+    let printed = out(
+        &folder,
+        &[
+            "key",
+            "new",
+            "--at",
+            elsewhere.to_str().unwrap(),
+            "--password-file",
+            password.to_str().unwrap(),
+        ],
+    );
+    let second = printed.lines().next().expect("a key").to_owned();
+
+    let who = "Adam Harris <adam@example.com>";
+    out(&folder, &["trust", "add", &first, who]);
+    let added = out(&folder, &["trust", "add", &second, who]);
+
+    let trust = folder.join("history").join("trust");
+    assert!(
+        trust.join("Adam Harris.txt").exists(),
+        "the first keeps the plain name"
+    );
+    assert!(
+        added.contains("Adam Harris "),
+        "the second is parted by the key: {added}"
+    );
+
+    let entries: Vec<PathBuf> = under(&trust)
+        .into_iter()
+        .filter(|path| !path.ends_with("how-this-works.txt"))
+        .collect();
+    assert_eq!(
+        entries.len(),
+        2,
+        "neither addition lost the other: {entries:?}"
+    );
+
+    let listed = out(&folder, &["trust", "list"]);
+    assert!(listed.contains(&first), "{listed}");
+    assert!(listed.contains(&second), "{listed}");
+}
+
+/// Decision 0004, at the prompt: `--file` and `--content` make a claim over
+/// one file, which `verify` lists by the file's path and does not count
+/// towards the revision.
+#[test]
+fn sign_vouches_for_one_file_when_told_which() {
+    let directory = scratch("one-file");
+    let folder = work(&directory);
+    let key = key(&directory);
+    let secret = directory.join("keys/minisign.key");
+    let password = directory.join("password");
+    let content = "sha256:9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08";
+
+    let signed = out(
+        &folder,
+        &[
+            "sign",
+            "--role",
+            "reviewer",
+            "--file",
+            "notes.txt",
+            "--content",
+            content,
+            "--key",
+            secret.to_str().unwrap(),
+            "--password-file",
+            password.to_str().unwrap(),
+        ],
+    );
+    assert!(signed.contains("vouches for notes.txt ("), "{signed}");
+    assert!(signed.contains(content), "{signed}");
+
+    let written = fs::read_to_string(
+        under(&folder.join("history/claims"))
+            .into_iter()
+            .find(|path| path.to_string_lossy().ends_with(".claim.txt"))
+            .expect("a claim"),
+    )
+    .expect("its text");
+    assert!(written.starts_with("claim-1\n"), "{written}");
+    assert!(
+        written.contains(&format!("\ncontent {content}\n")),
+        "{written}"
+    );
+
+    out(
+        &folder,
+        &["trust", "add", &key, "The Test <test@example.com>"],
+    );
+    let verified = out(&folder, &["verify"]);
+    assert!(verified.contains("notes.txt ("), "{verified}");
+    assert!(
+        verified.contains("0 of 1 revisions are vouched for"),
+        "a claim over one file vouches for no revision: {verified}"
+    );
+    assert!(
+        verified.contains("1 claim counts over one file"),
+        "{verified}"
+    );
+    assert_eq!(
+        run(&folder, &["verify", "--complete"]).status.code(),
+        Some(1),
+        "and does not make the store complete"
+    );
+}
+
+#[test]
+fn a_file_the_revision_does_not_hold_is_refused_before_signing() {
+    let directory = scratch("no-such-file");
+    let folder = work(&directory);
+    key(&directory);
+    let secret = directory.join("keys/minisign.key");
+    let password = directory.join("password");
+
+    let refused = run(
+        &folder,
+        &[
+            "sign",
+            "--file",
+            "elsewhere.txt",
+            "--content",
+            "sha256:00",
+            "--key",
+            secret.to_str().unwrap(),
+            "--password-file",
+            password.to_str().unwrap(),
+        ],
+    );
+    assert_eq!(refused.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&refused.stderr).contains("holds no file at elsewhere.txt"),
+        "{}",
+        String::from_utf8_lossy(&refused.stderr)
+    );
+    assert!(
+        under(&folder.join("history/claims")).is_empty(),
+        "nothing was written"
+    );
+}
+
+#[test]
+fn a_file_without_its_content_is_a_usage_error() {
+    let directory = scratch("file-alone");
+    let folder = work(&directory);
+
+    for arguments in [
+        &["sign", "--file", "notes.txt"][..],
+        &["sign", "--content", "sha256:00"][..],
+        &["sign", "--file", "notes.txt", "--content", "not a digest"][..],
+    ] {
+        let refused = run(&folder, arguments);
+        assert_eq!(refused.status.code(), Some(2), "{arguments:?}");
+    }
+}
+
+/// The revision `work` recorded.
+fn recorded(folder: &Path) -> historica::core::RevisionId {
+    let store = Store::discover(folder).expect("the store");
+    let ids: Vec<_> = store.revisions().map(|(id, _)| *id).collect();
+    assert_eq!(ids.len(), 1, "work records one revision");
+    ids[0]
+}
+
+/// `historica record --fields -m x | historica-minisign sign --wrote -`,
+/// with the statement `record` prints written here by historica's own writer.
+#[test]
+fn sign_vouches_for_what_a_command_said_it_wrote() {
+    let directory = scratch("wrote");
+    let folder = work(&directory);
+    let key = key(&directory);
+    let secret = directory.join("keys/minisign.key");
+    let password = directory.join("password");
+    let revision = recorded(&folder);
+
+    let mut statement = Statement::new();
+    statement.revision(revision).name("main");
+    let signed = piped(
+        &folder,
+        &[
+            "sign",
+            "--wrote",
+            "-",
+            "--key",
+            secret.to_str().unwrap(),
+            "--password-file",
+            password.to_str().unwrap(),
+        ],
+        &statement.to_string(),
+    );
+    let stdout = String::from_utf8_lossy(&signed.stdout);
+    assert!(
+        signed.status.success(),
+        "{}",
+        String::from_utf8_lossy(&signed.stderr)
+    );
+    assert!(
+        stdout.contains(&format!("vouches for {}", revision.abbreviate(12))),
+        "{stdout}"
+    );
+
+    out(
+        &folder,
+        &["trust", "add", &key, "The Test <test@example.com>"],
+    );
+    assert!(
+        run(&folder, &["verify", "--complete"]).status.success(),
+        "the revision the statement named is vouched for"
+    );
+}
+
+/// The same, from a file rather than stdin.
+#[test]
+fn sign_reads_a_statement_from_a_file() {
+    let directory = scratch("wrote-file");
+    let folder = work(&directory);
+    key(&directory);
+    let secret = directory.join("keys/minisign.key");
+    let password = directory.join("password");
+    let wrote = directory.join("wrote.txt");
+    let mut statement = Statement::new();
+    statement.revision(recorded(&folder));
+    fs::write(&wrote, statement.to_string()).expect("a statement");
+
+    out(
+        &folder,
+        &[
+            "sign",
+            "--wrote",
+            wrote.to_str().unwrap(),
+            "--key",
+            secret.to_str().unwrap(),
+            "--password-file",
+            password.to_str().unwrap(),
+        ],
+    );
+    assert_eq!(
+        under(&folder.join("history/claims"))
+            .iter()
+            .filter(|path| path.to_string_lossy().ends_with(".claim.txt"))
+            .count(),
+        1
+    );
+}
+
+/// Decision 0074's most useful case: a command that wrote nothing says so, and
+/// a wrapper piping it here does nothing at all — not even ask for a password.
+#[test]
+fn a_statement_of_nothing_signs_nothing_and_succeeds() {
+    let directory = scratch("wrote-nothing");
+    let folder = work(&directory);
+
+    for statement in [
+        "historica-wrote-1\n".to_owned(),
+        format!("historica-wrote-1\nname main\ngone {}\n", recorded(&folder)),
+    ] {
+        let signed = piped(
+            &folder,
+            &["sign", "--wrote", "-", "--key", "/nonexistent/minisign.key"],
+            &statement,
+        );
+        assert_eq!(
+            signed.status.code(),
+            Some(0),
+            "{statement:?}: {}",
+            String::from_utf8_lossy(&signed.stderr)
+        );
+        assert!(under(&folder.join("history/claims")).is_empty());
+    }
+}
+
+/// A statement this build cannot read is discarded whole, per 0074: nothing is
+/// signed, and the exit says so.
+#[test]
+fn a_statement_it_cannot_read_signs_nothing_and_fails() {
+    let directory = scratch("wrote-unknown");
+    let folder = work(&directory);
+    key(&directory);
+    let secret = directory.join("keys/minisign.key");
+    let password = directory.join("password");
+    let revision = recorded(&folder);
+
+    for statement in [
+        format!("historica-wrote-1\nrevision {revision}\nmoved a b\n"),
+        format!("historica-wrote-2\nrevision {revision}\n"),
+        String::new(),
+    ] {
+        let refused = piped(
+            &folder,
+            &[
+                "sign",
+                "--wrote",
+                "-",
+                "--key",
+                secret.to_str().unwrap(),
+                "--password-file",
+                password.to_str().unwrap(),
+            ],
+            &statement,
+        );
+        assert_eq!(refused.status.code(), Some(1), "{statement:?}");
+        assert!(
+            under(&folder.join("history/claims")).is_empty(),
+            "{statement:?}: nothing was written"
+        );
+    }
+}
+
+/// A revision the store does not hold is refused before anything is signed,
+/// including the revisions beside it that it does hold.
+#[test]
+fn a_statement_naming_a_revision_not_here_signs_nothing() {
+    let directory = scratch("wrote-elsewhere");
+    let folder = work(&directory);
+    key(&directory);
+    let secret = directory.join("keys/minisign.key");
+    let password = directory.join("password");
+    let elsewhere = "00000000000000000000000000000000000000000000000000000000000000aa";
+
+    let refused = piped(
+        &folder,
+        &[
+            "sign",
+            "--wrote",
+            "-",
+            "--key",
+            secret.to_str().unwrap(),
+            "--password-file",
+            password.to_str().unwrap(),
+        ],
+        &format!(
+            "historica-wrote-1\nrevision {}\nrevision {elsewhere}\n",
+            recorded(&folder)
+        ),
+    );
+    assert_eq!(refused.status.code(), Some(1));
+    assert!(
+        String::from_utf8_lossy(&refused.stderr).contains("does not hold"),
+        "{}",
+        String::from_utf8_lossy(&refused.stderr)
+    );
+    assert!(under(&folder.join("history/claims")).is_empty());
+}
+
+#[test]
+fn wrote_is_the_target_and_stands_alone() {
+    let directory = scratch("wrote-alone");
+    let folder = work(&directory);
+
+    for (arguments, said) in [
+        (&["sign", "head", "--wrote", "-"][..], "is the target"),
+        (
+            &[
+                "sign",
+                "--wrote",
+                "-",
+                "--file",
+                "notes.txt",
+                "--content",
+                "sha256:00",
+            ][..],
+            "one file",
+        ),
+        (
+            &["sign", "--wrote", "-", "--password-file", "-"][..],
+            "stdin",
+        ),
+        (&["sign", "--wrote"][..], "wants a value"),
+    ] {
+        let refused = piped(&folder, arguments, "historica-wrote-1\n");
+        assert_eq!(refused.status.code(), Some(2), "{arguments:?}");
+        let stderr = String::from_utf8_lossy(&refused.stderr);
+        assert!(stderr.contains(said), "{arguments:?}: {stderr}");
+    }
+}
+
+/// `fetch` refuses what historica's own `fetch` refuses, before asking
+/// anything of the network or of a key.
+#[cfg(feature = "http")]
+#[test]
+fn fetch_wants_the_url_of_a_manifest() {
+    let directory = scratch("fetch-url");
+    let folder = work(&directory);
+    for (arguments, said) in [
+        (&["fetch"][..], "wants the URL of a manifest"),
+        (&["fetch", "example.org/offer.txt"][..], "is not a URL"),
+        (
+            &["fetch", "file:///srv/offer.txt"][..],
+            "is not an HTTP URL",
+        ),
+        (
+            &["fetch", "https://example.org/pub/"][..],
+            "names a directory",
+        ),
+        (
+            &["fetch", "https://example.org/offer.txt?v=2"][..],
+            "cannot be part",
+        ),
+        (
+            &[
+                "fetch",
+                "https://example.org/offer.txt",
+                "--no-bytes",
+                "notes.txt",
+            ][..],
+            "takes the files of bytes named and nothing else",
+        ),
+        (
+            &["fetch", "--quickly"][..],
+            "is not an argument `fetch` takes",
+        ),
+    ] {
+        let refused = run(&folder, arguments);
+        assert_eq!(refused.status.code(), Some(2), "{arguments:?}");
+        let stderr = String::from_utf8_lossy(&refused.stderr);
+        assert!(stderr.contains(said), "{arguments:?}: {stderr}");
+    }
+    assert!(out(&folder, &["--help"]).contains("fetch <url> <path>..."));
+}
+
+/// `token` asks a hub by its origin, and refuses a URL that is not one before
+/// anything is sent.
+#[cfg(feature = "http")]
+#[test]
+fn token_wants_a_hub_by_its_origin() {
+    let directory = scratch("token-origin");
+    let folder = work(&directory);
+    key(&directory);
+    let secret = directory.join("keys").join("minisign.key");
+    let password = directory.join("password");
+
+    let refused = run(&folder, &["token"]);
+    assert_eq!(refused.status.code(), Some(2));
+
+    let refused = run(
+        &folder,
+        &[
+            "token",
+            "https://hub.example.org/adam/notes/offer.txt",
+            "--key",
+            secret.to_str().unwrap(),
+            "--password-file",
+            password.to_str().unwrap(),
+        ],
+    );
+    assert_eq!(refused.status.code(), Some(1));
+    let stderr = String::from_utf8_lossy(&refused.stderr);
+    assert!(stderr.contains("named by its origin alone"), "{stderr}");
+}
