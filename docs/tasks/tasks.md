@@ -10,6 +10,7 @@ contents:
   - '[A stand-in filed beside another copy](/docs/tasks/a-stand-in-filed-beside-another-copy.md)'
   - '[Forget leaves the folder holding what it destroyed](/docs/tasks/forget-leaves-the-folder-holding-what-it-destroyed.md)'
   - '[Forget at a rewrite leaves its predecessor legible](/docs/tasks/forget-at-a-rewrite-leaves-its-predecessor-legible.md)'
+  - '[The web source asks for one file at a time](/docs/tasks/the-web-source-asks-for-one-file-at-a-time.md)'
 part_of: '[historica](/README.md)'
 ---
 

@@ -24,7 +24,7 @@ use std::time::Duration;
 
 use historica::core::RevisionId;
 use historica::format;
-use historica::store::{Fetching, Source, Store, Unreachable};
+use historica::store::{Fetching, Keeping, Name, Source, Store, Unreachable};
 use historica::tree::Kind;
 use historica::update;
 use historica::wrote::{Line, Statement};
@@ -112,14 +112,23 @@ pub fn fetch(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
         });
     }
 
+    // Decision 0088: the rule this copy follows is what lets a fetch move a
+    // bookmark it holds forward along a followed line.
+    let rule = target::following(&store)?;
     let fetched = store
-        .fetch_with(&source, &manifest, asked)
+        .fetch_following(&source, &manifest, asked, &rule)
         .map_err(Failure::error)?;
 
     if fields {
         let mut statement = Statement::new();
         statement.extend(fetched.revisions.iter().map(|id| Line::Revision(*id)));
         statement.extend(fetched.names.iter().map(|name| Line::Name(name.clone())));
+        statement.extend(
+            fetched
+                .moved
+                .iter()
+                .map(|moved| Line::Name(moved.name.clone())),
+        );
         return printing(|out| render::wrote(out, &statement));
     }
 
@@ -138,15 +147,34 @@ pub fn fetch(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
         if !fetched.names.is_empty() {
             writeln!(out, "fetched {} bookmarks", fetched.names.len())?;
         }
-        // Decision 0062: a bookmark this store already has is one it keeps,
-        // and saying so is what keeps a person from reading an unmoved `main`
+        // Decision 0088: a bookmark moves only forward along a followed
+        // line, and one that stays is named with both readings and the
+        // reason, which is what keeps a person from reading an unmoved `main`
         // as a fetch that failed to notice.
-        if fetched.kept != 0 {
+        for moved in &fetched.moved {
             writeln!(
                 out,
-                "kept this copy's own reading of {} bookmarks the publisher \
-                 also states",
-                fetched.kept
+                "moved {} forward from {} to the publisher's {}",
+                moved.name,
+                reading(&moved.from),
+                reading(&moved.to)
+            )?;
+        }
+        for kept in &fetched.kept_names {
+            writeln!(
+                out,
+                "kept {} at {}, not the publisher's {}: {}",
+                kept.name,
+                reading(&kept.ours),
+                reading(&kept.theirs),
+                because(kept.because)
+            )?;
+        }
+        for name in &fetched.withdrawn {
+            writeln!(
+                out,
+                "kept {name}, which the publisher no longer states: a fetch \
+                 deletes no name, and `historica name --delete {name}` does"
             )?;
         }
         if fetched.destroyed != 0 {
@@ -276,6 +304,31 @@ pub fn evict(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
         }
         Ok(())
     })
+}
+
+/// A bookmark's target, as a fetch reports it.
+fn reading(name: &Name) -> String {
+    match name {
+        Name::Change(change) => format!("change {}", change.abbreviate(12)),
+        Name::Revision(revision) => format!("revision {}", revision.abbreviate(12)),
+        Name::File(file) => format!("file {file}"),
+    }
+}
+
+/// Why a fetch kept a bookmark's reading, in a clause.
+fn because(keeping: Keeping) -> &'static str {
+    match keeping {
+        Keeping::NotForward => {
+            "it is not behind the publisher's, so work of this copy's own is on it"
+        }
+        Keeping::NotFollowed => {
+            "this copy does not follow the publisher's revision, and holds it as \
+             work to take"
+        }
+        Keeping::Pinned => "a bookmark naming a revision or a file never moves",
+        Keeping::Unresolved => "one of the two changes has no single current revision here",
+        _ => "a fetch moves a bookmark only forward along a line this copy follows",
+    }
 }
 
 /// One path argument, spelled as `record` spells one: normalised, and with

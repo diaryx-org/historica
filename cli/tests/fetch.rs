@@ -19,8 +19,11 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, Output};
 
 use historica::core::RevisionId;
+use historica::following::Following;
 use historica::format::digest;
-use historica::store::{EvictError, FetchError, Fetching, Source, Store, Travel, Unreachable};
+use historica::store::{
+    EvictError, FetchError, Fetching, Keeping, Name, Source, Store, Travel, Unreachable,
+};
 
 /// The manifest's own name, which decision 0052 makes one more path resolving
 /// against the directory it sits in.
@@ -342,6 +345,159 @@ fn a_bookmark_this_store_holds_is_kept_and_a_private_one_is_never_offered() {
     assert_eq!(out(&here, &["names"]), mine, "`main` moved underneath");
 }
 
+/// Decision 0088: a reader who recorded nothing keeps up with a publisher,
+/// because a fetch moves the reader's `main` forward along the line it
+/// follows. One who recorded onto `main` keeps their own, and is told why.
+#[test]
+fn a_fetch_moves_a_followed_bookmark_forward_and_keeps_one_with_work_on_it() {
+    let (origin, root) = published("moves-forward");
+    let reader = repository("moves-forward-reader");
+    let writer = repository("moves-forward-writer");
+    for here in [&reader, &writer] {
+        store(here)
+            .fetch_following(
+                &Directory::at(&root),
+                MANIFEST,
+                Fetching::default(),
+                &Following::Everything,
+            )
+            .expect("a first fetch");
+        out(here, &["update"]);
+    }
+    write(&writer, "notes.md", "one\ntwo\nmine\n");
+    out(&writer, &["record", "-m", "Work of my own"]);
+    let writers_main = out(&writer, &["names"]);
+
+    write(&origin, "notes.md", "one\ntwo\nthree\n");
+    out(&origin, &["record", "-m", "A third thought"]);
+    publish(&origin, &root);
+
+    let fetched = store(&reader)
+        .fetch_following(
+            &Directory::at(&root),
+            MANIFEST,
+            Fetching::default(),
+            &Following::Everything,
+        )
+        .expect("the reader's fetch");
+    assert_eq!(fetched.moved.len(), 1, "{fetched:?}");
+    assert_eq!(fetched.moved[0].name, "main");
+    assert!(fetched.kept_names.is_empty(), "{fetched:?}");
+    assert_eq!(fetched.kept, 0);
+    assert_eq!(out(&reader, &["names"]), out(&origin, &["names"]));
+    out(&reader, &["update"]);
+    assert_eq!(
+        fs::read_to_string(reader.join("notes.md")).expect("the notes"),
+        "one\ntwo\nthree\n"
+    );
+
+    let fetched = store(&writer)
+        .fetch_following(
+            &Directory::at(&root),
+            MANIFEST,
+            Fetching::default(),
+            &Following::Everything,
+        )
+        .expect("the writer's fetch");
+    assert!(fetched.moved.is_empty(), "{fetched:?}");
+    assert_eq!(fetched.kept, 1);
+    assert_eq!(fetched.kept_names[0].name, "main");
+    assert_eq!(fetched.kept_names[0].because, Keeping::NotForward);
+    assert_eq!(
+        out(&writer, &["names"]),
+        writers_main,
+        "`main` moved off work"
+    );
+}
+
+/// Decision 0088: a bookmark moves only onto a revision the copy follows, so
+/// a publisher whose work this copy holds as held work does not decide what
+/// the copy's `main` stands on. A pinned bookmark never moves.
+#[test]
+fn a_fetch_moves_no_bookmark_onto_held_work_and_never_a_pinned_one() {
+    let (origin, root) = published("moves-held");
+    let reader = repository("moves-held-reader");
+    store(&reader)
+        .fetch(&Directory::at(&root), MANIFEST, false)
+        .expect("a first fetch");
+    out(&origin, &["name", "--revision", "pinned", "head"]);
+    out(&reader, &["name", "pinned", "head"]);
+    write(&origin, "notes.md", "one\ntwo\nthree\n");
+    out(&origin, &["record", "-m", "A third thought"]);
+    publish(&origin, &root);
+    let before = out(&reader, &["names"]);
+
+    // Following nobody the origin's author is: its new revision is held here.
+    let somebody = Following::Writers(["Somebody Else <else@example.com>".to_owned()].into());
+    let fetched = store(&reader)
+        .fetch_following(
+            &Directory::at(&root),
+            MANIFEST,
+            Fetching::default(),
+            &somebody,
+        )
+        .expect("a fetch");
+    assert!(fetched.moved.is_empty(), "{fetched:?}");
+    let reasons: BTreeSet<(String, Keeping)> = fetched
+        .kept_names
+        .iter()
+        .map(|kept| (kept.name.clone(), kept.because))
+        .collect();
+    assert_eq!(
+        reasons,
+        BTreeSet::from([
+            ("main".to_owned(), Keeping::NotFollowed),
+            ("pinned".to_owned(), Keeping::Pinned),
+        ])
+    );
+    assert!(matches!(fetched.kept_names[0].ours, Name::Change(_)));
+    assert_eq!(out(&reader, &["names"]), before);
+}
+
+/// Decision 0088's first open question: a bookmark the publisher deleted stays
+/// where it is, since a deletion is local (decision 0073), and the fetch says
+/// so. Only a page can say a name went; a whole listing only leaves it out.
+#[test]
+fn a_bookmark_the_publisher_deleted_is_kept_and_reported() {
+    let (origin, root) = published("name-withdrawn");
+    out(&origin, &["name", "feature", "head"]);
+    publish_paged(&origin, &root);
+    let reader = repository("name-withdrawn-reader");
+    caching(&reader)
+        .fetch(&Directory::at(&root), MANIFEST, false)
+        .expect("a first fetch");
+    assert!(out(&reader, &["names"]).contains("feature"));
+
+    out(&origin, &["name", "--delete", "feature"]);
+    publish_paged(&origin, &root);
+    let fetched = caching(&reader)
+        .fetch_following(
+            &Directory::at(&root),
+            MANIFEST,
+            Fetching::default(),
+            &Following::Everything,
+        )
+        .expect("a second fetch");
+    assert_eq!(fetched.withdrawn, ["feature"]);
+    assert!(out(&reader, &["names"]).contains("feature"));
+}
+
+/// Two bookmarks naming one change are two files of the same bytes, and a
+/// fetch takes both: a name is its path, not its digest.
+#[test]
+fn two_bookmarks_on_one_change_both_arrive() {
+    let (origin, root) = published("two-names");
+    out(&origin, &["name", "release", "head"]);
+    publish(&origin, &root);
+    let reader = repository("two-names-reader");
+    let fetched = store(&reader)
+        .fetch(&Directory::at(&root), MANIFEST, false)
+        .expect("a fetch");
+    let mut names = fetched.names.clone();
+    names.sort();
+    assert_eq!(names, ["main", "release"]);
+}
+
 /// Decision 0071: a name may have structure in it, so a manifest line is a
 /// name rather than a filename — and a manifest is a file some other store
 /// wrote. The refusal that used to be "no `/` in a name" is now the grammar
@@ -362,9 +518,8 @@ fn a_nested_bookmark_crosses_and_a_name_that_escapes_names_does_not() {
     let fetched = store(&here)
         .fetch(&Directory::at(&root), MANIFEST, false)
         .expect("a fetch");
-    assert_eq!(fetched.names.len(), 1, "the nested one");
-    let names = out(&here, &["names"]);
-    assert!(names.contains("claude/loving-wiles-12e833"), "{names}");
+    // `main` and the nested one, which name one change in the same bytes.
+    assert_eq!(fetched.names.len(), 2, "{:?}", fetched.names);
     let names = out(&here, &["names"]);
     assert!(names.contains("claude/loving-wiles-12e833"), "{names}");
 

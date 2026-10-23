@@ -406,3 +406,9 @@ and leaves the other two. It also takes this decision's own device: a bookmark
 whose first line parses and whose second does not is diagnosably the work of a
 newer historica, and the store header now says that about itself. The shape
 was right here; the file was the wrong one.
+
+[0088](0088-a-fetch-moves-the-bookmarks-its-copy-follows.md) narrows the
+fetch half: a bookmark this store holds still keeps its reading against a
+publisher's that is not ahead of it on a line the copy follows, and moves
+where it is. Moving it back, or off the reader's own work, is still refused,
+for the reason above.

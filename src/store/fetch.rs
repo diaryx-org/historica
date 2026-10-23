@@ -145,12 +145,15 @@ use std::fmt;
 use std::io;
 
 use crate::core::RevisionId;
+use crate::following::Following;
 use crate::format::{self, OperationDocument, ResolutionDocument, RevisionDocument, digest};
 use crate::fs::Filesystem;
 use crate::working::{Rule, SKIPPED_DIR, Skipped};
 
+use super::moving::{self, KeptName, MovedName};
+
 use super::{
-    Body, Bookmark, Manifest, NAME_SUFFIX, NAMES_DIR, OPERATION_SUFFIX, Offer, OfferError,
+    Body, Bookmark, Manifest, NAME_SUFFIX, NAMES_DIR, Name, OPERATION_SUFFIX, Offer, OfferError,
     OfferKind, Offered, Page, REVISION_SUFFIX, Report, STORE_DIR, Store, StoreError, Travel,
     check_name, travel, walk,
 };
@@ -363,6 +366,7 @@ pub struct FetchPlan {
     rules: Vec<Offered>,
     reserved: Vec<Offered>,
     names: Vec<Offered>,
+    contested: Vec<Offered>,
     kept: usize,
     declined: Vec<Declined>,
     destroys: BTreeSet<RevisionId>,
@@ -406,9 +410,19 @@ impl FetchPlan {
     }
 
     /// Bookmarks the publisher states that this store holds under its own
-    /// reading, and therefore leaves alone.
+    /// reading, and therefore leaves alone unless a fetch is told what the
+    /// copy follows.
     pub fn kept(&self) -> usize {
         self.kept
+    }
+
+    /// Bookmarks the publisher states that this store holds in a file of
+    /// other bytes, which [`Store::fetch_following`] reads to weigh.
+    ///
+    /// Decision 0088: a bookmark the copy holds moves only forward along a
+    /// line the copy follows, and the publisher's file is what says where.
+    pub fn contested(&self) -> &[Offered] {
+        &self.contested
     }
 
     /// Reserved directories the manifest named and this store will not fill.
@@ -480,8 +494,23 @@ pub struct Fetched {
     pub names: Vec<String>,
     /// Bookmarks the publisher states and this store kept its own reading of.
     ///
-    /// Of a paged manifest, counted over the pages this fetch read.
+    /// Of a paged manifest, counted over the pages this fetch read. A
+    /// bookmark the publisher states in the same bytes is not counted, since
+    /// the two readings agree. Where the fetch was told what the copy
+    /// follows, this is `kept_names.len()`.
     pub kept: usize,
+    /// Bookmarks this store held that the fetch moved to the publisher's
+    /// reading, forward along a line the copy follows (decision 0088).
+    pub moved: Vec<MovedName>,
+    /// Bookmarks the publisher reads differently and this store kept, with
+    /// both readings and why (decision 0088). Empty where the fetch was not
+    /// told what the copy follows, which reads no publisher's bookmark it
+    /// holds.
+    pub kept_names: Vec<KeptName>,
+    /// Bookmarks this store holds that the pages read withdrew, which a
+    /// fetch leaves where they are (decision 0088): a deletion is local
+    /// (decision 0073). A whole listing withdraws nothing it can be seen to.
+    pub withdrawn: Vec<String>,
     /// Reserved directories the manifest named and this store did not fill.
     ///
     /// Of a paged manifest, those in the pages this fetch read.
@@ -527,11 +556,48 @@ impl<F: Filesystem> Store<F> {
     }
 
     /// [`Store::fetch`], asked for in more than one way.
+    ///
+    /// Every bookmark this store holds keeps its reading. A caller that can
+    /// say what its copy follows calls [`Store::fetch_following`], which
+    /// moves one forward along a followed line.
     pub fn fetch_with<S: Source + ?Sized>(
         &mut self,
         source: &S,
         manifest: &str,
         asked: Fetching,
+    ) -> Result<Fetched, FetchError> {
+        self.fetching(source, manifest, asked, None)
+    }
+
+    /// [`Store::fetch_with`], for a copy that follows `rule` (decision 0086).
+    ///
+    /// Decision 0088: a bookmark this store holds and the publisher states
+    /// differently moves to the publisher's reading where both name a
+    /// change, the revision this store's resolves to is in the ancestry of
+    /// the one the publisher's resolves to, and `rule` follows the
+    /// publisher's. Every other one keeps its reading, and [`Fetched`] says
+    /// which with both readings and the reason. A bookmark is moved with
+    /// [`Store::set_name`], so its travel axis stays this copy's.
+    ///
+    /// The publisher's file for each such bookmark is read, which costs one
+    /// small request apiece, and the moves are made only once the fetch has
+    /// taken everything and `check` has passed.
+    pub fn fetch_following<S: Source + ?Sized>(
+        &mut self,
+        source: &S,
+        manifest: &str,
+        asked: Fetching,
+        rule: &Following,
+    ) -> Result<Fetched, FetchError> {
+        self.fetching(source, manifest, asked, Some(rule))
+    }
+
+    fn fetching<S: Source + ?Sized>(
+        &mut self,
+        source: &S,
+        manifest: &str,
+        asked: Fetching,
+        rule: Option<&Following>,
     ) -> Result<Fetched, FetchError> {
         // A copy of a fault is two faults. The far end cannot be checked at all
         // without downloading the whole of it, which decision 0048 says would
@@ -543,6 +609,7 @@ impl<F: Filesystem> Store<F> {
         let mut fetched = Fetched::default();
         let mut refetches = REFETCHES;
         let mut listing = self.listing(source, manifest, &mut fetched, &mut refetches)?;
+        let readings;
         let left = loop {
             // A fetch that skipped pages it had applied was related to this
             // copy when it applied them, and what it read since cannot say so:
@@ -565,11 +632,17 @@ impl<F: Filesystem> Store<F> {
             // Everything small the plan names, offered to the source together
             // before any of it is asked for, so a source that can answer them
             // all at once does. Payloads are left out: they stream.
+            let contested: Vec<Offered> = if rule.is_some() {
+                plan.contested.clone()
+            } else {
+                Vec::new()
+            };
             let small: Vec<&str> = plan
                 .wanted()
                 .into_iter()
                 .filter(|(kind, _)| *kind != OfferKind::Payload)
                 .map(|(_, entry)| entry.path.as_str())
+                .chain(contested.iter().map(|entry| entry.path.as_str()))
                 .collect();
             if !small.is_empty() {
                 source.prefetch(&small);
@@ -590,24 +663,41 @@ impl<F: Filesystem> Store<F> {
                     }
                 }
             }
-            match self.take(source, &plan, &carried, &mut fetched)? {
-                None if asked.leave_bytes => break leaving,
-                // Taken after everything the pages named, and apart from it: a
-                // remembered address that has gone is not the listing moving,
-                // and reading the manifest again would not find it. What still
-                // could not be taken is still left, and still remembered.
-                None => break self.take_remembered(source, manifest, &remembered, &mut fetched)?,
+            if let Some(moved) = self.take(source, &plan, &carried, &mut fetched)? {
                 // Decision 0048: a path that is not there is the publisher
                 // having moved on, so read the listing again and want what is
                 // still wanted. A digest gone from the new listing was
                 // forgotten or pruned at the source, which is an answer and not
                 // an error — the next plan simply does not name it.
-                Some(moved) => {
+                listing = self.again(source, manifest, moved, &mut fetched, &mut refetches)?;
+                continue;
+            }
+            // Decision 0088: the publisher's reading of each bookmark this
+            // store holds differently, read only now that the revisions they
+            // name are here, and moved on only once the store is checked.
+            match self.readings(source, &contested, &mut fetched)? {
+                Ok(read) => readings = read,
+                Err(moved) => {
                     listing = self.again(source, manifest, moved, &mut fetched, &mut refetches)?;
+                    continue;
                 }
             }
+            if asked.leave_bytes {
+                break leaving;
+            }
+            // Taken after everything the pages named, and apart from it: a
+            // remembered address that has gone is not the listing moving,
+            // and reading the manifest again would not find it. What still
+            // could not be taken is still left, and still remembered.
+            break self.take_remembered(source, manifest, &remembered, &mut fetched)?;
         };
         fetched.left = left.len();
+        fetched.withdrawn = listing
+            .withdrawn
+            .iter()
+            .filter(|name| self.names.contains_key(*name))
+            .cloned()
+            .collect();
 
         // Where a contradiction the remote was harbouring becomes this store's
         // problem: at a moment, and out loud. What arrived stays — it is
@@ -625,7 +715,53 @@ impl<F: Filesystem> Store<F> {
         if let Some((base, after)) = &listing.chain {
             self.remember_pages(base, after, listing.offer.heads(), &left);
         }
+        if let Some(rule) = rule {
+            let (moved, kept) = moving::decide(&self.history(), &rule.heads(self), readings);
+            for moving in &moved {
+                self.set_name(&moving.name, moving.to)?;
+            }
+            fetched.kept = kept.len();
+            fetched.moved = moved;
+            fetched.kept_names = kept;
+        }
         Ok(fetched)
+    }
+
+    /// The publisher's reading of each bookmark in `contested`, beside this
+    /// store's: `Ok(Err(path))` where one was not there.
+    #[allow(clippy::type_complexity)]
+    fn readings<S: Source + ?Sized>(
+        &self,
+        source: &S,
+        contested: &[Offered],
+        fetched: &mut Fetched,
+    ) -> Result<Result<Vec<(String, Name, Name)>, String>, FetchError> {
+        let mut readings = Vec::new();
+        for entry in contested {
+            let Some(name) = named_by(&entry.path) else {
+                continue;
+            };
+            let Some(ours) = self.name(name) else {
+                continue;
+            };
+            let Some(bytes) = ask(source, &entry.path, fetched)? else {
+                return Ok(Err(entry.path.clone()));
+            };
+            let found = digest(&bytes);
+            if found != entry.digest {
+                return Err(FetchError::Tampered {
+                    path: entry.path.clone(),
+                    offered: entry.digest,
+                    found,
+                });
+            }
+            let text = String::from_utf8(bytes)
+                .map_err(|_| unusable(&entry.path, "a bookmark file that is not text"))?;
+            let theirs =
+                Bookmark::parse(&text).map_err(|because| unusable(&entry.path, because))?;
+            readings.push((name.to_owned(), ours, theirs.target));
+        }
+        Ok(Ok(readings))
     }
 
     /// Read the manifest again, because `moved` was not there, or say the copy
@@ -943,6 +1079,7 @@ impl<F: Filesystem> Store<F> {
                     chain: None,
                     skipped: false,
                     left: Vec::new(),
+                    withdrawn: BTreeSet::new(),
                 }));
             }
             Manifest::Paged(tip) => tip,
@@ -953,6 +1090,7 @@ impl<F: Filesystem> Store<F> {
                 chain: None,
                 skipped: false,
                 left: Vec::new(),
+                withdrawn: BTreeSet::new(),
             }));
         };
         let after: Vec<RevisionId> = after.iter().map(|page| page.digest).collect();
@@ -991,6 +1129,7 @@ impl<F: Filesystem> Store<F> {
             chain: Some((base.digest, after)),
             skipped: applied > 0,
             left,
+            withdrawn: withdrawn_names(&pages),
         }))
     }
 
@@ -1155,11 +1294,18 @@ impl<F: Filesystem> Store<F> {
         // where transport overwrites a mutable value without asking — which
         // would also mean a publisher moving `main` forward broke every
         // fetcher who ever took it. `receive` is where two stores reconcile.
-        let mut kept = 0;
+        //
+        // Decision 0088 weighs a bookmark held here that the publisher states
+        // in other bytes, so those are kept aside to be read; one stated in
+        // the same bytes agrees, and there is nothing to weigh.
+        let mut contested = Vec::new();
         plan.names = wanted(offer, OfferKind::Name, |entry| {
             match named_by(&entry.path) {
                 Some(name) if self.names.contains_key(name) => {
-                    kept += 1;
+                    let ours = digest(self.names[name].write().as_bytes());
+                    if ours != entry.digest {
+                        contested.push(entry.clone());
+                    }
                     false
                 }
                 Some(_) => true,
@@ -1169,7 +1315,8 @@ impl<F: Filesystem> Store<F> {
                 None => false,
             }
         });
-        plan.kept = kept;
+        plan.kept = contested.len();
+        plan.contested = contested;
 
         // Decision 0056: the path carries the directory, and this store asks
         // its own registry about it rather than the manifest. Compared by name,
@@ -1440,6 +1587,8 @@ struct Listing {
     /// What a fetch before this one left behind, from the pages this one
     /// skipped, where it remembered.
     left: Vec<Offered>,
+    /// Bookmarks a page read withdrew and no later one states again.
+    withdrawn: BTreeSet<String>,
 }
 
 /// What a store remembers of one paged manifest, in its cache.
@@ -1501,13 +1650,46 @@ fn ask<S: Source + ?Sized>(
 /// A manifest names every file at the path it is at, so one set of bytes may be
 /// named twice — which is right for a listing and would be a second request
 /// here for bytes this store would file once.
+///
+/// Except a bookmark, whose path is its name (decision 0062): two bookmarks
+/// naming one change are one set of bytes at two names, and both are wanted.
 fn wanted(offer: &Offer, kind: OfferKind, mut keep: impl FnMut(&Offered) -> bool) -> Vec<Offered> {
     let mut seen: BTreeSet<RevisionId> = BTreeSet::new();
     offer
         .of(kind)
-        .filter(|entry| keep(entry) && seen.insert(entry.digest))
+        .filter(|entry| keep(entry) && (kind == OfferKind::Name || seen.insert(entry.digest)))
         .cloned()
         .collect()
+}
+
+/// The bookmarks the pages withdraw and do not state again after.
+///
+/// A page lists what it withdraws before what it adds (decision 0080), so a
+/// bookmark the publisher moved is withdrawn and stated in one page, and only
+/// one deleted stays withdrawn.
+fn withdrawn_names(pages: &[Page]) -> BTreeSet<String> {
+    let mut withdrawn = BTreeSet::new();
+    for page in pages {
+        for entry in page
+            .gone()
+            .iter()
+            .filter(|entry| entry.kind == OfferKind::Name)
+        {
+            if let Some(name) = named_by(&entry.path) {
+                withdrawn.insert(name.to_owned());
+            }
+        }
+        for entry in page
+            .added()
+            .iter()
+            .filter(|entry| entry.kind == OfferKind::Name)
+        {
+            if let Some(name) = named_by(&entry.path) {
+                withdrawn.remove(name);
+            }
+        }
+    }
+    withdrawn
 }
 
 /// Where a manifest's path sits inside the store it names, or nothing where it
