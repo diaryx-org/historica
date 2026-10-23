@@ -342,6 +342,22 @@ fn a_bookmark_this_store_holds_is_kept_and_a_private_one_is_never_offered() {
     assert_eq!(out(&here, &["names"]), mine, "`main` moved underneath");
 }
 
+/// Two bookmarks naming one change are two files of the same bytes, and a
+/// fetch takes both: a name is its path, not its digest.
+#[test]
+fn two_bookmarks_on_one_change_both_arrive() {
+    let (origin, root) = published("two-names");
+    out(&origin, &["name", "release", "head"]);
+    publish(&origin, &root);
+    let reader = repository("two-names-reader");
+    let fetched = store(&reader)
+        .fetch(&Directory::at(&root), MANIFEST, false)
+        .expect("a fetch");
+    let mut names = fetched.names.clone();
+    names.sort();
+    assert_eq!(names, ["main", "release"]);
+}
+
 /// Decision 0071: a name may have structure in it, so a manifest line is a
 /// name rather than a filename — and a manifest is a file some other store
 /// wrote. The refusal that used to be "no `/` in a name" is now the grammar
@@ -362,9 +378,8 @@ fn a_nested_bookmark_crosses_and_a_name_that_escapes_names_does_not() {
     let fetched = store(&here)
         .fetch(&Directory::at(&root), MANIFEST, false)
         .expect("a fetch");
-    assert_eq!(fetched.names.len(), 1, "the nested one");
-    let names = out(&here, &["names"]);
-    assert!(names.contains("claude/loving-wiles-12e833"), "{names}");
+    // `main` and the nested one, which name one change in the same bytes.
+    assert_eq!(fetched.names.len(), 2, "{:?}", fetched.names);
     let names = out(&here, &["names"]);
     assert!(names.contains("claude/loving-wiles-12e833"), "{names}");
 

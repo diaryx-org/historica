@@ -1501,11 +1501,14 @@ fn ask<S: Source + ?Sized>(
 /// A manifest names every file at the path it is at, so one set of bytes may be
 /// named twice — which is right for a listing and would be a second request
 /// here for bytes this store would file once.
+///
+/// Except a bookmark, whose path is its name (decision 0062): two bookmarks
+/// naming one change are one set of bytes at two names, and both are wanted.
 fn wanted(offer: &Offer, kind: OfferKind, mut keep: impl FnMut(&Offered) -> bool) -> Vec<Offered> {
     let mut seen: BTreeSet<RevisionId> = BTreeSet::new();
     offer
         .of(kind)
-        .filter(|entry| keep(entry) && seen.insert(entry.digest))
+        .filter(|entry| keep(entry) && (kind == OfferKind::Name || seen.insert(entry.digest)))
         .cloned()
         .collect()
 }
