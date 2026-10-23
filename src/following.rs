@@ -149,6 +149,13 @@ impl Heads {
         self.followed.contains(revision)
     }
 
+    /// [`Heads::derive`], for a test elsewhere in the crate that states what
+    /// is followed rather than asking a rule.
+    #[cfg(test)]
+    pub(crate) fn derived(history: &History, followed: BTreeSet<RevisionId>) -> Self {
+        Self::derive(history, followed)
+    }
+
     /// Heads and held tips, given what is followed.
     ///
     /// A supersession counts only when the copy follows the revision that

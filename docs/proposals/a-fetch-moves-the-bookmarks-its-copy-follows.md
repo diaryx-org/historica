@@ -1,19 +1,40 @@
 ---
 title: A fetch moves the bookmarks its copy follows
 part_of: '[Proposals](/docs/proposals/proposals.md)'
-status: draft
+status: implemented
 description: Once a copy chooses its heads (0086), a fetch moves a bookmark it holds where the copy follows the publisher's reading and the move only goes forward, so a reader keeps up with a publisher, and a publisher's correction reaches the readers who follow it, without transport ever overwriting the reader's own work
 created: 2026-10-21
-updated: 2026-10-21
+updated: 2026-10-22
 ---
 
 # A fetch moves the bookmarks its copy follows
 
 ## Status
 
-Draft, argued 2026-10-21 after a day of real work through the hub with
-historica-git. It needs [0086] released, since a fetch can only ask what a
-copy follows once a copy can say. Nothing here is built.
+Implemented 2026-10-22, unreleased, as decision
+[0088](/docs/decisions/0088-a-fetch-moves-the-bookmarks-its-copy-follows.md),
+which is the authority from now on. Argued 2026-10-21 after a day of real
+work through the hub with historica-git. It needed [0086], which is on `main`
+and unreleased, and the two travel in one release.
+
+The open questions were settled by Adam on 2026-10-22:
+
+1. **A bookmark the publisher deleted** stays where it is, and the fetch
+   reports it, as proposed. Only a paged manifest's `gone` line can say a
+   name was deleted, so a fetch from a whole listing reports nothing.
+2. **What "forward" costs:** one ancestry walk per fetch, shared by every
+   bookmark it weighs, rather than one per bookmark.
+
+The build differs from the body below here:
+
+- **The library takes the rule per call.** `Store::fetch_following` is the
+  new way in, and `fetch` and `fetch_with` keep 0062's behaviour, so an
+  embedder that has not said what it follows sees no change.
+- **The reasons are four, not two.** Besides *not forward* and *not
+  followed*, a bookmark is kept as *pinned* (a revision or a file on either
+  side) or *unresolved* (a change with no single current revision).
+- **A fetch now takes two bookmarks naming one change.** It kept one per set
+  of bytes, which dropped all but one of them.
 
 ## What happened
 

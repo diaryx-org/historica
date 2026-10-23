@@ -78,6 +78,7 @@ mod evict;
 mod export;
 mod fetch;
 mod forget;
+mod moving;
 mod offer;
 mod prune;
 mod receive;
@@ -92,6 +93,7 @@ pub use evict::{EvictError, Eviction};
 pub use export::{ExportError, ExportPlan, Exported, Writes};
 pub use fetch::{Declined, FetchError, FetchPlan, Fetched, Fetching, Source, Unreachable};
 pub use forget::{Extent, ForgetError, Forgetting, Forgotten};
+pub use moving::{Keeping, KeptName, MovedName};
 pub use offer::{
     Manifest, OFFER_HEADER, Offer, OfferError, OfferKind, Offered, PAGE_HEADER, PAGED_HEADER, Page,
     PageRef, Published, Tip,

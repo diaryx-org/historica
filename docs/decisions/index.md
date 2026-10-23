@@ -976,6 +976,15 @@ depend on each other in.
   historica's own, tested against a corpus whose verdicts are checked with
   `git check-ignore`.
 
+- [0088 — A fetch moves the bookmarks its copy follows](0088-a-fetch-moves-the-bookmarks-its-copy-follows.md)
+  A fetch took only the bookmarks a copy lacked, so a reader who recorded
+  nothing typed `name main <change>` every time the publisher recorded. A
+  bookmark the copy holds now moves to the publisher's reading where both
+  name a change, the copy's is behind the publisher's, and the copy follows
+  the publisher's revision. Otherwise it stays, and the fetch names it with
+  both readings and why. A bookmark the publisher deleted stays and is
+  reported. One ancestry walk serves every bookmark.
+
 Not a decision, but the evaluation one of them rests on:
 [`docs/loro.md`](../loro.md) — the initial Loro evaluation, and the conditions
 that would reverse it.

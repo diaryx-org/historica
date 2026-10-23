@@ -554,6 +554,16 @@ paged manifest, and says to fetch the archive instead.
 `fetch` takes what a published copy holds and this store lacks, adding history
 and stopping — `update` is the folder's catch-up.
 
+A bookmark this store already holds moves to the publisher's reading where
+the move is forward along a line the copy follows — decision
+[0088](decisions/0088-a-fetch-moves-the-bookmarks-its-copy-follows.md): both
+name a change, this copy's is behind the publisher's, and the copy follows
+the publisher's revision under 0086's rule. So a reader who recorded nothing
+keeps up with `fetch` and `update`. Every other bookmark the publisher reads
+differently keeps this copy's reading, and the fetch names it with both
+readings and the reason. One the publisher deleted stays too, and is named,
+since a deletion is local: `name --delete` is how it goes.
+
 `fetch --no-bytes` takes the history and every text payload and leaves every
 file of bytes with the copy — the proposal
 [Bytes held elsewhere](proposals/bytes-held-elsewhere.md). Which payloads those
