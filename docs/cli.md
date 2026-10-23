@@ -575,6 +575,18 @@ files named and nothing else, without `check`ing the store, since a payload
 arriving under its own digest cannot make a store wrong. `update` writes them
 into the folder.
 
+`fetch --history` takes the revisions, the bookmarks and the rules and no
+content at all, and `fetch --name <bookmark>` takes the content of the line
+that bookmark names and every revision — decision
+[0089](decisions/0089-history-held-elsewhere.md). A command that reads a file
+of lines (`cat`, `diff`, `blame`, `update`, `status`, `record`) fetches the
+content it lacks from the copy this store last fetched from, which the cache
+remembers, and refuses whole where it cannot reach it, naming the files and
+the `fetch` that brings them. A file of lines the folder lacks and the store
+does not hold whole is listed as held elsewhere, and `record` does not drop
+it. `fetch <url> <path>...` takes a file of lines' content as well as a file
+of bytes'.
+
 `evict <url> <path>...` is the other direction: it lets go of the bytes of the
 files named, from the store and from the folder, where the copy at the URL
 offers them. It is not `forget`, which destroys bytes for every copy and writes

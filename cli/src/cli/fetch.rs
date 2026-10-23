@@ -29,19 +29,30 @@ use historica::tree::Kind;
 use historica::update;
 use historica::wrote::{Line, Statement};
 
-use super::{Failure, locate, printing, render, target};
+use super::{Failure, elsewhere, locate, printing, render, target};
 
-/// `fetch <url> [--join-unrelated] [--no-bytes] [<path>...]` — take what a
-/// published copy has and this store lacks.
+/// `fetch <url> [--join-unrelated] [--no-bytes] [--history] [--name
+/// <bookmark>]... [<path>...]` — take what a published copy has and this
+/// store lacks.
 pub fn fetch(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     let mut asked = Fetching::default();
     let mut fields = false;
     let mut url: Option<String> = None;
     let mut paths: Vec<String> = Vec::new();
-    for argument in arguments {
+    let mut arguments = arguments.into_iter();
+    while let Some(argument) = arguments.next() {
         match argument.as_str() {
             "--join-unrelated" => asked = asked.joining_unrelated(true),
             "--no-bytes" => asked = asked.leaving_bytes(true),
+            // Decision 0089: the history without the content, or the content
+            // of one line.
+            "--history" => asked = asked.leaving_content(true),
+            "--name" => {
+                let name = arguments
+                    .next()
+                    .ok_or_else(|| Failure::usage("`--name` wants a bookmark"))?;
+                asked = asked.naming(name);
+            }
             "--fields" => fields = true,
             other if other.starts_with('-') => {
                 return Err(Failure::usage(format!(
@@ -58,22 +69,28 @@ pub fn fetch(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
              wrote beside the copy `export` made",
         )
     })?;
+    if asked.leave_content && !asked.names.is_empty() {
+        return Err(Failure::usage(
+            "`--history` takes no content and `--name` takes one line's; \
+             ask for one or the other",
+        ));
+    }
     let (root, manifest) = addressed(&url)?;
 
     let mut store = super::cache::open(&locate(base)?)?;
     let source = Web::at(&root)?;
 
     // The files somebody named, and nothing else: the history is already
-    // here, and what is missing is the bytes of these.
+    // here, and what is missing is the content of these.
     if !paths.is_empty() {
         if asked != Fetching::default() {
             return Err(Failure::usage(
-                "`fetch <url> <path>...` takes the files of bytes named and \
-                 nothing else, so it has no use for `--no-bytes` or \
-                 `--join-unrelated`",
+                "`fetch <url> <path>...` takes the content of the files named \
+                 and nothing else, so it has no use for `--no-bytes`, \
+                 `--history`, `--name` or `--join-unrelated`",
             ));
         }
-        let named = files_of_bytes(&store, &paths)?;
+        let (named, text) = files_named(&store, &paths)?;
         // Decision 0014: bytes somebody forgot are not fetched back, and the
         // person who named them is told so rather than shown a zero.
         let mut forgotten = Vec::new();
@@ -88,9 +105,14 @@ pub fn fetch(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
                 forgotten.push(path);
             }
         }
+        // Decision 0089: a file of lines is its base and every operation
+        // document since, and all of what this store lacks of them is asked
+        // for at once.
+        wanted.extend(text.digests());
         let fetched = store
-            .fetch_payloads(&source, &manifest, &wanted)
+            .fetch_content(&source, &manifest, &wanted)
             .map_err(Failure::error)?;
+        elsewhere::remember_source(&store, &url);
         if fields {
             return printing(|out| render::wrote(out, &Statement::new()));
         }
@@ -101,8 +123,11 @@ pub fn fetch(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
                     "left {path} alone: its bytes were forgotten here, and are not fetched back"
                 )?;
             }
+            if fetched.documents != 0 {
+                writeln!(out, "fetched {} content documents", fetched.documents)?;
+            }
             writeln!(out, "fetched {} payloads", fetched.payloads)?;
-            if fetched.payloads != 0 {
+            if fetched.payloads + fetched.documents != 0 {
                 writeln!(
                     out,
                     "the folder is untouched; `historica update` writes them into it"
@@ -118,6 +143,8 @@ pub fn fetch(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     let fetched = store
         .fetch_following(&source, &manifest, asked, &rule)
         .map_err(Failure::error)?;
+    // Decision 0089: where content a command needs is fetched from later.
+    elsewhere::remember_source(&store, &url);
 
     if fields {
         let mut statement = Statement::new();
@@ -185,9 +212,10 @@ pub fn fetch(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
         if fetched.left != 0 {
             writeln!(
                 out,
-                "left {} payloads with the copy, each the bytes of a file at some \
-                 revision; `fetch <url> <path>` takes a file's, and `fetch <url>` \
-                 takes them all",
+                "left {} payloads and documents with the copy, each part of a \
+                 file at some revision; a command that reads a file fetches \
+                 what it needs, `fetch <url> <path>` takes a file's, and \
+                 `fetch <url>` takes them all",
                 fetched.left
             )?;
         }
@@ -341,6 +369,75 @@ fn path(argument: &str, command: &str) -> Result<String, Failure> {
         )));
     }
     Ok(path)
+}
+
+/// The files of bytes the current heads hold at or beneath each path, with
+/// the payload each names, and what the files of lines there lack.
+///
+/// Decision 0089: a file of lines is fetched by the chain it is built from,
+/// which [`Store::text_elsewhere`] names. A path naming no file the heads
+/// hold is refused.
+#[allow(clippy::type_complexity)]
+fn files_named(
+    store: &Store,
+    paths: &[String],
+) -> Result<
+    (
+        BTreeSet<(String, RevisionId)>,
+        historica::store::TextElsewhere,
+    ),
+    Failure,
+> {
+    let heads: Vec<RevisionId> = target::current_heads(store)?.into_iter().collect();
+    let mut found = BTreeSet::new();
+    let mut held: BTreeMap<String, Vec<(Kind, Option<RevisionId>)>> = BTreeMap::new();
+    for head in &heads {
+        for (_, entry) in store.tree(head).map_err(Failure::error)?.entries() {
+            held.entry(entry.path.clone())
+                .or_default()
+                .push((entry.kind, entry.payload));
+        }
+    }
+    for named in paths {
+        let beneath = format!("{named}/");
+        let exact = held.get_key_value(named.as_str()).into_iter();
+        let under = held
+            .range(beneath.clone()..)
+            .take_while(|(path, _)| path.starts_with(&beneath));
+        let mut any = false;
+        for (path, entries) in exact.chain(under) {
+            any = true;
+            for (kind, payload) in entries {
+                if let (Kind::Whole, Some(payload)) = (kind, payload) {
+                    found.insert((path.clone(), *payload));
+                }
+            }
+        }
+        if !any {
+            return Err(Failure::error(format!(
+                "`{named}` names no file the heads hold"
+            )));
+        }
+    }
+    let text = store
+        .text_elsewhere(&heads, Some(paths))
+        .map_err(Failure::error)?;
+    Ok((found, text))
+}
+
+/// The content a command needs, fetched from the copy at `url` by digest.
+///
+/// Decision 0089, for [`elsewhere`]: `Err` says why not, in
+/// the transport's words or the fetch's.
+pub(super) fn content(store: &mut Store, url: &str, digests: &[RevisionId]) -> Result<(), String> {
+    let (root, manifest) =
+        addressed(url).map_err(|failure| failure.message().unwrap_or_default().to_owned())?;
+    let source =
+        Web::at(&root).map_err(|failure| failure.message().unwrap_or_default().to_owned())?;
+    store
+        .fetch_content(&source, &manifest, digests)
+        .map(|_| ())
+        .map_err(|error| error.to_string())
 }
 
 /// The files of bytes the current heads hold at or beneath each path, with

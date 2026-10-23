@@ -65,7 +65,7 @@ pub fn blame_command(base: &Path, arguments: Vec<String>) -> Result<u8, Failure>
     }
 
     let root = locate(base)?;
-    let store = super::cache::open(&root)?;
+    let mut store = super::cache::open(&root)?;
 
     // 0001's disjoint alphabets again, and for 0037's reason: one argument is
     // a target or a path because nothing else could name either, and `path:`
@@ -92,6 +92,26 @@ pub fn blame_command(base: &Path, arguments: Vec<String>) -> Result<u8, Failure>
         }
         None => None,
     };
+
+    // Decision 0089: the file's content, fetched from the copy where a fetch
+    // left it there, before any line of it is attributed.
+    let revisions: Vec<RevisionId> = match &named {
+        Some(target) => vec![target::resolve(&store, target)?],
+        None => target::the_head(&store)?.into_iter().collect(),
+    };
+    if let Some(at) = revisions.first() {
+        let path = match target::file_in(&store, at, &spelling) {
+            Ok(file) => store
+                .tree(at)
+                .map_err(Failure::error)?
+                .path(&file)
+                .map(str::to_owned),
+            Err(_) => None,
+        };
+        if let Some(path) = path {
+            super::elsewhere::held_whole(&mut store, &revisions, Some(&[path]))?;
+        }
+    }
 
     let rows = match named {
         Some(target) => recorded(&store, &target, &spelling)?,

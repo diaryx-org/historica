@@ -326,7 +326,7 @@ pub struct Declined {
 ///
 /// Built from [`Fetching::default`], which is [`Store::fetch`]: everything the
 /// copy offers, from a copy related to this store.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 #[non_exhaustive]
 pub struct Fetching {
     /// Take the copy's history even where it shares nothing with this store
@@ -339,6 +339,17 @@ pub struct Fetching {
     /// store that did this names bytes it does not hold, which `check` notes,
     /// `status` lists as absent, and `record` does not read as deleted.
     pub leave_bytes: bool,
+    /// Leave every payload and every content document: take the revisions,
+    /// the bookmarks and the rules, and no content (decision 0089).
+    ///
+    /// A store that did this holds the whole graph and cannot read a file on
+    /// its own. A command that reads one fetches what it lacks from the copy.
+    pub leave_content: bool,
+    /// Take content only for the ancestry of what these bookmarks name, as
+    /// the publisher reads them (decision 0089).
+    ///
+    /// Every revision still arrives. Empty takes content for everything.
+    pub names: Vec<String>,
 }
 
 impl Fetching {
@@ -354,6 +365,26 @@ impl Fetching {
     pub fn leaving_bytes(mut self, leave: bool) -> Self {
         self.leave_bytes = leave;
         self
+    }
+
+    /// Leave every payload and content document.
+    #[must_use]
+    pub fn leaving_content(mut self, leave: bool) -> Self {
+        self.leave_content = leave;
+        self
+    }
+
+    /// Take content only for the ancestry of what this bookmark names.
+    #[must_use]
+    pub fn naming(mut self, name: impl Into<String>) -> Self {
+        self.names.push(name.into());
+        self
+    }
+
+    /// Whether anything is to be left behind, which is when the revisions are
+    /// read before the content.
+    fn leaves(&self) -> bool {
+        self.leave_bytes || self.leave_content || !self.names.is_empty()
     }
 }
 
@@ -649,9 +680,14 @@ impl<F: Filesystem> Store<F> {
             }
             let mut carried = BTreeMap::new();
             let mut leaving = Vec::new();
-            if asked.leave_bytes {
-                plan.payloads.extend(remembered.iter().cloned());
-                match self.leave_bytes(source, &mut plan, &mut fetched)? {
+            if asked.leaves() {
+                for entry in &remembered {
+                    match entry.kind {
+                        OfferKind::Payload => plan.payloads.push(entry.clone()),
+                        _ => plan.documents.push(entry.clone()),
+                    }
+                }
+                match self.leave(source, &listing.offer, &mut plan, &asked, &mut fetched)? {
                     Ok((revisions, left)) => {
                         carried = revisions;
                         leaving = left;
@@ -682,7 +718,7 @@ impl<F: Filesystem> Store<F> {
                     continue;
                 }
             }
-            if asked.leave_bytes {
+            if asked.leaves() {
                 break leaving;
             }
             // Taken after everything the pages named, and apart from it: a
@@ -794,12 +830,17 @@ impl<F: Filesystem> Store<F> {
             .iter()
             .filter_map(|offered| offered.forgets)
             .collect();
-        let wanted: BTreeSet<RevisionId> = plan.payloads.iter().map(|entry| entry.digest).collect();
+        let wanted: BTreeSet<RevisionId> = plan
+            .payloads
+            .iter()
+            .chain(&plan.documents)
+            .map(|entry| entry.digest)
+            .collect();
         let mut left = Vec::new();
         for entry in &listing.left {
             if forgotten.contains(&entry.digest)
                 || wanted.contains(&entry.digest)
-                || !self.held_elsewhere(&entry.digest)?
+                || !self.lacks_content(&entry.digest)?
             {
                 continue;
             }
@@ -809,26 +850,35 @@ impl<F: Filesystem> Store<F> {
     }
 
     /// Ask for the revisions a plan names before anything else, and leave
-    /// every payload only `bytes` headers name.
+    /// the content `asked` says to leave.
     ///
-    /// The proposal *Bytes held elsewhere*. Which payloads those are is a
-    /// fact about the revisions, the ones held and the ones arriving, so the
-    /// arriving ones are read first — verified and parsed as `take` would —
-    /// and handed back to be written last, where they always are. A payload
-    /// some revision names as a file's lines is taken whatever else names it:
-    /// without it that file cannot be read at any revision.
+    /// The proposal *Bytes held elsewhere*, and decision 0089. Which payloads
+    /// are files of bytes, and which content the ancestry of a bookmark
+    /// names, are facts about the revisions, the ones held and the ones
+    /// arriving, so the arriving ones are read first — verified and parsed as
+    /// `take` would — and handed back to be written last, where they always
+    /// are.
+    ///
+    /// Under `leave_bytes`, a payload some revision names as a file's lines is
+    /// taken whatever else names it: without it that file cannot be read at
+    /// any revision. Under `names`, only what the ancestry of the named
+    /// revisions names is taken. Under `leave_content`, nothing is. A
+    /// forgetting document is always taken, being small and what decision
+    /// 0014 complies with.
     ///
     /// `Ok(Err(path))` where a revision was not there, which the caller
     /// answers by reading the manifest again.
     #[allow(clippy::type_complexity)]
-    fn leave_bytes<S: Source + ?Sized>(
+    fn leave<S: Source + ?Sized>(
         &self,
         source: &S,
+        offer: &Offer,
         plan: &mut FetchPlan,
+        asked: &Fetching,
         fetched: &mut Fetched,
     ) -> Result<Result<(BTreeMap<RevisionId, Vec<u8>>, Vec<Offered>), String>, FetchError> {
-        let (mut text, mut bytes) = self.named_payloads()?;
         let mut carried = BTreeMap::new();
+        let mut arriving: BTreeMap<RevisionId, RevisionDocument> = BTreeMap::new();
         for entry in &plan.revisions {
             let Some(read) = ask(source, &entry.path, fetched)? else {
                 return Ok(Err(entry.path.clone()));
@@ -843,15 +893,144 @@ impl<F: Filesystem> Store<F> {
             }
             let document =
                 RevisionDocument::parse(&read).map_err(|error| unusable(&entry.path, error))?;
-            text.extend(document.text.values().copied());
-            bytes.extend(document.bytes.values().copied());
+            arriving.insert(found, document);
             carried.insert(found, read);
         }
-        let (leaving, taking): (Vec<Offered>, Vec<Offered>) = std::mem::take(&mut plan.payloads)
-            .into_iter()
-            .partition(|entry| bytes.contains(&entry.digest) && !text.contains(&entry.digest));
-        plan.payloads = taking;
+
+        // What may be taken: everything, or what the named ancestry names, or
+        // nothing.
+        let within: Option<BTreeSet<RevisionId>> = if asked.leave_content {
+            Some(BTreeSet::new())
+        } else if asked.names.is_empty() {
+            None
+        } else {
+            match self.named_content(source, offer, &asked.names, &arriving, fetched)? {
+                Ok(within) => Some(within),
+                Err(moved) => return Ok(Err(moved)),
+            }
+        };
+        let (text, bytes) = if asked.leave_bytes {
+            let (mut text, mut bytes) = self.named_payloads()?;
+            for document in arriving.values() {
+                text.extend(document.text.values().copied());
+                bytes.extend(document.bytes.values().copied());
+            }
+            (text, bytes)
+        } else {
+            (BTreeSet::new(), BTreeSet::new())
+        };
+        let taken = |entry: &Offered| {
+            within
+                .as_ref()
+                .is_none_or(|within| within.contains(&entry.digest))
+        };
+
+        let mut leaving = Vec::new();
+        for entry in std::mem::take(&mut plan.payloads) {
+            let only_bytes = bytes.contains(&entry.digest) && !text.contains(&entry.digest);
+            if taken(&entry) && !(asked.leave_bytes && only_bytes) {
+                plan.payloads.push(entry);
+            } else {
+                leaving.push(entry);
+            }
+        }
+        for entry in std::mem::take(&mut plan.documents) {
+            if entry.forgets.is_some() || taken(&entry) {
+                plan.documents.push(entry);
+            } else {
+                leaving.push(entry);
+            }
+        }
         Ok(Ok((carried, leaving)))
+    }
+
+    /// Every payload and document the ancestry of what `names` name names,
+    /// reading each bookmark as the publisher states it (decision 0089).
+    ///
+    /// `Ok(Err(path))` where a bookmark's file was not there.
+    fn named_content<S: Source + ?Sized>(
+        &self,
+        source: &S,
+        offer: &Offer,
+        names: &[String],
+        arriving: &BTreeMap<RevisionId, RevisionDocument>,
+        fetched: &mut Fetched,
+    ) -> Result<Result<BTreeSet<RevisionId>, String>, FetchError> {
+        let document = |id: &RevisionId| -> Result<Option<RevisionDocument>, FetchError> {
+            Ok(match arriving.get(id) {
+                Some(document) => Some(document.clone()),
+                None => self.get(id)?.cloned(),
+            })
+        };
+        let mut starts: BTreeSet<RevisionId> = BTreeSet::new();
+        for name in names {
+            let Some(entry) = offer
+                .of(OfferKind::Name)
+                .find(|entry| named_by(&entry.path) == Some(name.as_str()))
+            else {
+                return Err(FetchError::NoSuchName { name: name.clone() });
+            };
+            let Some(bytes) = ask(source, &entry.path, fetched)? else {
+                return Ok(Err(entry.path.clone()));
+            };
+            let found = digest(&bytes);
+            if found != entry.digest {
+                return Err(FetchError::Tampered {
+                    path: entry.path.clone(),
+                    offered: entry.digest,
+                    found,
+                });
+            }
+            let text = String::from_utf8(bytes)
+                .map_err(|_| unusable(&entry.path, "a bookmark file that is not text"))?;
+            let bookmark =
+                Bookmark::parse(&text).map_err(|because| unusable(&entry.path, because))?;
+            match bookmark.target {
+                Name::Revision(revision) => {
+                    starts.insert(revision);
+                }
+                Name::Change(change) => {
+                    // The current revisions of the change, among what is held
+                    // and what is arriving: those of it nothing supersedes.
+                    let mut superseded = BTreeSet::new();
+                    let mut of_it = BTreeSet::new();
+                    let held = self.documents()?;
+                    let every = held
+                        .iter()
+                        .map(|(id, document)| (**id, *document))
+                        .chain(arriving.iter().map(|(id, document)| (*id, document)));
+                    for (id, document) in every {
+                        superseded.extend(document.supersedes.iter().copied());
+                        if document.change == change {
+                            of_it.insert(id);
+                        }
+                    }
+                    let current: Vec<RevisionId> = of_it.difference(&superseded).copied().collect();
+                    if current.is_empty() {
+                        return Err(FetchError::NoSuchName { name: name.clone() });
+                    }
+                    starts.extend(current);
+                }
+                Name::File(_) => return Err(FetchError::NoSuchName { name: name.clone() }),
+            }
+        }
+
+        let mut within = BTreeSet::new();
+        let mut seen = BTreeSet::new();
+        let mut walking: Vec<RevisionId> = starts.into_iter().collect();
+        while let Some(id) = walking.pop() {
+            if !seen.insert(id) {
+                continue;
+            }
+            let Some(document) = document(&id)? else {
+                continue;
+            };
+            within.extend(document.text.values().copied());
+            within.extend(document.bytes.values().copied());
+            within.extend(document.edited.values().copied());
+            walking.extend(document.parents.iter().copied());
+        }
+        Ok(Ok(within))
     }
 
     /// The payloads the revisions this store holds name as a file's lines,
@@ -888,9 +1067,7 @@ impl<F: Filesystem> Store<F> {
     ) -> Result<Vec<Offered>, FetchError> {
         let mut lost = Vec::new();
         for entry in remembered {
-            if self.fetch_payload(source, entry, fetched)? {
-                fetched.payloads += 1;
-            } else {
+            if !self.fetch_entry(source, entry, fetched)? {
                 lost.push(entry.digest);
             }
         }
@@ -900,6 +1077,7 @@ impl<F: Filesystem> Store<F> {
         let (whole, _) = self.whole_listing(source, manifest, fetched)?;
         let offered: BTreeMap<RevisionId, &Offered> = whole
             .of(OfferKind::Payload)
+            .chain(whole.of(OfferKind::Operation))
             .map(|entry| (entry.digest, entry))
             .collect();
         let mut left = Vec::new();
@@ -907,9 +1085,7 @@ impl<F: Filesystem> Store<F> {
             let Some(entry) = offered.get(&digest) else {
                 continue;
             };
-            if self.fetch_payload(source, entry, fetched)? {
-                fetched.payloads += 1;
-            } else {
+            if !self.fetch_entry(source, entry, fetched)? {
                 left.push((*entry).clone());
             }
         }
@@ -937,10 +1113,29 @@ impl<F: Filesystem> Store<F> {
         manifest: &str,
         wanted: &[RevisionId],
     ) -> Result<Fetched, FetchError> {
+        self.fetch_content(source, manifest, wanted)
+    }
+
+    /// Take particular payloads and content documents, by digest, and
+    /// nothing else.
+    ///
+    /// [`Store::fetch_payloads`], for the content of a file of lines as well
+    /// (decision 0089): the base payload and the operation documents a
+    /// command needs to read a file a fetch left behind, which
+    /// [`Store::text_elsewhere`] names. Each is looked for where a fetch that
+    /// left it remembered it, and in the whole listing where nothing did.
+    /// A digest the copy has forgotten is taken as the document that stands
+    /// in for it, where the copy offers one.
+    pub fn fetch_content<S: Source + ?Sized>(
+        &mut self,
+        source: &S,
+        manifest: &str,
+        wanted: &[RevisionId],
+    ) -> Result<Fetched, FetchError> {
         let mut fetched = Fetched::default();
         let mut missing: BTreeSet<RevisionId> = BTreeSet::new();
         for digest in wanted {
-            if !missing.contains(digest) && self.held_elsewhere(digest)? {
+            if !missing.contains(digest) && self.lacks_content(digest)? {
                 missing.insert(*digest);
             }
         }
@@ -965,9 +1160,21 @@ impl<F: Filesystem> Store<F> {
         loop {
             if missing.iter().any(|digest| !addresses.contains_key(digest)) {
                 let (whole, _) = self.whole_listing(source, manifest, &mut fetched)?;
-                for entry in whole.of(OfferKind::Payload) {
+                for entry in whole
+                    .of(OfferKind::Payload)
+                    .chain(whole.of(OfferKind::Operation))
+                {
                     if missing.contains(&entry.digest) {
                         addresses.insert(entry.digest, entry.clone());
+                    }
+                }
+                // Forgotten at the copy: what stands in for it is what a
+                // reader reads, and is what the copy offers.
+                for entry in whole.of(OfferKind::Operation) {
+                    if let Some(forgets) = entry.forgets
+                        && missing.contains(&forgets)
+                    {
+                        addresses.entry(forgets).or_insert_with(|| entry.clone());
                     }
                 }
             }
@@ -980,9 +1187,7 @@ impl<F: Filesystem> Store<F> {
             let mut moved = None;
             for digest in std::mem::take(&mut missing) {
                 let entry = addresses.remove(&digest).expect("found above");
-                if self.fetch_payload(source, &entry, &mut fetched)? {
-                    fetched.payloads += 1;
-                } else {
+                if !self.fetch_entry(source, &entry, &mut fetched)? {
                     moved = Some(entry.path);
                     missing.insert(digest);
                 }
@@ -1168,12 +1373,19 @@ impl<F: Filesystem> Store<F> {
                     return None;
                 }
                 memory.heads.push(head);
-            } else if let Some(left) = line.strip_prefix("left ") {
+            } else if let Some((kind, left)) = line
+                .strip_prefix("left ")
+                .map(|left| (OfferKind::Payload, left))
+                .or_else(|| {
+                    line.strip_prefix("left-document ")
+                        .map(|left| (OfferKind::Operation, left))
+                })
+            {
                 // The path is last, because it is the one field that may hold
                 // a space (decision 0043).
                 let (digest, path) = left.split_once(' ')?;
                 memory.left.push(Offered {
-                    kind: OfferKind::Payload,
+                    kind,
                     digest: digest.parse().ok()?,
                     forgets: None,
                     path: path.to_owned(),
@@ -1228,7 +1440,13 @@ impl<F: Filesystem> Store<F> {
             text.push_str(&format!("page {page}\n"));
         }
         for entry in left {
-            text.push_str(&format!("left {} {}\n", entry.digest, entry.path));
+            // A payload is `left`, as it was before content documents could
+            // be; a document is `left-document` (decision 0089).
+            let kind = match entry.kind {
+                OfferKind::Payload => "left",
+                _ => "left-document",
+            };
+            text.push_str(&format!("{kind} {} {}\n", entry.digest, entry.path));
         }
         let _ = self.files.create_directory(&directory);
         let _ = self.files.write(&file, text.as_bytes());
@@ -1432,26 +1650,7 @@ impl<F: Filesystem> Store<F> {
                     fetched.payloads += 1;
                 }
                 OfferKind::Operation => {
-                    // Written back in the grammar it was read in: a resolution
-                    // rewritten as anything else would be a different digest,
-                    // and the `edit` line naming it would stop finding it.
-                    let name = format!("{found}{OPERATION_SUFFIX}");
-                    if format::is_forgotten_payload(&bytes) {
-                        // Decision 0066's grammar, which is a document like
-                        // any other and travels as one: two headers saying
-                        // which payload went and how long it was.
-                        let document = format::ForgottenPayload::parse(&bytes)
-                            .map_err(|error| unusable(&entry.path, error))?;
-                        self.insert_forgotten_payload_at(&document, &name)?;
-                    } else if format::is_resolution(&bytes) {
-                        let document = ResolutionDocument::parse(&bytes)
-                            .map_err(|error| unusable(&entry.path, error))?;
-                        self.insert_resolution_at(&document, &name)?;
-                    } else {
-                        let document = OperationDocument::parse(&bytes)
-                            .map_err(|error| unusable(&entry.path, error))?;
-                        self.insert_operation_at(&document, &name)?;
-                    }
+                    self.insert_document(&bytes, found, &entry.path)?;
                     fetched.documents += 1;
                 }
                 OfferKind::Revision => {
@@ -1509,6 +1708,65 @@ impl<F: Filesystem> Store<F> {
         // new is written under the label this store derives.
         fetched.rules += self.add_skipped(&rules)?.len();
         Ok(None)
+    }
+
+    /// File one content document that arrived and hashed to `found`.
+    fn insert_document(
+        &mut self,
+        bytes: &[u8],
+        found: RevisionId,
+        path: &str,
+    ) -> Result<(), FetchError> {
+        // Written back in the grammar it was read in: a resolution rewritten
+        // as anything else would be a different digest, and the `edit` line
+        // naming it would stop finding it.
+        let name = format!("{found}{OPERATION_SUFFIX}");
+        if format::is_forgotten_payload(bytes) {
+            // Decision 0066's grammar, which is a document like any other and
+            // travels as one: two headers saying which payload went and how
+            // long it was.
+            let document =
+                format::ForgottenPayload::parse(bytes).map_err(|error| unusable(path, error))?;
+            self.insert_forgotten_payload_at(&document, &name)?;
+        } else if format::is_resolution(bytes) {
+            let document =
+                ResolutionDocument::parse(bytes).map_err(|error| unusable(path, error))?;
+            self.insert_resolution_at(&document, &name)?;
+        } else {
+            let document =
+                OperationDocument::parse(bytes).map_err(|error| unusable(path, error))?;
+            self.insert_operation_at(&document, &name)?;
+        }
+        Ok(())
+    }
+
+    /// Fetch one payload or content document left behind, counting it:
+    /// `false` where the source says it is not there.
+    fn fetch_entry<S: Source + ?Sized>(
+        &mut self,
+        source: &S,
+        entry: &Offered,
+        fetched: &mut Fetched,
+    ) -> Result<bool, FetchError> {
+        if entry.kind == OfferKind::Payload {
+            let taken = self.fetch_payload(source, entry, fetched)?;
+            fetched.payloads += usize::from(taken);
+            return Ok(taken);
+        }
+        let Some(bytes) = ask(source, &entry.path, fetched)? else {
+            return Ok(false);
+        };
+        let found = digest(&bytes);
+        if found != entry.digest {
+            return Err(FetchError::Tampered {
+                path: entry.path.clone(),
+                offered: entry.digest,
+                found,
+            });
+        }
+        self.insert_document(&bytes, found, &entry.path)?;
+        fetched.documents += 1;
+        Ok(true)
     }
 
     /// Fetch one payload straight into `operations/`, without holding it.
@@ -1810,6 +2068,13 @@ pub enum FetchError {
         /// The payload.
         payload: RevisionId,
     },
+    /// A bookmark `--name` asked for that the copy does not state as a line
+    /// of history: no such bookmark, one naming a file, or a change with no
+    /// current revision.
+    NoSuchName {
+        /// The bookmark.
+        name: String,
+    },
     /// A path kept moving out from under the fetch.
     Stale {
         /// The last path that was no longer there.
@@ -1873,6 +2138,12 @@ impl fmt::Display for FetchError {
                 f,
                 "the copy does not offer {payload}, so there is nowhere to fetch \
                  it from"
+            ),
+            FetchError::NoSuchName { name } => write!(
+                f,
+                "the copy states no bookmark `{name}` naming a change or a \
+                 revision, so there is no line of history to take the content \
+                 of; `historica names` on the publisher's side lists them"
             ),
             FetchError::Stale { path } => write!(
                 f,

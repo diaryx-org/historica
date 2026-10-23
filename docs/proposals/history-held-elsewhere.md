@@ -1,9 +1,9 @@
 ---
 title: History held elsewhere
 part_of: '[Proposals](/docs/proposals/proposals.md)'
-status: draft
+status: implemented
 created: 2026-10-21
-updated: 2026-10-21
+updated: 2026-10-22
 description: 'A copy that holds every revision and only the content it reads: a fetch that takes the history without the files, or the content of one line, and commands that fetch the rest from the copy it came from when they need it — extending bytes held elsewhere to text, which that proposal could not do without a source to fetch from'
 ---
 
@@ -11,10 +11,35 @@ description: 'A copy that holds every revision and only the content it reads: a 
 
 ## Status
 
-Draft, argued 2026-10-21, as the companion to
-[A fetch moves the bookmarks its copy follows](/docs/proposals/a-fetch-moves-the-bookmarks-its-copy-follows.md).
-Nothing here is built. It assumes the copy can reach where it came from, and
-says what it costs a copy that cannot.
+Implemented 2026-10-22, unreleased, as decision
+[0089](/docs/decisions/0089-history-held-elsewhere.md), which is the
+authority from now on. Argued 2026-10-21, as the companion to
+[A fetch moves the bookmarks its copy follows](/docs/proposals/a-fetch-moves-the-bookmarks-its-copy-follows.md),
+which was built first (decision 0088). Nothing here depends on it: `--name`
+reads the publisher's bookmark from the listing, not the copy's own.
+
+The open questions were settled by Adam on 2026-10-22:
+
+1. **`evict` does not extend to text, for now.** Deferred: nothing needs it
+   yet, and it is the act most likely to leave a copy that cannot read its own
+   folder offline. `evict` stays bytes-only.
+2. **`update` does not leave a text file absent.** It fetches the content the
+   head needs, and offline it refuses whole, as proposed.
+
+The build differs from the body below here:
+
+- **`status` and `amend` fetch too**, beside `cat`, `diff`, `blame`, `update`
+  and `record`: each reads a file of lines' content to compare it.
+- **A file of lines is its content across the whole ancestry.** What a
+  command fetches is every `text` and `edit` digest the revision's ancestry
+  names for the file, which at a merge is more than one line's chain.
+- **`merge`, `carry`, `squash` and `export` do not fetch.** They refuse with
+  the store's own `MissingOperations` or `MissingPayload`, which a plain
+  `fetch` answers.
+- **A forgetting document is always taken**, by `--history` and `--name`
+  alike, since it is small and is what decision 0014 complies with.
+- **`fetch <url> <path>...` takes a file of lines' content** as well as a
+  file of bytes'.
 
 ## What is here already
 

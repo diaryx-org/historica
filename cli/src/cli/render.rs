@@ -483,7 +483,7 @@ pub fn status(
     for path in elsewhere {
         writeln!(
             out,
-            "{:<7} {path}: this store does not hold its bytes; `fetch` brings them",
+            "{:<7} {path}: this store does not hold its content; `fetch` brings it",
             "absent"
         )?;
     }

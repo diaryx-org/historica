@@ -173,6 +173,10 @@ pub fn record(base: &Path, root: PathBuf, arguments: Vec<String>) -> Result<u8, 
     }
 
     let working = super::cache::working(&repository, &store).map_err(Failure::error)?;
+    // Decision 0089: a file the folder holds is diffed against its base, so
+    // content a fetch left with the copy is fetched first, or the record is
+    // refused whole. A file the folder lacks is read as held elsewhere.
+    super::elsewhere::folder_held_whole(&mut store, &working, &parents, None)?;
 
     // A kind is a fact about a file, so a path with no file under it has
     // nothing to be a fact about. Said here rather than passed over, because
@@ -336,6 +340,16 @@ pub fn amend(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
         true => Working::unread(&repository),
         false => super::cache::working(&repository, &store).map_err(Failure::error)?,
     };
+    // Decision 0089, as `record` asks it: the folder holds the amended
+    // revision, and is surveyed against that revision's parents.
+    if !rewording {
+        let mut laid: Vec<RevisionId> = store
+            .revision(&revision)
+            .map(|held| held.parents.iter().copied().collect())
+            .unwrap_or_default();
+        laid.push(revision);
+        super::elsewhere::folder_held_whole(&mut store, &working, &laid, None)?;
+    }
     let mut platform = Platform;
 
     if dry_run {
@@ -1065,7 +1079,7 @@ pub fn merge(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
                 if !store.holds_payload(&payload).map_err(Failure::error)? {
                     match held {
                         None => said.push(format!(
-                            "{:<7} {at}: this store does not hold its bytes; `fetch` brings them",
+                            "{:<7} {at}: this store does not hold its content; `fetch` brings it",
                             "absent"
                         )),
                         Some(held) if held == payload => {}
