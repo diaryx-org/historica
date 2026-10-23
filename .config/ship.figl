@@ -15,6 +15,15 @@ release_branch = main
 # the tree.
 verify_after_bump = true
 
+# Each crate releases on its own line. historica and historica-cli inherit
+# `[workspace.package] version` and keep the plain `v<x.y.z>` tags and
+# docs/CHANGELOG.md; git/, minisign/ and remark/ each have a `[package]
+# version` of their own, `<crate>-v<x.y.z>` tags and a CHANGELOG.md in their
+# directory. `ship -p <crate>` proposes or cuts one. The `v0.x` tags the three
+# brought from their old repositories are not this line's, so each one's first
+# release here is a bump, not `as-is`.
+per_crate = true
+
 # No `tag_starts`: nothing runs on the tag. The GitHub release is cut by `ship`
 # itself, from the machine that pushed the tag — `ship github <tag>` is the
 # same step run on its own — and every upload to crates.io is a
