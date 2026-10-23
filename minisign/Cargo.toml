@@ -1,0 +1,81 @@
+[package]
+name = "historica-minisign"
+# Its own version rather than the workspace's, which is historica's: each
+# crate in this repository is released on its own.
+version = "0.2.0"
+edition.workspace = true
+rust-version.workspace = true
+description = "Signed claims that vouch for Historica revisions"
+license.workspace = true
+repository.workspace = true
+readme = "README.md"
+documentation = "https://docs.rs/historica-minisign"
+# What a person searching crates.io would type. They arrive holding a store
+# whose `author` lines nothing checks, so `historica` and `version-control` are
+# the shelf; `minisign` and `signing` are the errand; `trust` is the question
+# underneath it — decision 0046 of historica is "who vouches for a revision".
+keywords = ["historica", "minisign", "signing", "version-control", "trust"]
+categories = ["development-tools", "command-line-utilities", "cryptography"]
+
+# `verify` is the half that has to be cheap to depend on. Historica's decision
+# 0046 defers enforcement at `receive` — a store refusing history no trusted key
+# vouches for — and names it as the one integration this design cannot deliver
+# from outside. If that is ever built, it needs to read claims and check
+# signatures, and it must not drag key generation, password prompting, or a
+# secret-key parser into a version-control core. So the default build is the
+# tool, and `default-features = false` is a library that only ever verifies:
+# `minisign-verify` and nothing else.
+[features]
+default = ["sign", "disk", "http"]
+# Writing a claim, and the secret key that requires. `minisign` is
+# rust-minisign, the reference implementation's own crate.
+sign = ["dep:minisign"]
+# Historica's `disk` feature — the `std::fs` implementation of `Filesystem`,
+# which is what the short constructors and this crate's binary resolve to.
+# Turning it off leaves a library that reaches the store through whatever
+# filesystem its caller hands it, which is historica's decision 0025.
+disk = ["historica/disk"]
+# Reading over HTTP with a device key: a fetch `Source` that signs every
+# request, and the token request a git credential helper is built on. The
+# platform's own HTTP stack through `nyquest`, as historica's decision 0057
+# chose for historica's own fetch, and behind a feature for 0057's reason: a
+# target with no such stack under it, wasm above all, where the hub's worker
+# and the page check and sign requests through `request` and bring their own
+# transport. In the default set because the default build is the tool, and
+# `historica minisign fetch` is a command of it; `sign` because a source that
+# signs needs the secret key.
+http = ["sign", "dep:nyquest", "dep:nyquest-preset"]
+
+# The command-line front end. `sign` because a tool that could not write a claim
+# would be a strange thing to install; `disk` because a CLI is the one caller
+# that always knows it is talking to a real filesystem.
+[[bin]]
+name = "historica-minisign"
+path = "src/main.rs"
+required-features = ["sign", "disk"]
+
+[dependencies]
+# The library beside it, by path, and by version for publishing, as in
+# historica-git: `cargo publish` uploads the version as the requirement. The
+# version states the promise this crate is written against, and historica's
+# decision 0053 promises the other end of it.
+#
+# What is taken from it is deliberately small — the store's revision set, the
+# filesystem seam, and the one spelling of a moment. Nothing here writes a
+# historica document, and historica's decision 0046 is why: the trust layer
+# needs nothing from the inside.
+historica = { version = "1.0.0-rc.8", path = ".." }
+# Verification, which is the operation that must work everywhere. Zero
+# dependencies of its own, which is the whole reason 0046 names it.
+minisign-verify = "0.2.5"
+# Signing. Optional because a verifier should not have to build it; see the
+# `sign` feature above.
+minisign = { version = "0.9.1", optional = true }
+# The platform's own HTTP stack, behind one interface: WinRT on Windows,
+# NSURLSession on Apple, libcurl elsewhere. Historica's decision 0057 argues
+# the choice and the pin, and this takes both as historica-cli does: exactly
+# `=0.4.0`, because nyquest says its API is subject to change, so moving it is
+# somebody typing a version. `blocking` because the CLI is synchronous from
+# `main` down.
+nyquest = { version = "=0.4.0", optional = true, features = ["blocking"] }
+nyquest-preset = { version = "=0.4.0", optional = true, features = ["blocking"] }

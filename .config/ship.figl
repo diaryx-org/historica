@@ -15,6 +15,15 @@ release_branch = main
 # the tree.
 verify_after_bump = true
 
+# Each crate releases on its own line. historica and historica-cli inherit
+# `[workspace.package] version` and keep the plain `v<x.y.z>` tags and
+# docs/CHANGELOG.md; git/, minisign/ and remark/ each have a `[package]
+# version` of their own, `<crate>-v<x.y.z>` tags and a CHANGELOG.md in their
+# directory. `ship -p <crate>` proposes or cuts one. The `v0.x` tags the three
+# brought from their old repositories are not this line's, so each one's first
+# release here is a bump, not `as-is`.
+per_crate = true
+
 # No `tag_starts`: nothing runs on the tag. The GitHub release is cut by `ship`
 # itself, from the machine that pushed the tag — `ship github <tag>` is the
 # same step run on its own — and every upload to crates.io is a
@@ -73,6 +82,25 @@ job
 > > run = cargo xtask bare
 > > runner
 > > > components = clippy
+> *
+> > # historica-minisign with no default features: verification alone, the half
+> > # a version-control core could take without key generation or a secret-key
+> > # parser.
+> > id = minisign-verify-only
+> > name = Minisign verify only
+> > run = '''
+cargo build -p historica-minisign --lib --no-default-features
+cargo test -p historica-minisign --lib --no-default-features
+'''
+> *
+> > # historica-remark with no default features: the remark model alone, with
+> > # no historica, filesystem or store under it.
+> > id = remark-model-only
+> > name = Remark model only
+> > run = '''
+cargo build -p historica-remark --lib --no-default-features
+cargo test -p historica-remark --lib --no-default-features
+'''
 > *
 > > # The whole CLI built for both wasi previews with no HTTP stack under it
 > > # (decision 0057). The task installs the targets it builds for.

@@ -275,9 +275,9 @@ fn usage() -> String {
 // ---------------------------------------------------------------------------
 //
 // This came across from `release.rs` when releasing left xtask. Its only
-// remaining caller is a CI test: `cli/` asking for a version of
-// `historica` that is not the one beside it would publish a front end against
-// the wrong library, and nothing else catches that.
+// remaining caller is a CI test: a member asking for a version of
+// `historica` that is not the one beside it would publish against the wrong
+// library, and nothing else catches that.
 
 #[cfg(test)]
 /// The version `historica = { version = "…", … }` asks for, from the line that
@@ -407,10 +407,10 @@ mod tests {
     use super::*;
 
     /// `ship bump` rewrites one line — `[workspace.package] version` —
-    /// and every member inherits it. One requirement does not inherit: the
-    /// front end depends on the library by version as well as by path, because
-    /// that is what publishing needs, and a literal in `cli/Cargo.toml` is a
-    /// number only `set_requirement` rewrites.
+    /// and every member inherits it. The requirements do not inherit: the
+    /// front end and the crates built on the library (`git`, `minisign`,
+    /// `remark`) depend on it by version as well as by path, because that is
+    /// what publishing needs, and each is a literal in its own manifest.
     ///
     /// The two are compared in full rather than by major, which is what this
     /// once did. By major it cannot catch the case that actually bites: a
@@ -438,17 +438,26 @@ mod tests {
             })
             .expect("`version` in [workspace.package]");
 
-        let ours = sh
-            .read("cli/Cargo.toml")
-            .unwrap()
-            .lines()
-            .find_map(|line| Some(requirement(line)?.to_owned()))
-            .expect("a `historica = { version = \"…\" }` requirement in cli/Cargo.toml");
+        for manifest in [
+            "cli/Cargo.toml",
+            "git/Cargo.toml",
+            "minisign/Cargo.toml",
+            "remark/Cargo.toml",
+        ] {
+            let ours = sh
+                .read(manifest)
+                .unwrap()
+                .lines()
+                .find_map(|line| Some(requirement(line)?.to_owned()))
+                .unwrap_or_else(|| {
+                    panic!("a `historica = {{ version = \"…\" }}` requirement in {manifest}")
+                });
 
-        assert_eq!(
-            ours, theirs,
-            "cli/Cargo.toml asks for historica {ours} while the workspace is {theirs} — \
-             the front end would publish against a library that is not the one beside it",
-        );
+            assert_eq!(
+                ours, theirs,
+                "{manifest} asks for historica {ours} while the workspace is {theirs} — \
+                 the crate would publish against a library that is not the one beside it",
+            );
+        }
     }
 }

@@ -1,0 +1,406 @@
+//! Writing a store out, and what comes back when git reads it.
+//!
+//! The corpus is converted into a store by `import` and written out again here,
+//! so this exercises the whole bridge in both directions with no repository on
+//! disk. What needs git installed is separated out and says so.
+
+use std::fs;
+use std::io::Cursor;
+use std::path::{Path, PathBuf};
+
+use historica_git::stream::{Command, Reader};
+use historica_git::{export, import};
+
+fn corpus() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/corpus/export/all.fi")
+}
+
+fn folder(name: &str) -> PathBuf {
+    let at = PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(name);
+    let _ = fs::remove_dir_all(&at);
+    at
+}
+
+/// The corpus, as a store.
+fn store(name: &str) -> PathBuf {
+    let at = folder(name);
+    let stream = fs::File::open(corpus()).expect("the corpus is checked in");
+    import::from_stream(std::io::BufReader::new(stream), &at).expect("the corpus converts");
+    at
+}
+
+fn write(from: &Path) -> (Vec<u8>, export::Report) {
+    let mut out = Vec::new();
+    let report = export::to_stream(from, &mut out).expect("the store writes out");
+    (out, report)
+}
+
+/// Decision 0004's whole claim, tested where it can be tested without git:
+/// nothing about the stream depends on when or where it was written.
+#[test]
+fn one_store_writes_the_same_stream_every_time() {
+    let at = store("write-twice");
+    let (once, first) = write(&at);
+    let (again, second) = write(&at);
+
+    assert_eq!(once, again, "two runs over one store disagreed");
+    assert_eq!(first.commits, second.commits);
+    assert!(first.commits > 0, "the corpus has commits in it");
+}
+
+/// What is written is a stream, which is to say the reader accepts it.
+#[test]
+fn what_is_written_reads_back() {
+    let at = store("write-reads");
+    let (bytes, report) = write(&at);
+
+    let commands = Reader::new(Cursor::new(&bytes))
+        .collect::<Result<Vec<_>, _>>()
+        .expect("what was written reads");
+
+    let commits = commands
+        .iter()
+        .filter(|command| matches!(command, Command::Commit(_)))
+        .count();
+    assert_eq!(
+        commits, report.commits,
+        "the report and the stream disagree"
+    );
+    assert!(
+        matches!(commands.last(), Some(Command::Done)),
+        "a stream should say it ended rather than merely stop"
+    );
+}
+
+/// Decision 0001, from this end: the conversion says what it could not carry,
+/// and the corpus holds one of everything it cannot. That change IDs go
+/// nowhere is true of every write, so it is standing — decision 0010 — and
+/// not one of this run's own notes.
+#[test]
+fn the_conversion_says_what_did_not_cross() {
+    let at = store("write-says");
+    let (_, report) = write(&at);
+    let said = report.standing.join("\n");
+    assert!(
+        said.contains("change ID"),
+        "change IDs go nowhere and that is worth saying: {said}"
+    );
+    assert!(
+        !report.uncarried.join("\n").contains("change ID"),
+        "{report:?}"
+    );
+}
+
+/// A commit's identity is a fact about the revision and nothing else, so a
+/// store written out twice into two repositories produces two identical sets of
+/// object IDs. Needs git.
+#[test]
+fn a_store_written_twice_produces_one_repository() {
+    let Some(_) = git() else { return };
+    let at = store("write-repos");
+
+    let first = folder("write-repo-a");
+    let second = folder("write-repo-b");
+    export::to_repository(&at, &first).expect("the first repository is written");
+    export::to_repository(&at, &second).expect("the second repository is written");
+
+    assert_eq!(
+        commits(&first),
+        commits(&second),
+        "two conversions of one store disagreed about what the commits are"
+    );
+    assert!(!commits(&first).is_empty(), "something was written");
+}
+
+/// Whether git is installed, since decision 0002 makes it a dependency of the
+/// conversion rather than of this crate.
+fn git() -> Option<()> {
+    std::process::Command::new("git")
+        .arg("--version")
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .status()
+        .ok()
+        .filter(std::process::ExitStatus::success)
+        .map(|_| ())
+}
+
+fn commits(at: &Path) -> Vec<String> {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(at)
+        .args(["rev-list", "--all", "--reverse"])
+        .output()
+        .expect("git runs");
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(str::to_owned)
+        .collect()
+}
+
+/// Decision 0004's headline, end to end: a repository historica can hold
+/// entirely converts to a store and back to *the same commits*.
+///
+/// The repository is built here rather than checked in, because what is being
+/// tested is agreement with the git on this machine. Everything in it is a fact
+/// historica has a place for — one person, no signature, no committer distinct
+/// from the author — which is exactly the set decision 0004 says round-trips.
+/// What is left out is left out on purpose, and each omission is a line in that
+/// decision's account of what does not cross.
+#[test]
+fn a_repository_historica_can_hold_converts_back_to_itself() {
+    let Some(_) = git() else { return };
+
+    let origin = folder("round-trip-origin");
+    fs::create_dir_all(&origin).expect("a fresh directory");
+    build(&origin);
+    let before = commits(&origin);
+    assert_eq!(
+        before.len(),
+        4,
+        "the repository this test builds has 4 commits"
+    );
+
+    let store = folder("round-trip-store");
+    import::from_repository(&origin, &store).expect("the repository imports");
+
+    let back = folder("round-trip-back");
+    export::to_repository(&store, &back).expect("the store writes out");
+
+    assert_eq!(
+        commits(&back),
+        before,
+        "a commit is supposed to be a function of the revision it came from"
+    );
+    // Decision 0006: a branch and a lightweight tag are pointers, so both cross
+    // and both come back where they were.
+    assert_eq!(
+        references(&back),
+        references(&origin),
+        "the refs did not come back as they went"
+    );
+    // And the repository is one a person can use rather than one they have to
+    // repair: HEAD names a branch, and the files are in the folder.
+    assert_eq!(
+        head(&back),
+        "refs/heads/main",
+        "`main` should win over a branch that merely sorts before it"
+    );
+    assert_eq!(worktree(&back), "", "the working tree should be clean");
+}
+
+/// Decision 0012: a merge comes back with its parents in the order git named
+/// them, which historica's sorted `parent` lines do not keep.
+///
+/// `left` merged into `right` and `right` merged into `left` join the same two
+/// commits in opposite orders, so one of the two disagrees with the sort
+/// whatever the digests turn out to be. The octopus has three parents, and so
+/// six orders to get wrong.
+#[test]
+fn a_merge_comes_back_with_its_parents_in_git_order() {
+    let Some(_) = git() else { return };
+
+    let origin = folder("merge-order-origin");
+    fs::create_dir_all(&origin).expect("a fresh directory");
+    build_merges(&origin);
+    let before = commits(&origin);
+
+    let store = folder("merge-order-store");
+    import::from_repository(&origin, &store).expect("the repository imports");
+    let back = folder("merge-order-back");
+    let report = export::to_repository(&store, &back).expect("the store writes out");
+
+    assert_eq!(
+        commits(&back),
+        before,
+        "a merge came back with its parents in another order"
+    );
+    assert_eq!(references(&back), references(&origin));
+    assert!(
+        !report
+            .uncarried
+            .iter()
+            .any(|note| note.contains("historica's order")),
+        "nothing was rewritten, so every order should have crossed: {:?}",
+        report.uncarried
+    );
+}
+
+fn build_merges(at: &Path) {
+    let run = |args: &[&str]| {
+        let status = std::process::Command::new("git")
+            .arg("-C")
+            .arg(at)
+            .args(args)
+            .env("GIT_AUTHOR_DATE", "2026-01-02T03:04:05-07:00")
+            .env("GIT_COMMITTER_DATE", "2026-01-02T03:04:05-07:00")
+            .env("GIT_AUTHOR_NAME", "Ada")
+            .env("GIT_AUTHOR_EMAIL", "ada@example.com")
+            .env("GIT_COMMITTER_NAME", "Ada")
+            .env("GIT_COMMITTER_EMAIL", "ada@example.com")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .expect("git runs");
+        assert!(status.success(), "git {args:?} failed");
+    };
+    let commit = |file: &str, message: &str| {
+        fs::write(at.join(file), format!("{message}\n")).expect("a file");
+        run(&["add", file]);
+        run(&["commit", "--quiet", "-m", message]);
+    };
+
+    run(&["init", "--quiet", "--initial-branch=main", "."]);
+    run(&["config", "commit.gpgsign", "false"]);
+    commit("base.txt", "Start");
+
+    run(&["switch", "--quiet", "-c", "left"]);
+    commit("left.txt", "Left");
+    run(&["switch", "--quiet", "-c", "right", "main"]);
+    commit("right.txt", "Right");
+
+    // The same two parents, each way round.
+    run(&[
+        "merge",
+        "--quiet",
+        "--no-ff",
+        "-m",
+        "Left into right",
+        "left",
+    ]);
+    run(&["switch", "--quiet", "left"]);
+    run(&[
+        "merge",
+        "--quiet",
+        "--no-ff",
+        "-m",
+        "Right into left",
+        "right~1",
+    ]);
+
+    // An octopus, from main, of two branches that each touch a file of their
+    // own so git can merge all three at once.
+    run(&["switch", "--quiet", "-c", "one", "main"]);
+    commit("one.txt", "One");
+    run(&["switch", "--quiet", "-c", "two", "main"]);
+    commit("two.txt", "Two");
+    run(&["switch", "--quiet", "main"]);
+    commit("main.txt", "Main");
+    run(&["merge", "--quiet", "--no-ff", "-m", "Octopus", "two", "one"]);
+}
+
+/// Every ref and what it points at, so two repositories can be compared.
+fn references(at: &Path) -> Vec<String> {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(at)
+        .args(["for-each-ref", "--format=%(refname) %(objectname)"])
+        .output()
+        .expect("git runs");
+    String::from_utf8_lossy(&out.stdout)
+        .lines()
+        .map(str::to_owned)
+        .collect()
+}
+
+fn head(at: &Path) -> String {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(at)
+        .args(["symbolic-ref", "HEAD"])
+        .output()
+        .expect("git runs");
+    String::from_utf8_lossy(&out.stdout).trim().to_owned()
+}
+
+fn worktree(at: &Path) -> String {
+    let out = std::process::Command::new("git")
+        .arg("-C")
+        .arg(at)
+        .args(["status", "--porcelain"])
+        .output()
+        .expect("git runs");
+    String::from_utf8_lossy(&out.stdout).trim().to_owned()
+}
+
+/// A history holding one of everything historica has a place for.
+fn build(at: &Path) {
+    // One person, one moment, so the commits do not depend on when the test ran
+    // or on whose machine ran it.
+    let as_committer = |who: (&str, &str), args: &[&str]| {
+        let status = std::process::Command::new("git")
+            .arg("-C")
+            .arg(at)
+            .args(args)
+            .env("GIT_AUTHOR_DATE", "2026-01-02T03:04:05-07:00")
+            .env("GIT_COMMITTER_DATE", "2026-01-02T03:04:05-07:00")
+            .env("GIT_AUTHOR_NAME", "Ada")
+            .env("GIT_AUTHOR_EMAIL", "ada@example.com")
+            .env("GIT_COMMITTER_NAME", who.0)
+            .env("GIT_COMMITTER_EMAIL", who.1)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .expect("git runs");
+        assert!(status.success(), "git {args:?} failed");
+    };
+    let run = |args: &[&str]| as_committer(("Ada", "ada@example.com"), args);
+
+    // Named rather than left to `init.defaultBranch`, which is the machine's
+    // and not this test's.
+    run(&["init", "--quiet", "--initial-branch=main", "."]);
+    // Not the machine's, whatever the machine's says: a signed commit is a
+    // fact historica has nowhere to put, and this test is about the set that
+    // crosses whole.
+    run(&["config", "commit.gpgsign", "false"]);
+    // And `tag.gpgsign`, which would otherwise turn `git tag v1` into a signed
+    // annotated tag rather than the lightweight pointer this wants. The corpus
+    // `make.sh` sets it for the same reason.
+    run(&["config", "tag.gpgsign", "false"]);
+
+    fs::create_dir_all(at.join("sub")).expect("a subdirectory");
+    fs::write(at.join("a.txt"), "one\n").expect("a file");
+    fs::write(at.join("sub/with space.txt"), "nested\n").expect("a file");
+    fs::write(at.join("photo.bin"), [0u8, 1, 2, b'b', b'i', b'n']).expect("a file");
+    fs::write(at.join("run.sh"), "#!/bin/sh\necho hi\n").expect("a file");
+    executable(&at.join("run.sh"));
+    run(&["add", "-A"]);
+    run(&["commit", "--quiet", "-m", "Start"]);
+
+    fs::write(at.join("a.txt"), "one\ntwo\n").expect("a file");
+    run(&["commit", "--quiet", "-a", "-m", "Edit a"]);
+
+    run(&["mv", "a.txt", "b.txt"]);
+    run(&["commit", "--quiet", "-m", "Rename a to b"]);
+
+    // A committer who is not the author, which historica records one of and
+    // which is therefore a `git.committer` header rather than a lost fact.
+    // Without it this commit would not be the commit it came from.
+    fs::write(at.join("b.txt"), "one\ntwo\nthree\n").expect("a file");
+    as_committer(
+        ("Bo", "bo@example.com"),
+        &["commit", "--quiet", "-a", "-m", "Applied from a patch"],
+    );
+
+    // A lightweight tag, which is a pointer and crosses, on a commit that is
+    // not the branch's tip so that the two refs cannot be confused for each
+    // other on the way back.
+    run(&["tag", "v1", "HEAD~1"]);
+
+    // A branch whose name has structure in it, which historica holds as a path
+    // below `names/`. It sorts above `main`, which is what makes it worth
+    // having here: the branch a conversion checks out is chosen rather than
+    // taken in order, and this is the case that tells the two apart.
+    run(&["branch", "claude/scratch"]);
+}
+
+#[cfg(unix)]
+fn executable(at: &Path) {
+    use std::os::unix::fs::PermissionsExt;
+    let mut mode = fs::metadata(at).expect("the file exists").permissions();
+    mode.set_mode(0o755);
+    fs::set_permissions(at, mode).expect("the bit is set");
+}
+
+#[cfg(not(unix))]
+fn executable(_: &Path) {}

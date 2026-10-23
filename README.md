@@ -48,6 +48,20 @@ argument in its rustdoc, and the choice behind it is written down in
 The binary decides nothing the library has not: every answer a command gives is
 one a caller can ask for directly.
 
+Beside them, three crates built on the library from outside it, each with its
+own version, decisions and changelog. Each was its own repository and moved
+here with its history:
+
+| Directory | Crate | What it is |
+|---|---|---|
+| [`git/`](git) | `historica-git` | conversion between git repositories and historica stores |
+| [`minisign/`](minisign) | `historica-minisign` | signed claims that vouch for a revision, and the keys a copy trusts |
+| [`remark/`](remark) | `historica-remark` | a reader's remarks on a chain, and the layer that carries them back |
+
+Each reaches only the library's public API, as any other caller would.
+`historica git …` and `historica minisign …` run `historica-git` and
+`historica-minisign` when they are on `PATH`.
+
 ### Where to read further
 
 - **Why any of it is the way it is.**
@@ -328,6 +342,13 @@ What the tag does not do is publish. crates.io is a separate `cargo publish` a
 person runs, deliberately, because it is the only step here that cannot be taken
 back: a GitHub release can be deleted and cut again, and a version number on
 crates.io can never be reused, even after a yank.
+
+`git/`, `minisign/` and `remark/` are released on their own, each at the
+version in its own `Cargo.toml`, not at historica's, and tagged
+`<crate>-v<version>` (`historica-git-v0.2.0`); historica and `cli/`, which
+share `[workspace.package] version`, keep the plain `v<version>` tags. The tags
+the three carried in their own repositories did not come with them, so the
+first release of each from here is a bump, not `as-is`.
 
 The changelog's generated region needs [git-cliff]; `nix profile install
 nixpkgs#git-cliff` or `cargo install git-cliff`. Its **Behavioural changes**

@@ -1,0 +1,90 @@
+//! Signed claims that vouch for Historica revisions.
+//!
+//! Historica's decision 0046 — *who vouches for a revision* — observes that
+//! every revision document states an `author` and nothing checks it, and that
+//! the digest machinery answers *whether these are the bytes* while saying
+//! nothing about *whose word they are*. Its answer is that the trust layer is a
+//! separate tool writing more readable files, because a revision document
+//! cannot carry a signature over itself: its identity is the SHA-256 of its own
+//! bytes, and a document cannot contain a signature over a digest that depends
+//! on the signature.
+//!
+//! This is that tool. It writes three kinds of file and keeps two of its own:
+//!
+//! - a **claim** ([`claim`]) in `history/claims/`, one key vouching for one
+//!   revision digest in one role at one moment — or for one file at that
+//!   revision, naming the file's content digest (decision 0004) — filed beside
+//!   the revision it vouches for ([`naming`]) and identified by the SHA-256 of
+//!   its own bytes rather than by what it is called;
+//! - its **signature**, minisign, detached, beside it;
+//! - a **head statement** ([`heads`]) in `history/claims/heads/`, one key
+//!   stating, at a count that only goes up, every head its history had
+//!   (decision 0005), with its signature beside it;
+//! - the **trust policy** ([`trust`]) in `history/trust/`, one key to a file,
+//!   which says whose word this copy accepts and never crosses a store
+//!   boundary, and beside it what this copy has **seen** ([`seen`]): the
+//!   highest statement it has witnessed from each key, which never travels
+//!   either.
+//!
+//! What a copy does with all of that is [`verify`]'s report, or [`following`]:
+//! a rule for historica's decision 0086 that follows the revisions a set of
+//! keys vouched for, with each key's history in `trust/` deciding which of its
+//! claims still count.
+//!
+//! Beside the files, one thing that is not a file: a **signed request**
+//! ([`request`]), the same keys saying who is asking when a server wants to
+//! know, as the forge proposal reads a private copy with a device key. With the
+//! `http` feature, `http` fetches through a source that signs every request
+//! and asks a hub for a short-lived token.
+//!
+//! Nothing here writes a Historica document, and Historica knows nothing about
+//! any of it beyond the promise 0046 extracted: a directory at the store root
+//! that Historica does not name belongs to whichever tool wrote it.
+//!
+//! # Verifying without signing
+//!
+//! [`verify`] is the half that must be cheap to depend on, so `sign` is a
+//! feature and `default-features = false` leaves a library that only ever
+//! reads. That is not hypothetical tidiness: 0046 defers *enforcement at
+//! receive* — a `receive` that refuses history no trusted key vouches for —
+//! and if that is ever built it must not drag key generation and a secret-key
+//! parser into a version-control core.
+//!
+//! # Checking a claim without this tool
+//!
+//! Two commands, and neither is Historica nor this crate:
+//!
+//! ```console
+//! $ minisign -Vm "2026-08-18 drop the private export — author.claim.txt" -P RWTd8LRC…
+//! $ shasum -a 256 history/revisions/2026-08/….rev.txt
+//! ```
+//!
+//! Decision 0002 requires that to keep working: what this crate writes is what
+//! the `minisign` command writes, and what the command writes is accepted here.
+
+#![forbid(unsafe_code)]
+#![deny(missing_docs)]
+
+mod base64;
+pub mod claim;
+pub mod following;
+pub mod heads;
+pub mod layout;
+pub mod naming;
+pub mod request;
+pub mod seen;
+pub mod trust;
+pub mod verify;
+
+#[cfg(feature = "http")]
+pub mod http;
+#[cfg(feature = "sign")]
+pub mod key;
+#[cfg(feature = "sign")]
+pub mod sign;
+
+pub use claim::{Claim, ClaimError, ContentDigest, Key, Role, Scope};
+pub use following::Vouched;
+pub use heads::{Statement, StatementError};
+pub use trust::Trust;
+pub use verify::{FileCheck, Finding, Report, Severity};
