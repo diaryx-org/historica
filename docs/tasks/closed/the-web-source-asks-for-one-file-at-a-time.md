@@ -1,13 +1,25 @@
 ---
 title: The web source asks for one file at a time
-part_of: '[Tasks](/docs/tasks/tasks.md)'
-status: open
+part_of: '[Closed tasks](/docs/tasks/closed/closed.md)'
+status: done
 created: 2026-10-21
-updated: 2026-10-21
+updated: 2026-10-23
 description: The CLI's HTTP source does not implement Source::prefetch, so a fetch's small files are fetched one round trip after another — a minute and a half to take historica-git from the hub
 ---
 
 # The web source asks for one file at a time
+
+**Status.** Done, by `perf(cli): fetch asks ahead for a plan's small files,
+eight at a time`. `Web` hands `prefetch` to `Ahead` (`cli/src/cli/ahead.rs`),
+which asks on up to eight threads, keeps a missing file as an answer and a
+failure as nothing, drops what an earlier hint kept when the fetch hints again,
+and stops asking while 8 MiB of answers wait for the fetch. Its tests hold a
+source that counts what is in flight to overlapping and bounded requests. A
+first fetch of historica-git from the hub on 2026-10-23 took 22 s where the
+build before it took 114 s, and wrote the same store; most of what is left is
+the 71 payloads, one after another, which the hint leaves out on purpose.
+`cli/tests/fetch.rs` passes unchanged, and `requests` is unchanged by
+construction: `get` is still called once for every path.
 
 `Source::prefetch` (`src/store/fetch.rs`) exists for exactly this. A fetch
 offers every small file its plan names to the source before asking for any of
