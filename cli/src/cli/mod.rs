@@ -19,6 +19,8 @@ use historica::store::{
 use historica::working::{Pattern, Rule, SKIPPED_DIR, Scope};
 use historica::wrote::{self, Line, Statement};
 
+#[cfg(feature = "http")]
+mod ahead;
 mod arrange;
 mod blame;
 mod cache;

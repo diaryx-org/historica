@@ -29,6 +29,7 @@ use historica::tree::Kind;
 use historica::update;
 use historica::wrote::{Line, Statement};
 
+use super::ahead::{self, Ahead};
 use super::{Failure, elsewhere, locate, printing, render, target};
 
 /// `fetch <url> [--join-unrelated] [--no-bytes] [--history] [--name
@@ -554,10 +555,10 @@ fn addressed(url: &str) -> Result<(String, String), Failure> {
     Ok((url[..=at].to_owned(), manifest.to_owned()))
 }
 
-/// A published root, over the platform's own HTTP.
+/// A published root, over the platform's own HTTP, asking ahead for what a
+/// fetch says it is about to want (see [`ahead`]).
 struct Web {
-    client: nyquest::BlockingClient,
-    root: String,
+    ahead: Ahead,
 }
 
 impl Web {
@@ -582,35 +583,51 @@ impl Web {
             .request_timeout(Duration::from_secs(60))
             .build_blocking()
             .map_err(|error| Failure::error(format!("no HTTP client: {error}")))?;
+        let root = root.to_owned();
         Ok(Self {
-            client,
-            root: root.to_owned(),
+            ahead: Ahead::new(
+                move |path| ask(&client, &root, path),
+                ahead::IN_FLIGHT,
+                ahead::HELD,
+            ),
         })
     }
 }
 
 impl Source for Web {
     fn get(&self, path: &str) -> Result<Option<Vec<u8>>, Unreachable> {
-        let url = format!("{}{}", self.root, escaped(path));
-        let response = self
-            .client
-            .request(nyquest::blocking::Request::get(url))
-            .map_err(said)?;
-        let status = response.status();
-        // The two ways a server says a file is not there, which decision 0048
-        // makes an answer rather than a failure: the publisher moved on, and
-        // the manifest is read again.
-        if status.code() == 404 || status.code() == 410 {
-            return Ok(None);
-        }
-        if !status.is_successful() {
-            return Err(Unreachable::saying(format!(
-                "the server answered {}",
-                status.code()
-            )));
-        }
-        response.bytes().map(Some).map_err(said)
+        self.ahead.get(path)
     }
+
+    fn prefetch(&self, paths: &[&str]) {
+        self.ahead.prefetch(paths);
+    }
+}
+
+/// One request for the file at `path` under `root`.
+fn ask(
+    client: &nyquest::BlockingClient,
+    root: &str,
+    path: &str,
+) -> Result<Option<Vec<u8>>, Unreachable> {
+    let url = format!("{root}{}", escaped(path));
+    let response = client
+        .request(nyquest::blocking::Request::get(url))
+        .map_err(said)?;
+    let status = response.status();
+    // The two ways a server says a file is not there, which decision 0048
+    // makes an answer rather than a failure: the publisher moved on, and the
+    // manifest is read again.
+    if status.code() == 404 || status.code() == 410 {
+        return Ok(None);
+    }
+    if !status.is_successful() {
+        return Err(Unreachable::saying(format!(
+            "the server answered {}",
+            status.code()
+        )));
+    }
+    response.bytes().map(Some).map_err(said)
 }
 
 /// What went wrong, as far down as the error chain goes.

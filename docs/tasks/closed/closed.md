@@ -11,6 +11,7 @@ contents:
 - '[A forget a sync brings is read only after a pass](/docs/tasks/closed/a-forget-a-sync-brings-is-read-only-after-a-pass.md)'
 - '[An export restates its indexes whole](/docs/tasks/closed/an-export-restates-its-indexes-whole.md)'
 - '[The state at a revision without the walk](/docs/tasks/closed/the-state-at-a-revision-without-the-walk.md)'
+- '[The web source asks for one file at a time](/docs/tasks/closed/the-web-source-asks-for-one-file-at-a-time.md)'
 ---
 
 # Closed tasks
