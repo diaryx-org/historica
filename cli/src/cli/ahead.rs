@@ -28,6 +28,15 @@
 //! What is held is bounded too, by [`HELD`]: past it, the asking waits for the
 //! fetch to take some, so a plan larger than that is asked for in pieces, in
 //! plan order.
+//!
+//! The fetch's own requests count against [`IN_FLIGHT`] too. While the threads
+//! are running, a `get` for a path still queued moves it to the front and waits
+//! for a thread to ask, so that only the threads ask; and a thread asks for a
+//! path the fetch is waiting on even with [`HELD`] full, because only the fetch
+//! would take the answers it would otherwise wait behind. A request made while
+//! the fetch waits for it is the fetch's own, so what it is told, a failure
+//! included, is what the fetch reports. One made before the fetch got there
+//! and failed is asked again, as the fetch would have asked.
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::panic::{self, AssertUnwindSafe};
@@ -72,6 +81,10 @@ struct State {
     asking: HashMap<String, u64>,
     /// Answered, and not yet taken.
     kept: HashMap<String, Option<Vec<u8>>>,
+    /// Failed while the fetch waited for the request, and not yet taken.
+    failed: HashMap<String, Unreachable>,
+    /// What the fetch is waiting for a thread to ask.
+    wanted: HashSet<String>,
     /// The bytes in `kept`.
     held: usize,
     /// Threads asking.
@@ -93,8 +106,9 @@ impl Shared {
 }
 
 impl Ahead {
-    /// Ask through `ask`, with at most `in_flight` requests ahead of the fetch
-    /// and at most `held_at_most` bytes of their answers waiting for it.
+    /// Ask through `ask`, with at most `in_flight` requests at once, the fetch's
+    /// own included, and at most `held_at_most` bytes of their answers waiting
+    /// for it.
     pub(super) fn new(
         ask: impl Fn(&str) -> Answer + Send + Sync + 'static,
         in_flight: usize,
@@ -115,21 +129,38 @@ impl Ahead {
 impl Source for Ahead {
     fn get(&self, path: &str) -> Answer {
         let mut state = self.shared.lock();
-        loop {
+        let queued_at = loop {
             if let Some(answer) = state.kept.remove(path) {
                 state.held -= answer.as_ref().map_or(0, Vec::len);
+                state.wanted.remove(path);
                 self.shared.changed.notify_all();
                 return Ok(answer);
             }
+            if let Some(failure) = state.failed.remove(path) {
+                state.wanted.remove(path);
+                return Err(failure);
+            }
+            let queued_at = state.queued.iter().position(|queued| queued == path);
             // Already on its way: waiting for it is never slower than asking
-            // again behind it.
-            if state.asking.get(path) != Some(&state.hint) {
-                break;
+            // again behind it. Still queued, with threads to ask: it goes to
+            // the front, so that a request made here is not one past the bound.
+            if state.asking.get(path) == Some(&state.hint) {
+                state.wanted.insert(path.to_owned());
+            } else if let Some(at) = queued_at
+                && state.workers > 0
+            {
+                state.queued.remove(at);
+                state.queued.push_front(path.to_owned());
+                state.wanted.insert(path.to_owned());
+                self.shared.changed.notify_all();
+            } else {
+                break queued_at;
             }
             state = self.shared.wait(state);
-        }
-        // Not asked for yet, so it is asked for here and not twice.
-        if let Some(at) = state.queued.iter().position(|queued| queued == path) {
+        };
+        // Not asked for yet, and no thread to ask: asked for here, and not twice.
+        state.wanted.remove(path);
+        if let Some(at) = queued_at {
             state.queued.remove(at);
         }
         drop(state);
@@ -140,6 +171,7 @@ impl Source for Ahead {
         let mut state = self.shared.lock();
         state.hint += 1;
         state.kept.clear();
+        state.failed.clear();
         state.held = 0;
         let mut seen = HashSet::new();
         state.queued = paths
@@ -174,6 +206,7 @@ impl Drop for Ahead {
         state.hint += 1;
         state.queued.clear();
         state.kept.clear();
+        state.failed.clear();
         state.held = 0;
         self.shared.changed.notify_all();
     }
@@ -183,12 +216,15 @@ impl Drop for Ahead {
 fn work(ask: &Ask, shared: &Shared) {
     let mut state = shared.lock();
     while let Some(path) = state.queued.front().cloned() {
-        if state.held >= shared.held_at_most {
+        // The fetch waiting on a path is the only one to take what is held,
+        // so that path is asked for however much is.
+        if state.held >= shared.held_at_most && !state.wanted.contains(&path) {
             state = shared.wait(state);
             continue;
         }
         state.queued.pop_front();
         let hint = state.hint;
+        let for_the_fetch = state.wanted.contains(&path);
         state.asking.insert(path.clone(), hint);
         drop(state);
         let answer = panic::catch_unwind(AssertUnwindSafe(|| ask(&path)))
@@ -197,11 +233,20 @@ fn work(ask: &Ask, shared: &Shared) {
         if state.asking.get(&path) == Some(&hint) {
             state.asking.remove(&path);
         }
-        if let Ok(answer) = answer
-            && state.hint == hint
-        {
-            state.held += answer.as_ref().map_or(0, Vec::len);
-            state.kept.insert(path, answer);
+        if state.hint == hint {
+            match answer {
+                Ok(answer) => {
+                    state.held += answer.as_ref().map_or(0, Vec::len);
+                    state.kept.insert(path, answer);
+                }
+                Err(failure) if for_the_fetch => {
+                    state.failed.insert(path, failure);
+                }
+                // Asked ahead and failed, with the fetch now waiting for it:
+                // asked again, as the fetch would have.
+                Err(_) if state.wanted.contains(&path) => state.queued.push_front(path),
+                Err(_) => {}
+            }
         }
         shared.changed.notify_all();
     }
@@ -331,6 +376,54 @@ mod tests {
             Some(&b"there"[..])
         );
         assert_eq!(far.times_asked("flaky.txt"), 2);
+    }
+
+    #[test]
+    fn a_failure_the_fetch_waits_on_is_asked_again_within_the_bound() {
+        let far = Arc::new(Far::default());
+        let source = {
+            let far = Arc::clone(&far);
+            Ahead::new(
+                move |path| {
+                    far.ask(path, |before| match before {
+                        0 => Err(Unreachable::saying("the connection went away")),
+                        _ => Ok(Some(b"there".to_vec())),
+                    })
+                },
+                1,
+                usize::MAX,
+            )
+        };
+        source.prefetch(&["flaky.txt"]);
+        // The thread is mid-request when the fetch gets there.
+        thread::sleep(Duration::from_millis(10));
+        assert_eq!(
+            source.get("flaky.txt").unwrap().as_deref(),
+            Some(&b"there"[..])
+        );
+        assert_eq!(far.times_asked("flaky.txt"), 2);
+        assert_eq!(far.most.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn a_path_the_fetch_waits_on_is_asked_for_with_the_held_answers_full() {
+        let far = Arc::new(Far::default());
+        let plan = paths(8);
+        let source = naming(&far, 2, 2 * plan[0].len());
+        source.prefetch(&plan.iter().map(String::as_str).collect::<Vec<_>>());
+        thread::sleep(Duration::from_millis(400));
+        // The threads are waiting for the fetch to take what they hold, and
+        // the fetch asks for something else first.
+        let last = &plan[7];
+        assert_eq!(source.get(last).unwrap().as_deref(), Some(last.as_bytes()));
+        for path in &plan[..7] {
+            assert_eq!(source.get(path).unwrap().as_deref(), Some(path.as_bytes()));
+        }
+        for path in &plan {
+            assert_eq!(far.times_asked(path), 1, "{path}");
+        }
+        let most = far.most.load(Ordering::SeqCst);
+        assert!(most <= 2, "{most} requests at once, past the bound");
     }
 
     #[test]

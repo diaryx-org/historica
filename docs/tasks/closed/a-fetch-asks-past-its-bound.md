@@ -1,13 +1,19 @@
 ---
 title: A fetch asks past its bound
-part_of: '[Tasks](/docs/tasks/tasks.md)'
-status: open
+part_of: '[Closed tasks](/docs/tasks/closed/closed.md)'
+status: done
 created: 2026-10-24
-updated: 2026-10-24
+updated: 2026-10-25
 description: Ahead counts only its own threads against IN_FLIGHT, so a get for a path no thread has taken yet asks beside them — nine requests at once where the trailer promises eight — and the test that holds it to the bound fails on main
 ---
 
 # A fetch asks past its bound
+
+**Status.** Done, by `fix(cli): a fetch keeps to eight requests at once`,
+which takes the first candidate below: while the threads are running, a `get`
+for a path still queued moves it to the front and waits for a thread, and a
+thread asks for a path the fetch waits on even with `HELD` full. The repro's
+loop prints `0`.
 
 `Ahead` (`cli/src/cli/ahead.rs`) is meant to have at most
 [`IN_FLIGHT`](/cli/src/cli/ahead.rs) requests out at once: its doc says
