@@ -12,6 +12,7 @@ contents:
 - '[An export restates its indexes whole](/docs/tasks/closed/an-export-restates-its-indexes-whole.md)'
 - '[The state at a revision without the walk](/docs/tasks/closed/the-state-at-a-revision-without-the-walk.md)'
 - '[The web source asks for one file at a time](/docs/tasks/closed/the-web-source-asks-for-one-file-at-a-time.md)'
+- '[A fetch asks past its bound](/docs/tasks/closed/a-fetch-asks-past-its-bound.md)'
 ---
 
 # Closed tasks
