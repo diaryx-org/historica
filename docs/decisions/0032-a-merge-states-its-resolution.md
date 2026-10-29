@@ -274,3 +274,21 @@ and a `keep` of a name beyond the elements standing under it is refused as the
 unknown reference it is. The counterexample is pinned in
 `tests/conformance.rs` and, by hand, beside the walk's own tests in
 `src/merge.rs`.
+
+**A merge whose parents agree because they did the same thing.** Found in a
+synced library, where two devices each applied one edit to a configuration
+file and the merge joining them stated nothing, as the rule above allows. The
+rule read the file right at every revision. The walk did not: the two sides'
+inserts are concurrent events to it, so it kept both copies, and the first
+revision after the merge to delete one of those lines was refused as quoting
+the wrong item, from then on wherever the walk was asked, which a sync merging
+any later divergence of that file always asks. That was the obligation stated
+under "What the walk does with a resolution", left unmet for the merge that
+states none. The walk now reads such a merge as stating the resolution it
+would have been shown: where the walk's view at a merge whose parents agree is
+not the agreed state, `merged_content_of` hands the walk the resolution
+keeping the first copy of each name (the one a `keep` takes) and dropping the
+rest. Merges where one side's statements about the file all lie in the other's
+past are passed without a look, since the walk cannot meet anything twice
+there. Nothing is written: stores recorded before this read the same by the
+rule, and now by the walk too. Pinned in `tests/agreed.rs`.

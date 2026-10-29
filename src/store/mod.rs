@@ -65,6 +65,7 @@ use crate::format::{
 };
 // `fs` here is `crate::fs`, never `std::fs` — this module reaches the folder
 // only through the trait, and the qualified form is what keeps that visible.
+use crate::diff;
 use crate::fs::{self, Disk, Entry, Filesystem, read_to_string};
 use crate::merge::{self, Merged};
 use crate::replay::{self, ReplayError, State};
@@ -696,6 +697,102 @@ enum Stated {
     /// hold what their parent holds: one state stands for the whole run of
     /// them rather than being copied into each.
     Known(Rc<State>),
+}
+
+/// The events the walk merges for one file: every revision in `parents`, or
+/// with `before` only the ones strictly in its past — what its author saw.
+///
+/// A revision states what `held` says it did, or the resolution `agreed`
+/// reads it as stating ([`Store::agreed_resolutions`]), or nothing.
+fn walked<'a>(
+    parents: &BTreeMap<RevisionId, Vec<RevisionId>>,
+    held: &'a BTreeMap<RevisionId, Held>,
+    agreed: &'a BTreeMap<RevisionId, Held>,
+    before: Option<&RevisionId>,
+) -> Vec<merge::Event<'a>> {
+    let within: Option<BTreeSet<RevisionId>> = before.map(|merge| {
+        let mut seen = BTreeSet::new();
+        let mut stack: Vec<RevisionId> = parents[merge].clone();
+        while let Some(id) = stack.pop() {
+            if seen.insert(id) {
+                stack.extend(parents[&id].iter().copied());
+            }
+        }
+        seen
+    });
+    parents
+        .iter()
+        .filter(|(revision, _)| {
+            within
+                .as_ref()
+                .is_none_or(|within| within.contains(revision))
+        })
+        .map(
+            |(revision, sides)| match held.get(revision).or_else(|| agreed.get(revision)) {
+                Some(stated) => stated.event(*revision, sides.clone()),
+                None => merge::Event::nothing(*revision, sides.clone()),
+            },
+        )
+        .collect()
+}
+
+/// The resolution that turns the walk's `proposed` view of a merge into the
+/// `agreed` state its parents hold.
+///
+/// Where the parents did the same thing, the walk holds each item they both
+/// wrote twice under one name, the two copies side by side, and a `keep` of
+/// that name takes the first copy still standing. So the first copy of each
+/// name is what is kept, and a view that reads as the agreed state once the
+/// later copies go is resolved as exactly that. Anything else is aligned by
+/// [`diff::resolve`], which may keep either copy of a line it matches by text.
+fn agreeing(proposed: &Merged, agreed: &State) -> Option<ResolutionDocument> {
+    let mut seen = BTreeSet::new();
+    let (items, references): (Vec<Item>, Vec<(RevisionId, usize)>) = proposed
+        .state
+        .items()
+        .iter()
+        .zip(&proposed.references)
+        .filter(|(_, reference)| seen.insert(**reference))
+        .map(|(item, reference)| (item.clone(), *reference))
+        .unzip();
+    let first = State::from_items(items);
+    match first == *agreed {
+        true => diff::resolve(&first, &references, agreed),
+        false => diff::resolve(&proposed.state, &proposed.references, agreed),
+    }
+}
+
+/// The revisions of `parents` with every one after all of its parents, ties
+/// in digest order.
+fn causal_order(parents: &BTreeMap<RevisionId, Vec<RevisionId>>) -> Vec<RevisionId> {
+    let mut waiting: BTreeMap<RevisionId, usize> = BTreeMap::new();
+    let mut children: BTreeMap<RevisionId, Vec<RevisionId>> = BTreeMap::new();
+    for (revision, sides) in parents {
+        let sides: BTreeSet<&RevisionId> = sides.iter().collect();
+        waiting.insert(*revision, sides.len());
+        for side in sides {
+            children.entry(*side).or_default().push(*revision);
+        }
+    }
+    let mut ready: BTreeSet<RevisionId> = waiting
+        .iter()
+        .filter(|(_, count)| **count == 0)
+        .map(|(revision, _)| *revision)
+        .collect();
+    let mut order = Vec::with_capacity(parents.len());
+    while let Some(revision) = ready.pop_first() {
+        order.push(revision);
+        for child in children.get(&revision).into_iter().flatten() {
+            let count = waiting
+                .get_mut(child)
+                .expect("every child is a revision here");
+            *count -= 1;
+            if *count == 0 {
+                ready.insert(*child);
+            }
+        }
+    }
+    order
 }
 
 /// What several parents agree one file holds.
@@ -2707,19 +2804,91 @@ impl<F: Filesystem> Store<F> {
             .unwrap_or_else(|| RevisionId::from_bytes([0; crate::core::REVISION_ID_LEN]));
 
         let held = self.effective_for(&reachable, file)?;
-        let mut events = Vec::with_capacity(reachable.len());
-        for (revision, document) in reachable {
-            let parents = document.parents.iter().copied().collect();
-            events.push(match held.get(&revision) {
-                Some(stated) => stated.event(revision, parents),
-                None => merge::Event::nothing(revision, parents),
-            });
-        }
-        merge::merge(events).map_err(|error| MaterialiseError::Merge {
-            revision: head,
-            file: *file,
-            error: Box::new(error),
+        let parents: BTreeMap<RevisionId, Vec<RevisionId>> = reachable
+            .iter()
+            .map(|(revision, document)| (*revision, document.parents.iter().copied().collect()))
+            .collect();
+        let agreed = self.agreed_resolutions(&parents, &held, file, head)?;
+        merge::merge(walked(&parents, &held, &agreed, None)).map_err(|error| {
+            MaterialiseError::Merge {
+                revision: head,
+                file: *file,
+                error: Box::new(error),
+            }
         })
+    }
+
+    /// What the walk is owed at each merge whose parents agree about `file`
+    /// only because they did the same thing: the resolution such a merge would
+    /// have stated, had it stated one.
+    ///
+    /// Decision 0032 lets a merge whose parents' states are identical state
+    /// nothing, and every reader by the rule takes that state. The walk does
+    /// not see states; it sees events, and two branches that each made the
+    /// same insert — the same edit applied on two devices — are to it two
+    /// concurrent inserts, both kept. Every later revision counted its
+    /// positions in the agreed state, so the walk would read them one copy
+    /// out of place and refuse, or worse, read them into the wrong lines.
+    ///
+    /// So where the walk's view at such a merge is not the agreed state, the
+    /// merge is read as stating [`diff::resolve`]'s resolution of the one into
+    /// the other: what `record` writes for a merge it is shown, here written
+    /// for a merge that showed nothing. Merges whose parents do not both
+    /// carry statements of their own about the file are skipped without a
+    /// walk, because one side's history then holds the other's and the walk
+    /// cannot meet anything twice.
+    fn agreed_resolutions(
+        &self,
+        parents: &BTreeMap<RevisionId, Vec<RevisionId>>,
+        held: &BTreeMap<RevisionId, Held>,
+        file: &FileId,
+        head: RevisionId,
+    ) -> Result<BTreeMap<RevisionId, Held>, MaterialiseError> {
+        let mut agreed: BTreeMap<RevisionId, Held> = BTreeMap::new();
+        // Which statements about the file lie in each revision's past, itself
+        // included, in an order that reaches every parent first.
+        let order = causal_order(parents);
+        let mut stating: BTreeMap<RevisionId, Rc<BTreeSet<RevisionId>>> = BTreeMap::new();
+        let empty = Rc::new(BTreeSet::new());
+        for revision in &order {
+            let sides: Vec<&Rc<BTreeSet<RevisionId>>> = parents[revision]
+                .iter()
+                .map(|parent| &stating[parent])
+                .collect();
+            let mut past = match sides.as_slice() {
+                [] => empty.clone(),
+                [one] => Rc::clone(one),
+                many => Rc::new(many.iter().flat_map(|side| side.iter().copied()).collect()),
+            };
+            // Two sides that each hold a statement the other does not: the
+            // only shape in which the walk can meet one edit twice.
+            let met = sides.iter().enumerate().any(|(i, one)| {
+                sides[i + 1..]
+                    .iter()
+                    .any(|other| !one.is_subset(other) && !other.is_subset(one))
+            });
+            if held.contains_key(revision) {
+                Rc::make_mut(&mut past).insert(*revision);
+            } else if met
+                && let Stated::Known(state) = self.stated_content(revision, file, Caching::Take)?
+            {
+                let proposed = merge::merge(walked(parents, held, &agreed, Some(revision)))
+                    .map_err(|error| MaterialiseError::Merge {
+                        revision: head,
+                        file: *file,
+                        error: Box::new(error),
+                    })?;
+                if proposed.state != *state
+                    && let Some(resolution) = agreeing(&proposed, &state)
+                {
+                    let named = digest(&resolution.write());
+                    agreed.insert(*revision, Held::Resolution(named, resolution));
+                    Rc::make_mut(&mut past).insert(*revision);
+                }
+            }
+            stating.insert(*revision, past);
+        }
+        Ok(agreed)
     }
 
     /// The content of one file at `head`.
