@@ -91,7 +91,7 @@ In the course of being written, and each recorded where it lives:
 - [A merge agrees by text](../tasks/a-merge-agrees-by-text.md),
   [a stand-in filed beside another copy](../tasks/a-stand-in-filed-beside-another-copy.md),
   [forget leaves the folder holding what it destroyed](../tasks/forget-leaves-the-folder-holding-what-it-destroyed.md),
-  [forget at a rewrite leaves its predecessor legible](../tasks/forget-at-a-rewrite-leaves-its-predecessor-legible.md),
+  [forget at a rewrite leaves its predecessor legible](../tasks/closed/forget-at-a-rewrite-leaves-its-predecessor-legible.md),
   and [a listing ending in a carriage return](../tasks/a-listing-ending-in-a-carriage-return.md):
   open, each with a repro.
 

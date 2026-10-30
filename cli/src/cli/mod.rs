@@ -863,6 +863,20 @@ fn forget(base: &Path, arguments: Vec<String>) -> Result<u8, Failure> {
     }
 
     printing(|out| {
+        // Decision 0023: an amendment restates its predecessor's text under
+        // items of its own, so what this destroys at the amendment is still
+        // shown by the revision it superseded. Said whether or not anything
+        // was destroyed here, since forgetting at the head again is how a
+        // person would check.
+        for predecessor in &plan.superseded {
+            writeln!(
+                out,
+                "{} still holds that text: this revision supersedes it, and \
+                 it keeps its own copy until it is forgotten there too or \
+                 `prune` takes it",
+                predecessor.abbreviate(12)
+            )?;
+        }
         if plan.is_empty() {
             return match extent {
                 Extent::Lines { .. } => writeln!(
