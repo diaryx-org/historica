@@ -1043,3 +1043,29 @@ fn a_colocated_store_skips_what_git_ignores() {
     let again = import::from_repository(&at, &at).expect("the import again");
     assert!(again.skipped.is_empty(), "{again:?}");
 }
+
+/// An annotated tag on a commit the store already holds is excluded with that
+/// commit, and `git fast-export` refuses the whole export over a tag whose
+/// object it was told to leave out. The second import has to get past it.
+#[test]
+fn an_annotated_tag_on_a_held_commit_does_not_stop_a_second_import() {
+    let Some(_) = git() else { return };
+    let origin = folder("again-tag-held-origin");
+    build(&origin);
+    let store = folder("again-tag-held-store");
+    import::from_repository(&origin, &store).expect("the first import");
+
+    run(&origin, &["tag", "-a", "v1", "-m", "The first release"]);
+    commit(&origin, "c.txt", "Third");
+
+    let again = import::from_repository(&origin, &store).expect("the second import");
+    assert_eq!(again.revisions, 1, "the new commit is recorded: {again:?}");
+    assert!(
+        again
+            .uncarried
+            .iter()
+            .any(|note| note.contains("annotated tag did not cross")),
+        "the tag is still said rather than dropped quietly: {:?}",
+        again.uncarried
+    );
+}

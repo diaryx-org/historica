@@ -289,6 +289,137 @@ fn build_merges(at: &Path) {
     run(&["merge", "--quiet", "--no-ff", "-m", "Octopus", "two", "one"]);
 }
 
+/// Merges whose tree git settled and historica's parents leave otherwise
+/// convert, and come back as the commits they were.
+///
+/// `git fast-export` states a merge as its difference from the first parent,
+/// and historica records it against the tree both parents leave. Each merge
+/// here is one where the two disagree: a rename of a file the other side
+/// deleted, a path both sides added, a file of bytes both sides changed, and a
+/// second root merged in with a path the first already holds. The last is
+/// also two parentless commits, which `write` parks on one staging ref.
+#[test]
+fn merges_git_settled_convert_back_to_themselves() {
+    let Some(_) = git() else { return };
+
+    let origin = folder("settled-origin");
+    fs::create_dir_all(&origin).expect("a fresh directory");
+    build_settled(&origin);
+    let before = commits(&origin);
+
+    let store = folder("settled-store");
+    import::from_repository(&origin, &store).expect("the repository imports");
+    let back = folder("settled-back");
+    export::to_repository(&store, &back).expect("the store writes out");
+
+    assert_eq!(
+        commits(&back),
+        before,
+        "a merge git settled came back as another commit"
+    );
+    assert_eq!(references(&back), references(&origin));
+}
+
+fn build_settled(at: &Path) {
+    let run = |args: &[&str]| {
+        let status = std::process::Command::new("git")
+            .arg("-C")
+            .arg(at)
+            .args(args)
+            .env("GIT_AUTHOR_DATE", "2026-01-02T03:04:05-07:00")
+            .env("GIT_COMMITTER_DATE", "2026-01-02T03:04:05-07:00")
+            .env("GIT_AUTHOR_NAME", "Ada")
+            .env("GIT_AUTHOR_EMAIL", "ada@example.com")
+            .env("GIT_COMMITTER_NAME", "Ada")
+            .env("GIT_COMMITTER_EMAIL", "ada@example.com")
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status()
+            .expect("git runs");
+        assert!(status.success(), "git {args:?} failed");
+    };
+    let write = |file: &str, content: &[u8]| {
+        let path = at.join(file);
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).expect("a directory");
+        }
+        fs::write(path, content).expect("a file");
+    };
+    let commit = |message: &str| {
+        run(&["add", "-A"]);
+        run(&["commit", "--quiet", "-m", message]);
+    };
+    // A merge whose tree is whatever the folder is made to hold afterwards,
+    // so git never has to settle anything itself.
+    let merge = |branch: &str, message: &str, settle: &dyn Fn()| {
+        run(&[
+            "merge",
+            "--quiet",
+            "--no-ff",
+            "--no-commit",
+            "--allow-unrelated-histories",
+            "-s",
+            "ours",
+            branch,
+        ]);
+        settle();
+        run(&["add", "-A"]);
+        run(&["commit", "--quiet", "-m", message]);
+    };
+
+    run(&["init", "--quiet", "--initial-branch=main", "."]);
+    run(&["config", "commit.gpgsign", "false"]);
+    write("base.txt", b"base\n");
+    write(
+        "task.md",
+        b"# A task\n\nwith enough lines\nthat a rename\nis found\nas one\n",
+    );
+    write("image.bin", b"\0one\0");
+    commit("Start");
+
+    // A rename at a merge, of a file the side merged in deleted: against the
+    // first parent it is a rename, and in the merged tree the file is gone.
+    run(&["switch", "--quiet", "-c", "drop", "main"]);
+    fs::remove_file(at.join("task.md")).expect("a file");
+    commit("Drop the task");
+    run(&["switch", "--quiet", "main"]);
+    write("base.txt", b"base\nmain\n");
+    commit("Main moves on");
+    merge("drop", "Close the task", &|| {
+        fs::remove_file(at.join("task.md")).expect("a file");
+        write(
+            "closed/task.md",
+            b"# A task\n\nwith enough lines\nthat a rename\nis found\nas one\ndone\n",
+        );
+    });
+
+    // A path both sides added, and a file of bytes both sides changed.
+    run(&["switch", "--quiet", "-c", "side", "main"]);
+    write("generated.txt", b"side\n");
+    write("image.bin", b"\0side\0");
+    commit("Side generates");
+    run(&["switch", "--quiet", "main"]);
+    write("generated.txt", b"main\n");
+    write("image.bin", b"\0main\0");
+    commit("Main generates");
+    merge("side", "Join the generated", &|| {
+        write("generated.txt", b"both\n");
+        write("image.bin", b"\0side\0");
+    });
+
+    // A second root, holding a path the first already does. `--orphan`
+    // empties the folder of what `main` tracks.
+    run(&["switch", "--quiet", "--orphan", "other"]);
+    write("base.txt", b"another root\n");
+    write("other.txt", b"other\n");
+    commit("Another root");
+    run(&["switch", "--quiet", "--force", "main"]);
+    merge("other", "Bring the other history in", &|| {
+        write("other.txt", b"other\n");
+        write("base.txt", b"base\nmain\nanother root\n");
+    });
+}
+
 /// Every ref and what it points at, so two repositories can be compared.
 fn references(at: &Path) -> Vec<String> {
     let out = std::process::Command::new("git")

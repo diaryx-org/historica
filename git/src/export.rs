@@ -595,6 +595,16 @@ impl<W: Write> Conversion<W> {
             let committer = self.committer(document, &author);
             let signature = self.signature(document);
 
+            // Every commit is parked on one staging ref, and fast-import
+            // continues a ref's tip when a commit names no parent. A second
+            // root — a repository with histories merged into it — would stand
+            // on whatever was sent before it, so the ref is cleared first.
+            if parents.is_empty() && !self.sent.is_empty() {
+                self.write(&Command::Reset(Reset {
+                    reference: STAGING.as_bytes().to_vec(),
+                    from: None,
+                }))?;
+            }
             let mark = self.mark();
             self.write(&Command::Commit(Commit {
                 reference: STAGING.as_bytes().to_vec(),

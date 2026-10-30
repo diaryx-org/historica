@@ -26,7 +26,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command as Process, Stdio};
 use std::rc::Rc;
 
-use historica::core::{ChangeState, History, RevisionId};
+use historica::core::{ChangeState, FileId, History, RevisionId};
 use historica::format::Timestamp;
 use historica::record::{self, Recording, Restriction};
 use historica::store::{Bookmark, Name, STORE_DIR, Store, StoreError};
@@ -175,6 +175,11 @@ pub fn from_repository(repository: &Path, folder: &Path) -> Result<Report, Error
         "--signed-commits=verbatim".to_owned(),
         "--signed-tags=strip".to_owned(),
         "--reference-excluded-parents".to_owned(),
+        // An annotated tag on a commit the store already holds is excluded
+        // with it, and git refuses the whole export over the tag rather than
+        // leave it out. Nothing is lost by leaving it out: an annotated tag
+        // does not cross, and git's refs, not the stream, are what count it.
+        "--tag-of-filtered-object=drop".to_owned(),
     ]);
     for pointed in current.values() {
         if known.revision_of(&pointed.commit).is_some() {
@@ -681,6 +686,14 @@ impl Conversion<'_> {
         // was on disk last, which is the previous commit in *stream* order
         // and another branch's whenever the stream switches.
         let moves = self.moves(commit, &parent)?;
+        // A merge records against the tree historica's parents leave between
+        // them, which is not git's first parent's, so its renames are stated
+        // by file rather than by path, and what the merge left two files
+        // claiming is settled the way git's tree settles it.
+        let (moves, at) = match parents.len() > 1 {
+            true => across(store, &parents, moves, &tree)?,
+            false => (moves, Vec::new()),
+        };
 
         // Git states an author and a committer; historica records one person,
         // and the author is the one it keeps. The committer is not thrown away
@@ -729,13 +742,13 @@ impl Conversion<'_> {
             self.encodings += 1;
         }
 
-        let recording = Recording {
+        let mut recording = Recording {
             parents,
             author: spell(author),
             when: when(author)?,
             message: String::from_utf8_lossy(&commit.message).into_owned(),
             moves,
-            at: Vec::new(),
+            at,
             accepted: Default::default(),
             only: Restriction::Everything,
             extensions,
@@ -771,7 +784,16 @@ impl Conversion<'_> {
                 .collect()
         };
 
-        match record::record(store, &working, &recording, &mut identity) {
+        let mut outcome = record::record(store, &working, &recording, &mut identity);
+        // Two branches that each wrote a file of bytes leave a merge that
+        // has to say which it keeps, and git's tree already said: the folder
+        // holds what the merge commit holds. Asked after the refusal rather
+        // than surveyed before, since only a merge of bytes is ever refused.
+        if let Err(record::RecordError::UnacceptedAttachments { paths }) = &outcome {
+            recording.accepted = paths.iter().cloned().collect();
+            outcome = record::record(store, &working, &recording, &mut identity);
+        }
+        match outcome {
             Ok(recorded) => {
                 self.report.revisions += 1;
                 for name in &recorded.advanced {
@@ -1256,6 +1278,74 @@ impl Conversion<'_> {
         }
         self.report
     }
+}
+
+/// A merge's renames and contested paths, stated against the tree historica's
+/// parents leave between them — decision 0013.
+///
+/// `git fast-export` writes a merge as its difference from the first parent,
+/// so `moves` names paths as that parent has them. The tree a merge records
+/// against is the parents' merged one, where a file the other side renamed or
+/// dropped is somewhere else or nowhere, and a path both sides added is held by
+/// two files. So each rename is turned into the file the first parent held at
+/// its source, placed by `at` wherever the merged tree holds it — and dropped
+/// where it holds it nowhere, which leaves the destination to arrive as a file
+/// git's tree has and historica's does not.
+///
+/// A path two files claim keeps one of them: the first parent's, since that
+/// is the line the merge was made on, or the least identifier where neither
+/// came from it. The rest are placed at a path the merge commit does not hold,
+/// so the walk finds them missing and drops them. A `drop` names no path, so
+/// the one chosen is written nowhere.
+#[allow(clippy::type_complexity)]
+fn across(
+    store: &Store,
+    parents: &[RevisionId],
+    moves: Vec<(String, String)>,
+    merged_into: &Tree,
+) -> Result<(Vec<(String, String)>, Vec<(FileId, String)>), Error> {
+    let materialise = |error| Error::Record(Box::new(record::RecordError::from(error)));
+    let first = store.merged_tree(&parents[0]).map_err(materialise)?.tree;
+    let merged = store.merged_tree_of(parents).map_err(materialise)?.tree;
+    let mut placed: BTreeMap<FileId, String> = merged
+        .files()
+        .map(|(file, path)| (*file, path.to_owned()))
+        .collect();
+
+    let mut at: BTreeMap<FileId, String> = BTreeMap::new();
+    for (from, to) in moves {
+        if let [file] = first.at(&from).as_slice()
+            && placed.contains_key(file)
+        {
+            placed.insert(*file, to.clone());
+            at.insert(*file, to);
+        }
+    }
+
+    let mut claimants: BTreeMap<String, Vec<FileId>> = BTreeMap::new();
+    for (file, path) in &placed {
+        claimants.entry(path.clone()).or_default().push(*file);
+    }
+    for (path, files) in claimants {
+        if files.len() < 2 {
+            continue;
+        }
+        let held_first = first.at(&path);
+        let keeper = files
+            .iter()
+            .find(|file| held_first.contains(file))
+            .or_else(|| files.iter().find(|file| first.entry(file).is_some()))
+            .copied()
+            .unwrap_or(files[0]);
+        for file in files.into_iter().filter(|file| *file != keeper) {
+            let mut nowhere = format!("{path}~{file}");
+            while merged_into.get(nowhere.as_bytes()).is_some() {
+                nowhere.push('~');
+            }
+            at.insert(file, nowhere);
+        }
+    }
+    Ok((Vec::new(), at.into_iter().collect()))
 }
 
 /// Refs as a note names them.
