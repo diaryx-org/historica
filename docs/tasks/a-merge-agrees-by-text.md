@@ -3,7 +3,7 @@ title: A merge agrees by text
 description: Decision 0032 lets a merge state a delta, or nothing, where its parents agree, and agreement is decided by comparing text — so two replicas making one edit, or a forgetting on each side, leave `record`, the reader and `check`'s walk answering differently, and `check` calls the store corrupt
 status: open
 created: 2026-10-13
-updated: 2026-10-13
+updated: 2026-10-29
 part_of: '[Tasks](/docs/tasks/tasks.md)'
 ---
 
@@ -74,6 +74,26 @@ had to state becomes, to `check`, one it was forbidden to state.
 the parents agreed, read on a replica holding a forgetting the recorder did
 not, is reported as owing a resolution it does not state, and the delta it
 did state is replayed at the wrong positions.
+
+## Repro: a git history converted
+
+`historica-git import` reaches the first repro from ordinary git work, where
+two branches regenerating one file, or a cherry-pick, make the same edit
+twice. Converting diaryx records all 3,247 commits and `check` then reports 39
+errors of this kind, in generated TypeScript bindings that several branches
+regenerated identically.
+
+```console
+$ git init -b main . && printf 'a\nb\n' > f.txt && git add . && git commit -m root
+$ git switch -c side && printf 'x\na\nb\n' > f.txt && git commit -am side
+$ git switch main && printf 'x\na\nb\n' > f.txt && git commit -am main
+$ git merge --no-ff -m merge side && printf 'x\nb\n' > f.txt && git commit -am child
+$ historica-git import . ../store && cd ../store && historica check
+error: <child>, file <f>: <child> deletes `a` at position 1, where its author's view held `x`; one of the two is corrupt, and the digests say which
+```
+
+The 0464747 fix reads the merge right in `merged_content_of`; `check`'s walk
+still does not.
 
 ## What it needs
 
