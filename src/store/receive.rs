@@ -15,6 +15,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 use std::path::PathBuf;
 
+use crate::change_set::{self, Reconciled};
 use crate::core::RevisionId;
 use crate::fs::Filesystem;
 use crate::working::Rule;
@@ -231,22 +232,29 @@ impl<F: Filesystem> Store<F> {
         // The flag is an assertion that somebody asked for this name to be
         // withheld, so the union of asked and did-not-ask is asked, which is
         // the union every other set here performs rather than a tie-break.
+        //
+        // Decision 0090 adds the one move a receive makes: a change set's tip,
+        // or its `submitted`, takes whichever reading is further along the
+        // line. Asked over both stores' revisions, since the further reading
+        // may be one only the source holds yet.
+        let mut history = self.history();
+        let _ = history.merge(&source.history());
         for (name, there) in source.names() {
             match self.bookmark(name) {
                 None => {
                     plan.names.insert(name.clone(), *there);
                 }
-                Some(here) if here.target == there.target => {
-                    let joined = here.joined(*there);
-                    if joined != here {
-                        plan.names.insert(name.clone(), joined);
+                Some(here) => match change_set::reconcile(&history, name, here, *there) {
+                    Reconciled::Keep => {}
+                    Reconciled::Take(bookmark) => {
+                        plan.names.insert(name.clone(), bookmark);
                     }
-                }
-                Some(here) => plan.conflicts.push(MutableConflict::Name {
-                    name: name.clone(),
-                    here,
-                    there: *there,
-                }),
+                    Reconciled::Conflict => plan.conflicts.push(MutableConflict::Name {
+                        name: name.clone(),
+                        here,
+                        there: *there,
+                    }),
+                },
             }
         }
 

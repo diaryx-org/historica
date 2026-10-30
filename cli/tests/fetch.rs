@@ -454,6 +454,62 @@ fn a_fetch_moves_no_bookmark_onto_held_work_and_never_a_pinned_one() {
     assert_eq!(out(&reader, &["names"]), before);
 }
 
+/// Decision 0090: a change set's tip is a pin that moves forward. A fetch
+/// takes it along the proposer's line even onto work this copy holds rather
+/// than follows, because a change set is somebody's proposal and not the
+/// copy's own line.
+#[test]
+fn a_fetch_moves_a_change_sets_tip_forward_onto_held_work() {
+    let (origin, root) = published("change-set-tip");
+    out(
+        &origin,
+        &["change-set", "propose", "-m", "Add a third thought"],
+    );
+    let id = store(&origin).change_sets().expect("listing")[0].id;
+    let tip = format!("change-sets/{id}");
+    write(&origin, "notes.md", "one\ntwo\nthree\n");
+    out(
+        &origin,
+        &["record", "--onto", &tip, "-m", "A third thought"],
+    );
+    publish(&origin, &root);
+
+    let reader = repository("change-set-tip-reader");
+    let somebody = Following::Writers(["Somebody Else <else@example.com>".to_owned()].into());
+    let fetched = store(&reader)
+        .fetch_following(
+            &Directory::at(&root),
+            MANIFEST,
+            Fetching::default(),
+            &somebody,
+        )
+        .expect("a first fetch");
+    assert!(fetched.names.contains(&tip), "{fetched:?}");
+
+    write(&origin, "notes.md", "one\ntwo\nthree\nfour\n");
+    out(&origin, &["record", "--onto", &tip, "-m", "A fourth"]);
+    out(&origin, &["change-set", "submit", &tip]);
+    publish(&origin, &root);
+
+    let fetched = store(&reader)
+        .fetch_following(
+            &Directory::at(&root),
+            MANIFEST,
+            Fetching::default(),
+            &somebody,
+        )
+        .expect("a second fetch");
+    let moved: Vec<&str> = fetched.moved.iter().map(|m| m.name.as_str()).collect();
+    assert_eq!(moved, [tip.as_str()], "{fetched:?}");
+    assert!(
+        fetched.names.contains(&format!("{tip}/submitted")),
+        "{fetched:?}"
+    );
+    let here = store(&reader).change_set(&id).expect("the change set");
+    assert_eq!(here.steps.len(), 2);
+    assert_eq!(here.tip, store(&origin).change_set(&id).unwrap().tip);
+}
+
 /// Decision 0088's first open question: a bookmark the publisher deleted stays
 /// where it is, since a deletion is local (decision 0073), and the fetch says
 /// so. Only a page can say a name went; a whole listing only leaves it out.

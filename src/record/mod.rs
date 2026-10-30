@@ -1706,6 +1706,14 @@ pub fn record<F: Filesystem>(
         store.set_name(&name, Name::Change(change))?;
         advanced.push(name);
     }
+    // Decision 0090: a change set's tip is a pin, so the rule above passes it
+    // by. A revision whose one parent is that tip is the change set's next
+    // step, and the pin moves onto it. A merge naming the tip is not a step:
+    // it is what accepting the change set looks like.
+    for name in crate::change_set::stepped_on(store, &recording.parents) {
+        store.set_name(&name, Name::Revision(revision))?;
+        advanced.push(name);
+    }
 
     Ok(Recorded {
         revision,

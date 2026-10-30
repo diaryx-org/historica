@@ -83,8 +83,20 @@ pub(super) fn decide(
             because,
         });
     };
+    // Decision 0090: a change set's tip and its `submitted` are pins that move
+    // forward along the line. Following is not asked of them: a change set is
+    // somebody's proposal, which a copy holds rather than follows.
+    let mut proposed: Vec<(String, Name, Name, RevisionId, RevisionId)> = Vec::new();
     for (name, ours, theirs) in readings {
         if ours == theirs {
+            continue;
+        }
+        if let (Some(true), Name::Revision(from), Name::Revision(to)) = (
+            crate::change_set::Part::of(&name).map(|part| part.moves()),
+            ours,
+            theirs,
+        ) {
+            proposed.push((name, ours, theirs, from, to));
             continue;
         }
         let (Name::Change(mine), Name::Change(publishers)) = (ours, theirs) else {
@@ -115,6 +127,21 @@ pub(super) fn decide(
                 from: ours,
                 to: theirs,
             });
+        }
+    }
+    let pairs: Vec<(RevisionId, RevisionId)> = proposed
+        .iter()
+        .map(|(_, _, _, from, to)| (*from, *to))
+        .collect();
+    let forward = reaches(history, &pairs);
+    for ((name, ours, theirs, _, _), forward) in proposed.into_iter().zip(forward) {
+        match forward {
+            true => moved.push(MovedName {
+                name,
+                from: ours,
+                to: theirs,
+            }),
+            false => keep(&mut kept, name, ours, theirs, Keeping::NotForward),
         }
     }
     moved.sort_by(|a, b| a.name.cmp(&b.name));

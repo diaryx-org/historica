@@ -1005,6 +1005,15 @@ depend on each other in.
   later work met the target's lines, the whole undoing refuses and names the
   files. The library's `revert::plan` decides all of it.
 
+- [0090 — A change set](0090-a-change-set.md)
+  A line proposed beside a history kept its record on one device, so no
+  other could list or decide it. A change set is now an opening revision
+  that records nothing and carries the title, a line on it, and shared
+  bookmarks under `change-sets/<id>` pinning the tip, the submission, and
+  the decision. Accepting is a merge naming the tip and declining is a
+  tombstone. `record` moves the tip onto a step, and `receive` and `fetch`
+  move it forward.
+
 Not a decision, but the evaluation one of them rests on:
 [`docs/loro.md`](../loro.md) — the initial Loro evaluation, and the conditions
 that would reverse it.
