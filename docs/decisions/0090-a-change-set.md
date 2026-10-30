@@ -48,13 +48,30 @@ already allows.
 **Declining is a tombstone** over the opening and every step (0013),
 standing on the base, with the reason as its message.
 `change_set::decline` writes it and the `declined` name. The change set's
-change becomes `Abandoned`.
+change becomes `Abandoned`. It supersedes the change set's own revisions and
+nothing else. 0013's `abandon` takes everything standing on what it
+abandons, which could be another change set proposed on this one's tip, so
+decline writes the tombstone itself and refuses while other work stands on
+the line. A tombstone standing there holds no work and does not count.
+Where the opening was retitled, the tombstone supersedes the opening's
+current revision, since the retitling already superseded the one the line
+stands on.
 
 **A change set's state is read from its names.** Accepted if `accepted` is
 there, else declined if `declined` is, else submitted if `submitted` is,
 else open. An acceptance outranks a tombstone, because a line in the
 ancestry of a merge is in the accepted history however it was declined.
 Both stay readable.
+
+**A decision covers the line its decider saw.** A replica that has not heard
+of an acceptance may record another step. When the two meet, the tip pin
+moves on to it, as tips do. That step is not accepted: the merge does not
+hold it. So a decided change set is read up to the last step its decision
+covers, the acceptance merge's parent on the line or the steps the
+tombstone supersedes, and `ChangeSet::tip` is that step. The steps beyond it
+are `ChangeSet::after`, recorded before the decision was heard of and not
+part of it. The pins still converge, because every replica moves the tip the
+same way, and so do the readings.
 
 **Two replicas reconcile by one rule, `change_set::reconcile`.** Readings
 at one target agree, and their axes join (0062). A tip or a `submitted`
@@ -130,10 +147,9 @@ successor is not further along. The proposer re-pins by hand with `name
 --revision`. A rule that moved a change set's pin to the one successor of a
 rewritten tip would fix this. Nothing has needed it yet.
 
-**A merged-in base.** A proposer who merges the base's progress into the
-line has a line with a merge in it, and 0013's abandon refuses a run with a
-merge in it. Such a change set can be accepted and cannot be declined until
-abandon learns to supersede across a merge the run itself made.
+**Steps after a decision.** `after` says which steps no decision covers, and
+nothing yet offers to do anything with them: propose them again as a new
+change set, or decline them. A tool that meets them says so for now.
 
 **`check` findings.** A `change-sets/` name pinning a revision that does not
 stand on its opening, or a decision pinning something that does not decide

@@ -432,3 +432,151 @@ fn reconciling_moves_only_a_change_sets_moving_parts_forward() {
     assert_eq!(Part::of(&format!("{tip}/other")), None);
     assert_eq!(Part::of("main"), None);
 }
+
+/// A store copied whole, as a second replica.
+fn replica(store: &Store, test: &str) -> (PathBuf, Store) {
+    let dir = scratch(test);
+    copy_dir(store.root(), &dir.join("history"));
+    let copy = Store::open(dir.join("history")).expect("the copy");
+    (dir, copy)
+}
+
+#[test]
+fn a_step_recorded_before_hearing_of_an_acceptance_is_not_accepted() {
+    for accepting_side_receives in [true, false] {
+        let test = format!("change-set-accept-race-{accepting_side_receives}");
+        let (base, mut laptop, head) = library(&test);
+        let proposed =
+            change_set::propose(&mut laptop, &proposing(head, "Add a line"), &mut Platform)
+                .expect("proposing");
+        fs::write(base.join("notes.md"), "First thought.\nA second.\n").unwrap();
+        let step = record_folder(&mut laptop, &base, vec![proposed.tip], "Second", AGENT);
+        let (phone_dir, mut phone) = replica(&laptop, &format!("{test}-phone"));
+
+        // The laptop accepts at the step; the phone, not having heard, adds
+        // another.
+        let merge = record_folder(
+            &mut laptop,
+            &base,
+            vec![head, step.revision],
+            "Accept",
+            PERSON,
+        );
+        change_set::accept(&mut laptop, &proposed.id, merge.revision).expect("accepting");
+        fs::write(
+            phone_dir.join("notes.md"),
+            "First thought.\nA second.\nLate.\n",
+        )
+        .unwrap();
+        let late = record_folder(&mut phone, &phone_dir, vec![step.revision], "Late", AGENT);
+
+        let read = if accepting_side_receives {
+            laptop.receive(&phone, false).expect("receiving");
+            laptop.change_set(&proposed.id).unwrap()
+        } else {
+            phone.receive(&laptop, false).expect("receiving");
+            phone.change_set(&proposed.id).unwrap()
+        };
+        assert_eq!(read.state(), State::Accepted);
+        assert_eq!(read.tip, step.revision, "the tip is what the merge holds");
+        assert_eq!(read.steps, vec![step.revision]);
+        assert_eq!(read.after, vec![late.revision]);
+    }
+}
+
+#[test]
+fn a_step_recorded_before_hearing_of_a_decline_is_not_declined() {
+    let (base, mut laptop, head) = library("change-set-decline-race");
+    let proposed = change_set::propose(&mut laptop, &proposing(head, "Add a line"), &mut Platform)
+        .expect("proposing");
+    fs::write(base.join("notes.md"), "First thought.\nA second.\n").unwrap();
+    let step = record_folder(&mut laptop, &base, vec![proposed.tip], "Second", AGENT);
+    let (phone_dir, mut phone) = replica(&laptop, "change-set-decline-race-phone");
+
+    change_set::decline(&mut laptop, &proposed.id, &declining("No"), &mut Platform)
+        .expect("declining");
+    fs::write(phone_dir.join("notes.md"), "Late.\n").unwrap();
+    let late = record_folder(&mut phone, &phone_dir, vec![step.revision], "Late", AGENT);
+
+    laptop.receive(&phone, false).expect("receiving");
+    let read = laptop.change_set(&proposed.id).unwrap();
+    assert_eq!(read.state(), State::Declined);
+    assert_eq!(read.tip, step.revision);
+    assert_eq!(read.after, vec![late.revision]);
+}
+
+#[test]
+fn declining_one_change_set_leaves_another_proposed_on_its_tip() {
+    let (base, mut store, head) = library("change-set-decline-dependent");
+    let first = change_set::propose(&mut store, &proposing(head, "First"), &mut Platform)
+        .expect("proposing");
+    fs::write(base.join("notes.md"), "First thought.\nA second.\n").unwrap();
+    let step = record_folder(&mut store, &base, vec![first.tip], "Second", AGENT);
+    let second = change_set::propose(
+        &mut store,
+        &proposing(step.revision, "Second"),
+        &mut Platform,
+    )
+    .expect("proposing on the first's tip");
+
+    match change_set::decline(&mut store, &first.id, &declining("No"), &mut Platform) {
+        Err(ChangeSetError::StoodOn { revisions, .. }) => {
+            assert_eq!(revisions, vec![second.opening]);
+        }
+        other => panic!("declined over another change set: {other:?}"),
+    }
+    let history = store.history();
+    assert!(matches!(
+        history.change_state(&second.id),
+        ChangeState::Resolved(_)
+    ));
+    assert_eq!(store.change_set(&first.id).unwrap().state(), State::Open);
+
+    // Declining the one on top first leaves the first free to go.
+    change_set::decline(&mut store, &second.id, &declining("No"), &mut Platform)
+        .expect("declining the second");
+    let declined = change_set::decline(&mut store, &first.id, &declining("No"), &mut Platform)
+        .expect("declining the first");
+    let tombstone = store.get(&declined.declined.unwrap()).unwrap().unwrap();
+    assert_eq!(
+        tombstone.supersedes,
+        BTreeSet::from([first.opening, step.revision])
+    );
+    assert!(Store::check(store.root()).is_ok());
+}
+
+#[test]
+fn a_retitled_change_set_declines_and_keeps_its_new_title() {
+    use historica::record::{Amendment, amend};
+
+    let (base, mut store, head) = library("change-set-decline-retitled");
+    let proposed = change_set::propose(&mut store, &proposing(head, "First title"), &mut Platform)
+        .expect("proposing");
+    let working = Working::read(&base, store.skipped()).expect("the folder");
+    let amended = amend(
+        &mut store,
+        &working,
+        &Amendment {
+            revision: proposed.opening,
+            message: Some("Retitled".to_owned()),
+            reviser: AGENT.to_owned(),
+            revised: Platform.now().unwrap(),
+            moves: Vec::new(),
+        },
+        &mut Platform,
+    )
+    .expect("retitling");
+    assert_eq!(store.change_set(&proposed.id).unwrap().title, "Retitled");
+
+    let declined = change_set::decline(&mut store, &proposed.id, &declining("No"), &mut Platform)
+        .expect("declining a retitled change set");
+    assert_eq!(declined.state(), State::Declined);
+    assert_eq!(declined.title, "Retitled");
+    let tombstone = store.get(&declined.declined.unwrap()).unwrap().unwrap();
+    assert_eq!(tombstone.supersedes, BTreeSet::from([amended.revision]));
+    assert!(matches!(
+        store.history().change_state(&proposed.id),
+        ChangeState::Abandoned
+    ));
+    assert!(Store::check(store.root()).is_ok());
+}

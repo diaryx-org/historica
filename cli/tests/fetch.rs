@@ -510,6 +510,67 @@ fn a_fetch_moves_a_change_sets_tip_forward_onto_held_work() {
     assert_eq!(here.tip, store(&origin).change_set(&id).unwrap().tip);
 }
 
+/// Decision 0090: a step the publisher recorded before hearing that this copy
+/// accepted the change set arrives, moves the pin, and is not accepted.
+#[test]
+fn a_step_fetched_after_an_acceptance_here_is_not_accepted() {
+    let (origin, root) = published("change-set-race");
+    out(
+        &origin,
+        &["change-set", "propose", "-m", "Add a third thought"],
+    );
+    let id = store(&origin).change_sets().expect("listing")[0].id;
+    let tip = format!("change-sets/{id}");
+    write(&origin, "notes.md", "one\ntwo\nthree\n");
+    out(
+        &origin,
+        &["record", "--onto", &tip, "-m", "A third thought"],
+    );
+    publish(&origin, &root);
+
+    let reader = repository("change-set-race-reader");
+    store(&reader)
+        .fetch_following(
+            &Directory::at(&root),
+            MANIFEST,
+            Fetching::default(),
+            &Following::Everything,
+        )
+        .expect("a first fetch");
+    let accepted_at = store(&reader).change_set(&id).unwrap().tip;
+    out(&reader, &["update", &tip]);
+    out(
+        &reader,
+        &[
+            "record",
+            "--onto",
+            "main",
+            "--merge",
+            &tip,
+            "-m",
+            "Accept it",
+        ],
+    );
+    out(&reader, &["change-set", "accept", &tip]);
+
+    write(&origin, "notes.md", "one\ntwo\nthree\nfour\n");
+    out(&origin, &["record", "--onto", &tip, "-m", "A fourth"]);
+    publish(&origin, &root);
+    store(&reader)
+        .fetch_following(
+            &Directory::at(&root),
+            MANIFEST,
+            Fetching::default(),
+            &Following::Everything,
+        )
+        .expect("a second fetch");
+
+    let here = store(&reader).change_set(&id).expect("the change set");
+    assert_eq!(here.state(), historica::change_set::State::Accepted);
+    assert_eq!(here.tip, accepted_at);
+    assert_eq!(here.after.len(), 1, "{here:?}");
+}
+
 /// Decision 0088's first open question: a bookmark the publisher deleted stays
 /// where it is, since a deletion is local (decision 0073), and the fetch says
 /// so. Only a page can say a name went; a whole listing only leaves it out.

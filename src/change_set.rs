@@ -30,11 +30,11 @@
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
-use crate::core::{ChangeId, ChangeState, History, RevisionId};
+use crate::core::{ChangeId, History, RevisionId};
 use crate::format::{self, RevisionDocument, Timestamp};
 use crate::fs::Filesystem;
 use crate::naming;
-use crate::record::{Abandoning, Entropy, RecordError, SourceError, abandon};
+use crate::record::{Entropy, RecordError, SourceError};
 use crate::store::{Bookmark, Name, REVISION_SUFFIX, Store, StoreError};
 
 /// The directory of bookmarks every change set lives under.
@@ -151,11 +151,17 @@ pub struct ChangeSet {
     pub created: Timestamp,
     /// What it is proposed against: the opening's parents.
     pub base: BTreeSet<RevisionId>,
-    /// The revision its tip bookmark pins.
+    /// The end of the line: the revision its tip bookmark pins while it is
+    /// undecided, and the last step its decision covers once it is decided.
     pub tip: RevisionId,
     /// The line from the opening to the tip, the opening excluded, parents
     /// before children.
     pub steps: Vec<RevisionId>,
+    /// Steps on the line beyond what its decision covers: recorded on
+    /// another replica before that replica heard of the decision. They are
+    /// not part of what was accepted or declined. Always empty while the
+    /// change set is undecided.
+    pub after: Vec<RevisionId>,
     /// The tip the proposer submitted, if they have.
     pub submitted: Option<RevisionId>,
     /// The merge that accepted it, if one did.
@@ -278,6 +284,14 @@ pub enum ChangeSetError {
         /// The revision offered as its acceptance.
         revision: RevisionId,
     },
+    /// Declining would leave work that is not the change set's standing on
+    /// what it supersedes: another change set proposed on its tip, say.
+    StoodOn {
+        /// The change set.
+        id: ChangeId,
+        /// The current revisions standing on its line from outside it.
+        revisions: Vec<RevisionId>,
+    },
     /// A header this format cannot hold, as decision 0070 refuses it.
     UnusableHeader {
         /// The key.
@@ -335,6 +349,18 @@ impl fmt::Display for ChangeSetError {
                 revision.abbreviate(12),
                 tip_name(id),
                 tip.abbreviate(12)
+            ),
+            Self::StoodOn { id, revisions } => write!(
+                f,
+                "change set {} cannot be declined while other work stands on it: {}. \
+                 decline or move that first, or, if it is a step of this change \
+                 set, advance the tip onto it",
+                tip_name(id),
+                revisions
+                    .iter()
+                    .map(|revision| revision.abbreviate(12))
+                    .collect::<Vec<_>>()
+                    .join(", ")
             ),
             Self::UnusableHeader { key, because } => {
                 write!(f, "`{key}` cannot be a header: {because}")
@@ -443,6 +469,41 @@ fn descends(history: &History, later: &RevisionId, earlier: &RevisionId) -> bool
     false
 }
 
+/// Whether a revision is a tombstone: it supersedes work of other changes and
+/// records nothing (decision 0013). A retitled opening records nothing and
+/// supersedes too, but what it supersedes is its own change.
+fn is_tombstone<F: Filesystem>(store: &Store<F>, document: &RevisionDocument) -> bool {
+    !document.supersedes.is_empty()
+        && document.supersedes.iter().all(|revision| {
+            store
+                .revision(revision)
+                .is_none_or(|held| held.change != document.change)
+        })
+        && document.added.is_empty()
+        && document.moved.is_empty()
+        && document.modes.is_empty()
+        && document.links.is_empty()
+        && document.dropped.is_empty()
+        && document.edited.is_empty()
+        && document.text.is_empty()
+        && document.bytes.is_empty()
+}
+
+/// The revision of `change` no other revision of it supersedes: the current
+/// one, or, once the change is abandoned, the last one before that.
+fn latest_of(history: &History, change: &ChangeId) -> Option<RevisionId> {
+    let of: Vec<&crate::core::Revision> = history.revisions_of(change).collect();
+    let replaced: BTreeSet<RevisionId> = of
+        .iter()
+        .flat_map(|revision| revision.supersedes.iter().copied())
+        .collect();
+    let mut left = of.iter().map(|r| r.id).filter(|id| !replaced.contains(id));
+    match (left.next(), left.next()) {
+        (Some(one), None) => Some(one),
+        _ => None,
+    }
+}
+
 /// Every revision `tip` stands on, itself included, parents before children,
 /// walking no further down than a revision of `opening`: what is beneath the
 /// opening is the base's history, not the change set's.
@@ -536,10 +597,7 @@ impl<F: Filesystem> Store<F> {
             .copied()
             .find(|revision| history.get(revision).is_some_and(|r| r.change == *id))
             .ok_or_else(|| unreadable("its tip does not stand on its opening".to_owned()))?;
-        let described = match history.change_state(id) {
-            ChangeState::Resolved(current) => current.id,
-            _ => opening,
-        };
+        let described = latest_of(history, id).unwrap_or(opening);
         let document = self
             .get(&described)?
             .ok_or_else(|| unreadable("its opening has not arrived".to_owned()))?;
@@ -564,6 +622,35 @@ impl<F: Filesystem> Store<F> {
             }
         }
 
+        // A decision covers the line as its decider saw it. A step another
+        // replica recorded before hearing of the decision moves the pin on
+        // when the two meet, and it is not part of what was decided: the
+        // merge does not hold it, and the tombstone does not supersede it.
+        let accepted = pinned(Some(ACCEPTED))?;
+        let declined = pinned(Some(DECLINED))?;
+        let covered: Option<BTreeSet<RevisionId>> = match (
+            accepted.and_then(|m| history.get(&m)),
+            declined.and_then(|d| history.get(&d)),
+        ) {
+            (Some(merge), _) => {
+                let mut covered = BTreeSet::new();
+                for parent in merge.parents.iter().filter(|p| on_line.contains(p)) {
+                    covered.extend(ancestry(history, parent, id));
+                }
+                (!covered.is_empty()).then_some(covered)
+            }
+            (None, Some(tombstone)) => Some(tombstone.supersedes.clone()),
+            (None, None) => None,
+        };
+        let (steps, after): (Vec<RevisionId>, Vec<RevisionId>) = match &covered {
+            Some(covered) => steps.into_iter().partition(|step| covered.contains(step)),
+            None => (steps, Vec::new()),
+        };
+        let tip = match covered {
+            Some(_) => steps.last().copied().unwrap_or(opening),
+            None => tip,
+        };
+
         Ok(ChangeSet {
             id: *id,
             opening,
@@ -574,9 +661,10 @@ impl<F: Filesystem> Store<F> {
             base: document.parents.clone(),
             tip,
             steps,
+            after,
             submitted: pinned(Some(SUBMITTED))?,
-            accepted: pinned(Some(ACCEPTED))?,
-            declined: pinned(Some(DECLINED))?,
+            accepted,
+            declined,
         })
     }
 
@@ -745,32 +833,114 @@ pub fn accept<F: Filesystem>(
     store.change_set(id)
 }
 
-/// Decline a change set: abandon its opening and every step with one
+/// Decline a change set: supersede its opening and every step with one
 /// tombstone (decision 0013), and pin the tombstone.
 ///
-/// The tombstone stands where the opening stood, on the base, so the content
-/// falls out of the ancestry and nothing has to be undone. Its revisions stay
-/// in the store, superseded, until a `prune` takes them.
+/// The tombstone stands where the opening stands, on the base, so the
+/// content falls out of the ancestry and nothing has to be undone. Its
+/// revisions stay in the store, superseded, until a `prune` takes them.
+///
+/// It supersedes the change set's own revisions and nothing else. 0013's
+/// `abandon` takes everything standing on what it abandons, which here could
+/// be another change set proposed on this one's tip. So this writes the
+/// tombstone itself, over exactly the line, and refuses while any other work
+/// stands on it. And where the opening was retitled, the tombstone
+/// supersedes the current revision of the opening's change, not the one the
+/// line stands on, which its retitling already superseded.
 pub fn decline<F: Filesystem>(
     store: &mut Store<F>,
     id: &ChangeId,
     declining: &Declining,
     entropy: &mut impl Entropy,
 ) -> Result<ChangeSet, ChangeSetError> {
+    if declining.message.trim().is_empty() {
+        return Err(ChangeSetError::Record(RecordError::NoReasonGiven));
+    }
     let change_set = store.change_set(id)?;
     undecided(&change_set)?;
-    let abandoned = abandon(
-        store,
-        &Abandoning {
-            revision: change_set.opening,
-            only: false,
-            author: declining.author.clone(),
-            when: declining.when.clone(),
-            message: declining.message.clone(),
-        },
-        entropy,
-    )?;
-    store.set_name(&fact_name(id, DECLINED), Name::Revision(abandoned.revision))?;
+    let history = store.history();
+    let superseded = history.superseded();
+
+    // A tombstone standing on the line holds no work, so it is no reason to
+    // refuse: declining a change set proposed on this one's tip leaves one.
+    let line: BTreeSet<RevisionId> = change_set.revisions().collect();
+    let mut standing = Vec::new();
+    for (revision, held) in store.documents()? {
+        if !line.contains(revision)
+            && !superseded.contains(revision)
+            && held.parents.iter().any(|parent| line.contains(parent))
+            && !is_tombstone(store, held)
+        {
+            standing.push(*revision);
+        }
+    }
+    if !standing.is_empty() {
+        return Err(ChangeSetError::StoodOn {
+            id: *id,
+            revisions: standing,
+        });
+    }
+
+    let opening = latest_of(&history, id).unwrap_or(change_set.opening);
+    let parents = store
+        .revision(&opening)
+        .map(|revision| revision.parents.clone())
+        .unwrap_or_else(|| change_set.base.clone());
+    let supersedes: BTreeSet<RevisionId> = std::iter::once(opening)
+        .chain(change_set.steps.iter().copied())
+        .filter(|revision| !superseded.contains(revision))
+        .collect();
+
+    let change = entropy.change()?;
+    let document = RevisionDocument {
+        change,
+        parents,
+        supersedes,
+        author: declining.author.clone(),
+        when: declining.when.clone(),
+        revised_by: None,
+        // Decision 0005: `revised` is the moment of every supersession, and
+        // here the work and the rewrite are one act, as in any tombstone.
+        revised: Some(declining.when.clone()),
+        added: BTreeMap::new(),
+        moved: BTreeMap::new(),
+        modes: BTreeMap::new(),
+        links: BTreeMap::new(),
+        dropped: BTreeSet::new(),
+        edited: BTreeMap::new(),
+        text: BTreeMap::new(),
+        bytes: BTreeMap::new(),
+        sizes: BTreeMap::new(),
+        extensions: BTreeMap::new(),
+        message: declining.message.clone(),
+    };
+    let stem = naming::stem_for(
+        &declining.when,
+        &declining.message,
+        &change,
+        &document.id(),
+        store.documents()?.into_iter().map(|(_, held)| held),
+    );
+    let tombstone = store.insert_at(&document, &format!("{stem}{REVISION_SUFFIX}"))?;
+
+    // What `abandon` does for a bookmark that followed the abandoned work: it
+    // follows the tombstone. A pin, every change set's own included, stays.
+    let followed: BTreeSet<ChangeId> = document
+        .supersedes
+        .iter()
+        .filter_map(|revision| store.revision(revision).map(|held| held.change))
+        .collect();
+    let following: Vec<String> = store
+        .names()
+        .iter()
+        .filter(|(_, bookmark)| matches!(bookmark.target, Name::Change(named) if followed.contains(&named)))
+        .map(|(name, _)| name.clone())
+        .collect();
+    for name in following {
+        store.set_name(&name, Name::Change(change))?;
+    }
+
+    store.set_name(&fact_name(id, DECLINED), Name::Revision(tombstone))?;
     store.change_set(id)
 }
 

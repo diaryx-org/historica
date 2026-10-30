@@ -160,6 +160,13 @@ fn show(root: PathBuf, rest: Vec<String>) -> Result<u8, Failure> {
             writeln!(out, "step       {step}  {message}")?;
         }
         writeln!(out, "tip        {}", change_set.tip.abbreviate(12))?;
+        for step in &change_set.after {
+            writeln!(
+                out,
+                "after      {}  recorded before its decision was heard of, and not part of it",
+                step.abbreviate(12)
+            )?;
+        }
         for (label, fact) in [
             ("submitted", change_set.submitted),
             ("accepted", change_set.accepted),

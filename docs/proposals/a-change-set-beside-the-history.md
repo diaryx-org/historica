@@ -173,6 +173,19 @@ stands where the opening stood, on the base. Its parents are the opening's
 parents. So the abandoned work is gone from every descendant, and nothing
 is left that a person has to merge.
 
+Review found two ways `abandon` itself got this wrong, so decline writes its
+own tombstone over exactly the line. `abandon` takes everything standing on
+what it abandons, which would take another change set proposed on this one's
+tip with it. Decline refuses while such work stands on the line instead.
+And a retitled opening is already superseded, which `abandon` refuses, so
+the tombstone supersedes the opening's current revision.
+
+Review also found a race between a decision and a late step. A replica that
+has not heard of an acceptance records another step, and the tip moves on
+when the two meet. The merge does not hold that step, so a decided change
+set is read up to what its decision covers, and the steps beyond are listed
+apart, as recorded after it.
+
 ## What Diaryx keeps doing on top
 
 Historica learns the shape. Diaryx keeps everything that is about Diaryx:
