@@ -66,8 +66,23 @@ from one person, that every replica receives like any other.
   somebody's unrecorded work, and [0030](0030-the-folder-catches-up.md)'s
   rule — never overwrite or remove bytes no revision records — is kept by
   refusing rather than by asking.
+- **A merge is undone against a side, named with `--parent`.** The parent
+  named is kept, and what the merge brought in from its other parents is
+  taken back, compared file by file as the merge's tree against that
+  parent's — the merge's own document states only what joining needed. This
+  is how an accepted change set is taken back in one step: accepting one is
+  recorded as a merge whose parents include the change set's tip, so
+  reverting the acceptance against what it was accepted onto takes back
+  every revision the change set held, and keeps everything since. A merge
+  with no side named is refused, because a merge's parents are a set and
+  there is no first one to assume.
+- **What the head has already taken back is not taken back twice.** An edit
+  the head already made is left out of the undoing, so a revert that has
+  already been done, by hand or by another revert, settles rather than
+  refusing.
 - **The library decides all of it.** `historica::revert::plan` takes the
-  store, the folder, the target and the head and hands back a `Reversal`: an
+  store, the folder, the target and the head (and `plan_against` the side
+  of a merge to keep) and hands back a `Reversal`: an
   [`update::Update`](0030-the-folder-catches-up.md) for `update::apply` to
   perform under the guards it already keeps, the facts the record will state,
   the paths to restrict it to, and the renames to state. A host keeping its
@@ -150,9 +165,8 @@ mistake comes back.
 
 ## Refusals
 
-- **A merge.** Undoing a merge is choosing which side it joined to lose,
-  which is a different question from taking work back, and the revision
-  on that side is what to revert instead.
+- **A merge with no side named**, or with a side that is not one of its
+  parents. The refusal lists its parents.
 - **A revision the head does not stand on**, which leaves the head holding
   none of its work.
 - **Several heads.** The undoing is recorded on one line of work, and which
@@ -195,7 +209,10 @@ on the record it makes.
 ## What this does not do yet
 
 - **Revert a range** — several revisions taken back in one undoing. Each
-  can be reverted in turn, newest first.
+  can be reverted in turn, newest first. The range that matters most, a
+  change set, is already one step, because its acceptance is a merge; a
+  general range would need a rule for what a range across a merge means,
+  and nobody has asked for one yet.
 - **Undo part of a revision**, a path at a time. The `Reversal` names every
   path; narrowing it is a filter a caller can write, and a flag can follow
   when someone wants one.

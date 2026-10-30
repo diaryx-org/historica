@@ -31,7 +31,7 @@ use std::fmt;
 
 use crate::core::{FileId, RevisionId};
 use crate::diff::diff;
-use crate::format::{LinkTarget, Mode, digest};
+use crate::format::{LinkTarget, Mode, OperationDocument, digest};
 use crate::fs::Filesystem;
 use crate::merge::{self, Event, MergeError};
 use crate::record::{Fact, Kinds};
@@ -101,11 +101,18 @@ pub enum RevertError {
         /// The head it is not behind.
         head: RevisionId,
     },
-    /// The revision is a merge, and undoing one means choosing which side it
-    /// joined to keep — which is a different question from undoing work.
+    /// The revision is a merge and no parent was named: undoing one means
+    /// saying which side it joined to keep, and [`plan_against`] takes it.
     Merge {
         /// The merge named.
         target: RevisionId,
+    },
+    /// The side named to keep is not one of the revision's parents.
+    NotAParent {
+        /// The revision named.
+        target: RevisionId,
+        /// The side named, which it was not recorded on.
+        parent: RevisionId,
     },
     /// Some files cannot be put back, so nothing was planned. Each is named
     /// with what stands in the way, in path order: the plan is all or
@@ -139,8 +146,14 @@ impl fmt::Display for RevertError {
             ),
             RevertError::Merge { target } => write!(
                 f,
-                "{} is a merge, and undoing one is choosing a side rather than \
-                 taking work back; undo the revision on the side you meant to lose",
+                "{} is a merge, so undoing it means naming the side it joined \
+                 to keep: the work that came in from the others is what is taken back",
+                target.abbreviate(12)
+            ),
+            RevertError::NotAParent { target, parent } => write!(
+                f,
+                "{} is not a parent of {}, so there is no side of it to keep",
+                parent.abbreviate(12),
                 target.abbreviate(12)
             ),
             RevertError::Refused { paths } => {
@@ -218,17 +231,48 @@ impl Held {
 /// unrecorded work, and the plan refuses rather than writing over it. Paths
 /// it does not touch are not looked at, except a link that names a file the
 /// undoing moves, which is re-pointed so that it still names that file.
+///
+/// A merge is refused here; [`plan_against`] undoes one against a side.
 pub fn plan<F: Filesystem, G: Filesystem>(
     store: &Store<F>,
     working: &Working<G>,
     target: &RevisionId,
     head: &RevisionId,
 ) -> Result<Reversal, RevertError> {
+    plan_against(store, working, target, None, head)
+}
+
+/// Undo `target` on top of `head` against one of its parents, `mainline`:
+/// what the folder holds afterwards is the head with everything `target`
+/// changed relative to that parent changed back.
+///
+/// For a revision with one parent, naming it is the same as [`plan`]. For a
+/// merge it is the only way to undo one: the side named is the one kept, and
+/// the work the merge brought in from its other parents — an accepted
+/// change set, a colleague's line of work — is what is taken back, in one
+/// undoing, under the same rules as any other. A parent the revision does
+/// not have is refused.
+pub fn plan_against<F: Filesystem, G: Filesystem>(
+    store: &Store<F>,
+    working: &Working<G>,
+    target: &RevisionId,
+    mainline: Option<&RevisionId>,
+    head: &RevisionId,
+) -> Result<Reversal, RevertError> {
     let document = store
         .get(target)?
         .ok_or(RevertError::Unknown { target: *target })?
         .clone();
-    if document.parents.len() > 1 {
+    if let Some(mainline) = mainline
+        && !document.parents.contains(mainline)
+    {
+        return Err(RevertError::NotAParent {
+            target: *target,
+            parent: *mainline,
+        });
+    }
+    let merge = document.parents.len() > 1;
+    if merge && mainline.is_none() {
         return Err(RevertError::Merge { target: *target });
     }
     if !store
@@ -241,7 +285,9 @@ pub fn plan<F: Filesystem, G: Filesystem>(
             head: *head,
         });
     }
-    let parent = document.parents.iter().next().copied();
+    let parent = mainline
+        .copied()
+        .or_else(|| document.parents.iter().next().copied());
 
     let before = match &parent {
         Some(parent) => store.tree(parent)?,
@@ -251,18 +297,26 @@ pub fn plan<F: Filesystem, G: Filesystem>(
     let now = store.tree(head)?;
 
     // Everything the revision said it did, which is every file it touched.
-    let touched: BTreeSet<FileId> = document
-        .added
-        .keys()
-        .chain(document.moved.keys())
-        .chain(document.modes.keys())
-        .chain(&document.dropped)
-        .chain(document.edited.keys())
-        .chain(document.text.keys())
-        .chain(document.bytes.keys())
-        .chain(document.links.keys())
-        .copied()
-        .collect();
+    // A merge's document states only what joining needed — what came in from
+    // the other sides was stated by the revisions on them — so for a merge
+    // the files are the ones its tree holds differently from the side kept.
+    let touched: BTreeSet<FileId> = if merge {
+        let parent = parent.expect("a merge has parents");
+        differing(store, &parent, &before, target, &after)?
+    } else {
+        document
+            .added
+            .keys()
+            .chain(document.moved.keys())
+            .chain(document.modes.keys())
+            .chain(&document.dropped)
+            .chain(document.edited.keys())
+            .chain(document.text.keys())
+            .chain(document.bytes.keys())
+            .chain(document.links.keys())
+            .copied()
+            .collect()
+    };
 
     let mut planned = Planned {
         reversal: Reversal {
@@ -324,6 +378,41 @@ pub fn plan<F: Filesystem, G: Filesystem>(
     reversal.paths.sort();
     reversal.paths.dedup();
     Ok(reversal)
+}
+
+/// Every file two trees hold differently: added or dropped between them, or
+/// held at another path, kind, payload, mode or target, or holding other
+/// lines.
+fn differing<F: Filesystem>(
+    store: &Store<F>,
+    from: &RevisionId,
+    before: &Tree,
+    to: &RevisionId,
+    after: &Tree,
+) -> Result<BTreeSet<FileId>, RevertError> {
+    let mut files = BTreeSet::new();
+    for (file, entry) in before.entries() {
+        match after.entry(file) {
+            None => {
+                files.insert(*file);
+            }
+            Some(other) if other != entry => {
+                files.insert(*file);
+            }
+            Some(_) if entry.kind == Kind::Lines => {
+                if store.content(from, file)?.digest() != store.content(to, file)?.digest() {
+                    files.insert(*file);
+                }
+            }
+            Some(_) => {}
+        }
+    }
+    for (file, _) in after.entries() {
+        if before.entry(file).is_none() {
+            files.insert(*file);
+        }
+    }
+    Ok(files)
 }
 
 /// A reversal while it is being worked out.
@@ -781,6 +870,22 @@ impl<F: Filesystem, G: Filesystem> Sides<'_, F, G> {
         let creation = crate::replay::creation(&left.text());
         let back = diff(left, then).expect("the two differ, or nothing would be undone");
         let on = diff(left, held).expect("the two differ, or the head would hold the base");
+        // What the head has already taken back is not taken back again. Both
+        // documents count positions in the target's content, so an operation
+        // the two share is the same edit, and replaying it on both sides would
+        // read as two concurrent inserts rather than one agreed one.
+        let back = OperationDocument {
+            forgets: None,
+            result: None,
+            operations: back
+                .operations
+                .into_iter()
+                .filter(|operation| !on.operations.contains(operation))
+                .collect(),
+        };
+        if back.operations.is_empty() {
+            return Ok(held.clone());
+        }
         let mut events: Vec<Event<'_>> = Vec::new();
         match &creation {
             Some(document) => events.push(Event::operations(

@@ -145,10 +145,11 @@ writing a store
                            make the folder hold a head: write what it
                            records, remove what it does not, touch nothing
                            unrecorded
-  revert <target> [--dry-run]
+  revert <target> [--parent <side>] [--dry-run]
                            take one revision's work back out of the folder,
                            keeping everything recorded since, and print the
-                           `record` that writes the undoing down
+                           `record` that writes the undoing down. A merge is
+                           undone against the parent named, which is kept
   abandon <target> [--only] [-m <why>] [--dry-run] [--fields]
                            supersede this revision, and everything standing
                            on it, with a tombstone that says why. --only

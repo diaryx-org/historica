@@ -11,20 +11,33 @@ use std::io::Write as _;
 use std::path::PathBuf;
 
 use historica::core::RevisionId;
-use historica::revert::{Reversal, RevertError, plan};
+use historica::revert::{Reversal, RevertError, plan_against};
 use historica::tree::Kind;
 use historica::update::apply;
 
 use super::{Failure, printing, target};
 
-/// `revert <target> [-n|--dry-run]` — take one revision's work back out of
-/// the folder, keeping everything recorded since.
+/// `revert <target> [--parent <side>] [-n|--dry-run]` — take one revision's
+/// work back out of the folder, keeping everything recorded since. A merge
+/// is undone against the parent named, which is the side kept.
 pub fn revert(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
     let mut spelling: Option<String> = None;
+    let mut side: Option<String> = None;
     let mut dry_run = false;
-    for argument in arguments {
+    let mut arguments = arguments.into_iter();
+    while let Some(argument) = arguments.next() {
         match argument.as_str() {
             "-n" | "--dry-run" => dry_run = true,
+            "--parent" => {
+                let Some(named) = arguments.next() else {
+                    return Err(Failure::usage(
+                        "`--parent` takes the side of the merge to keep",
+                    ));
+                };
+                if side.replace(named).is_some() {
+                    return Err(Failure::usage("`--parent` is named once"));
+                }
+            }
             other if other.starts_with('-') => {
                 return Err(Failure::usage(format!(
                     "`{other}` is not a `revert` option"
@@ -51,6 +64,10 @@ pub fn revert(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
         .to_path_buf();
 
     let target = target::resolve(&store, &spelling)?;
+    let mainline = side
+        .as_deref()
+        .map(|side| target::resolve(&store, side))
+        .transpose()?;
     // The undoing is recorded on the head the folder holds, so it is that
     // head or a refusal naming the choice — as `record` would refuse it.
     let found = target::following(&store)?.heads(&store);
@@ -77,29 +94,38 @@ pub fn revert(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
             .get(&target)
             .map_err(Failure::error)?
             .ok_or_else(|| Failure::error(format!("this store holds no revision {spelling}")))?;
-        (
-            document
-                .parents
-                .iter()
-                .copied()
-                .collect::<Vec<RevisionId>>(),
-            document.message.clone(),
-        )
+        (document.parents.clone(), document.message.clone())
     };
-    let mut sides = parents;
+    let mut sides: Vec<RevisionId> = parents.iter().copied().collect();
     sides.push(target);
     sides.push(head);
     super::elsewhere::held_whole(&mut store, &sides, None)?;
 
     let working = super::cache::working(&repository, &store).map_err(Failure::error)?;
-    let reversal = plan(&store, &working, &target, &head).map_err(|error| match error {
-        RevertError::NotBehind { .. } => Failure::error(format!(
-            "{} is not behind the head the folder holds, so there is none of its \
-             work here to take back",
-            target::spelled(&store, &target)
-        )),
-        other => Failure::error(other),
-    })?;
+    let reversal =
+        plan_against(&store, &working, &target, mainline.as_ref(), &head).map_err(|error| {
+            match error {
+                RevertError::NotBehind { .. } => Failure::error(format!(
+                    "{} is not behind the head the folder holds, so there is none of its \
+                 work here to take back",
+                    target::spelled(&store, &target)
+                )),
+                RevertError::Merge { .. } => Failure::error(format!(
+                    "{} is a merge, so undoing it means naming the side it joined to keep \
+                 with `--parent`; the work that came in from the others is what is \
+                 taken back. Its parents:\n{}",
+                    target::spelled(&store, &target),
+                    target::described(&store, &parents)
+                )),
+                RevertError::NotAParent { parent, .. } => Failure::error(format!(
+                    "{} is not a parent of {}, so there is no side of it to keep; its parents:\n{}",
+                    target::spelled(&store, &parent),
+                    target::spelled(&store, &target),
+                    target::described(&store, &parents)
+                )),
+                other => Failure::error(other),
+            }
+        })?;
 
     let undoing = target::spelled(&store, &target);
     if reversal.is_settled() {

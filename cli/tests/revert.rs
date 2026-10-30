@@ -563,3 +563,105 @@ mod unix {
         assert!(status.contains("nothing here differs"), "{status}");
     }
 }
+
+/// Record with the arguments given, and give back the revision written.
+fn recorded_with(directory: &Path, arguments: &[&str]) -> String {
+    let said = out(directory, arguments);
+    said.lines()
+        .find_map(|line| line.strip_prefix("recorded "))
+        .and_then(|rest| rest.split_whitespace().nth(2))
+        .expect("the revision `record` names")
+        .to_owned()
+}
+
+/// An accepted change set, undone in one step: the acceptance is a merge, and
+/// reverting it against the side it was accepted onto takes back every
+/// revision the change set held, keeping the reviewer's own work beside it
+/// and everything recorded on top of it since.
+#[test]
+fn an_accepted_change_set_is_taken_back_in_one_step() {
+    let directory = repository("change-set");
+    write(&directory, "notes.md", "intro\na\nb\nc\nend\n");
+    write(&directory, "keep.md", "keep\n");
+    let base = record(&directory, "Start");
+
+    // The reviewer's own work, on the base.
+    write(&directory, "keep.md", "keep\nmore\n");
+    let mainline = record(&directory, "The reviewer's line");
+
+    // A change set of two revisions, proposed onto the base.
+    write(&directory, "keep.md", "keep\n");
+    write(&directory, "notes.md", "intro\na\nb\nc\nend\nproposed\n");
+    write(&directory, "proposal.md", "A proposal.\n");
+    let first = recorded_with(
+        &directory,
+        &["record", "--onto", &base, "-m", "Propose a paragraph"],
+    );
+    write(&directory, "notes.md", "INTRO\na\nb\nc\nend\nproposed\n");
+    let tip = recorded_with(
+        &directory,
+        &["record", "--onto", &first, "-m", "Propose a title"],
+    );
+
+    // Accepted: a merge whose parents are the reviewer's line and the tip.
+    out(&directory, &["merge", &mainline, &tip]);
+    let accepted = recorded_with(
+        &directory,
+        &[
+            "record",
+            "--merge",
+            &mainline,
+            "--merge",
+            &tip,
+            "-m",
+            "Accept the change set",
+        ],
+    );
+    assert_eq!(
+        read(&directory, "notes.md"),
+        "INTRO\na\nb\nc\nend\nproposed\n"
+    );
+    assert_eq!(read(&directory, "keep.md"), "keep\nmore\n");
+
+    // Work on top of the acceptance, in both files.
+    write(&directory, "notes.md", "INTRO\na\nB\nc\nend\nproposed\n");
+    write(&directory, "keep.md", "keep\nmore\nlater\n");
+    record(&directory, "Later work");
+
+    // A merge with no side named is refused, and says how to name one.
+    let refusal = refused(&directory, &["revert", &accepted]);
+    assert!(refusal.contains("--parent"), "{refusal}");
+    // A side the merge was not recorded on is refused.
+    let refusal = refused(&directory, &["revert", &accepted, "--parent", &first]);
+    assert!(refusal.contains("not a parent"), "{refusal}");
+
+    let said = out(&directory, &["revert", &accepted, "--parent", &mainline]);
+    let arguments = printed_record(&said);
+    let arguments: Vec<&str> = arguments.iter().map(String::as_str).collect();
+    out(&directory, &arguments);
+
+    assert_eq!(
+        read(&directory, "notes.md"),
+        "intro\na\nB\nc\nend\n",
+        "both proposed revisions are taken back, and the later edit stays"
+    );
+    assert!(
+        !directory.join("proposal.md").exists(),
+        "the proposed file goes"
+    );
+    assert_eq!(
+        read(&directory, "keep.md"),
+        "keep\nmore\nlater\n",
+        "the reviewer's line and the later work stay"
+    );
+    let status = out(&directory, &["status"]);
+    assert!(status.contains("nothing here differs"), "{status}");
+    let checked = out(&directory, &["check"]);
+    assert!(checked.contains("nothing to report"), "{checked}");
+    let log = out(&directory, &["log", "--limit", "1"]);
+    assert!(log.contains("Undo \"Accept the change set\""), "{log}");
+
+    // Taken back once, there is nothing of it left to take back.
+    let again = out(&directory, &["revert", &accepted, "--parent", &mainline]);
+    assert!(again.contains("nothing of"), "{again}");
+}

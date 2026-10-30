@@ -11,7 +11,7 @@ use std::path::{Path, PathBuf};
 
 use historica::core::RevisionId;
 use historica::record::{Clock as _, Fact, Platform, Recording, Restriction, record};
-use historica::revert::{RevertError, plan};
+use historica::revert::{RevertError, plan, plan_against};
 use historica::store::Store;
 use historica::update;
 use historica::working::Working;
@@ -287,5 +287,42 @@ fn a_rename_put_back_re_points_the_links_naming_it() {
     let working = Working::read(&root, store.skipped()).expect("the folder");
     let again = plan(&store, &working, &rename, &undone.revision).expect("a plan");
     assert!(again.is_settled(), "{again:?}");
+    let _ = fs::remove_dir_all(&root);
+}
+
+/// A merge is undone against the side named, which is kept; with no side
+/// named, or a side it was not recorded on, it is refused.
+#[test]
+fn a_merge_is_undone_against_the_side_kept() {
+    let (root, mut store) = folder("merge");
+    fs::write(root.join("a.md"), "a\n").expect("a file");
+    let start = recorded(&mut store, &root, Vec::new(), "Start");
+    fs::write(root.join("mine.md"), "mine\n").expect("a file");
+    let mine = recorded(&mut store, &root, vec![start], "Mine");
+    fs::remove_file(root.join("mine.md")).expect("a delete");
+    fs::write(root.join("theirs.md"), "theirs\n").expect("a file");
+    let theirs = recorded(&mut store, &root, vec![start], "Theirs");
+    fs::write(root.join("mine.md"), "mine\n").expect("a file");
+    let joined = recorded(&mut store, &root, vec![mine, theirs], "Join");
+
+    let working = Working::read(&root, store.skipped()).expect("the folder");
+    assert!(matches!(
+        plan(&store, &working, &joined, &joined),
+        Err(RevertError::Merge { .. })
+    ));
+    assert!(matches!(
+        plan_against(&store, &working, &joined, Some(&start), &joined),
+        Err(RevertError::NotAParent { .. })
+    ));
+
+    let reversal = plan_against(&store, &working, &joined, Some(&mine), &joined).expect("a plan");
+    assert_eq!(
+        reversal.facts,
+        [(Fact::Dropped, "theirs.md".to_owned())],
+        "what came in from the other side, and nothing of the side kept"
+    );
+    update::apply(&store, &working, &root, &reversal.update).expect("applying");
+    assert!(!root.join("theirs.md").exists());
+    assert!(root.join("mine.md").exists());
     let _ = fs::remove_dir_all(&root);
 }

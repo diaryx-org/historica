@@ -408,6 +408,15 @@ refuses where the folder does not hold the head at a path it would write,
 since what is there is somebody's unrecorded work. `--dry-run` says what the
 undoing would record and writes nothing.
 
+A merge is undone against a side: `revert <merge> --parent <side>` keeps the
+parent named and takes back everything the merge brought in from the others,
+in one undoing. Accepting a change set is recorded as a merge whose parents
+include the change set's tip, so `revert <acceptance> --parent <what it was
+accepted onto>` takes the whole change set back, however many revisions it
+held, and keeps the work recorded on top of it. Without `--parent` a merge is
+refused and its parents are listed, because a merge's parents have no order
+to pick a "first" from.
+
 `abandon` is still the answer when the history should not say the work
 happened at all; `revert` is the answer when it should say the work happened
 and was taken back.
