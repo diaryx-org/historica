@@ -14,6 +14,7 @@ contents:
 - '[The web source asks for one file at a time](/docs/tasks/closed/the-web-source-asks-for-one-file-at-a-time.md)'
 - '[A fetch asks past its bound](/docs/tasks/closed/a-fetch-asks-past-its-bound.md)'
 - '[Forget at a rewrite leaves its predecessor legible](/docs/tasks/closed/forget-at-a-rewrite-leaves-its-predecessor-legible.md)'
+- '[Two git tests share one scratch directory](/docs/tasks/closed/two-git-tests-share-one-scratch-directory.md)'
 ---
 
 # Closed tasks

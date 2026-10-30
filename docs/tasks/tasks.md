@@ -9,7 +9,6 @@ contents:
   - '[A merge agrees by text](/docs/tasks/a-merge-agrees-by-text.md)'
   - '[A stand-in filed beside another copy](/docs/tasks/a-stand-in-filed-beside-another-copy.md)'
   - '[Forget leaves the folder holding what it destroyed](/docs/tasks/forget-leaves-the-folder-holding-what-it-destroyed.md)'
-  - '[Two git tests share one scratch directory](/docs/tasks/two-git-tests-share-one-scratch-directory.md)'
   - '[cargo doc writes the CLI''s pages over the library''s](/docs/tasks/cargo-doc-writes-the-cli-over-the-library.md)'
 part_of: '[historica](/README.md)'
 ---
