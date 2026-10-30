@@ -132,7 +132,7 @@ cannot see a deletion at all, so it would work only from a paged manifest.
 
 ## Since
 
-[0090](0090-a-change-set.md) moves one kind of pin: a change set's tip and
+[0091](0091-a-change-set.md) moves one kind of pin: a change set's tip and
 its `submitted` move forward along the proposer's line, on a fetch and on a
 receive, without the follow condition, because a copy holds a proposal
 rather than follows it.

@@ -83,7 +83,7 @@ pub(super) fn decide(
             because,
         });
     };
-    // Decision 0090: a change set's tip and its `submitted` are pins that move
+    // Decision 0091: a change set's tip and its `submitted` are pins that move
     // forward along the line. Following is not asked of them: a change set is
     // somebody's proposal, which a copy holds rather than follows.
     let mut proposed: Vec<(String, Name, Name, RevisionId, RevisionId)> = Vec::new();

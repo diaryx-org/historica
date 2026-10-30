@@ -443,7 +443,7 @@ store is left as it was found.
 
 ### `change-set`
 
-Decision [0090](decisions/0090-a-change-set.md). A change set is made from
+Decision [0091](decisions/0091-a-change-set.md). A change set is made from
 things the store already holds, so the command adds no new act of its own.
 `propose` writes an opening revision on the head. Like a tombstone, it
 records nothing and its message is required. It also pins
@@ -454,7 +454,9 @@ the tip is the change set's next step. `submit` pins the tip as finished.
 Accepting is a merge, recorded the way any merge is: `update` the folder to
 the tip, then `record --onto <your head> --merge change-sets/<id>`. `accept`
 then names that merge, and with no merge named it finds the one whose
-parents include the tip. `decline` is `abandon` of the opening and every
+parents include the tip. `--tip` names the tip the person reviewed, and
+`accept` refuses if the change set's tip is anywhere else. Without it, the
+tip is the one the merge names. `decline` is `abandon` of the opening and every
 step, with the tombstone pinned. A change set is named by its id, a prefix
 of it, or its bookmark. Listing reads only the names and the revisions, so a
 change set proposed on another replica is listed here once both have

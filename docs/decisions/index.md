@@ -1005,7 +1005,7 @@ depend on each other in.
   later work met the target's lines, the whole undoing refuses and names the
   files. The library's `revert::plan` decides all of it.
 
-- [0090 — A change set](0090-a-change-set.md)
+- [0091 — A change set](0091-a-change-set.md)
   A line proposed beside a history kept its record on one device, so no
   other could list or decide it. A change set is now an opening revision
   that records nothing and carries the title, a line on it, and shared

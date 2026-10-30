@@ -413,6 +413,6 @@ publisher's that is not ahead of it on a line the copy follows, and moves
 where it is. Moving it back, or off the reader's own work, is still refused,
 for the reason above.
 
-[0090](0090-a-change-set.md) gives `receive` one move: a change set's tip, or
+[0091](0091-a-change-set.md) gives `receive` one move: a change set's tip, or
 its `submitted`, takes the reading further along the line instead of
 conflicting. Every other bookmark still conflicts as above.

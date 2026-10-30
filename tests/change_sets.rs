@@ -1,4 +1,4 @@
-//! Change sets, decision 0090: a line proposed beside a history, under shared
+//! Change sets, decision 0091: a line proposed beside a history, under shared
 //! bookmarks, and decided by a merge or a tombstone.
 
 use std::collections::BTreeSet;
@@ -221,7 +221,7 @@ fn accepting_is_a_merge_naming_the_tip_and_the_merge_leaves_the_tip_where_it_was
     fs::write(base.join("notes.md"), "First thought.\nA second.\nMore.\n").unwrap();
     let more = record_folder(&mut store, &base, vec![step.revision], "More", AGENT);
     assert!(matches!(
-        change_set::accept(&mut store, &proposed.id, more.revision),
+        change_set::accept(&mut store, &proposed.id, more.revision, more.revision),
         Err(ChangeSetError::NotAMerge { .. })
     ));
 
@@ -239,7 +239,8 @@ fn accepting_is_a_merge_naming_the_tip_and_the_merge_leaves_the_tip_where_it_was
         store.acceptances(&proposed.id).unwrap(),
         vec![merge.revision]
     );
-    let accepted = change_set::accept(&mut store, &proposed.id, merge.revision).expect("accepting");
+    let accepted = change_set::accept(&mut store, &proposed.id, merge.revision, more.revision)
+        .expect("accepting");
     assert_eq!(accepted.state(), State::Accepted);
     assert_eq!(accepted.tip, more.revision);
     assert_eq!(accepted.accepted, Some(merge.revision));
@@ -380,7 +381,7 @@ fn decided_both_ways_reads_as_accepted_and_keeps_the_tombstone() {
         "Accept",
         PERSON,
     );
-    change_set::accept(&mut store, &proposed.id, merge.revision).expect("accepting");
+    change_set::accept(&mut store, &proposed.id, merge.revision, step.revision).expect("accepting");
 
     store.receive(&phone, false).expect("receiving");
     let read = store.change_set(&proposed.id).unwrap();
@@ -462,7 +463,8 @@ fn a_step_recorded_before_hearing_of_an_acceptance_is_not_accepted() {
             "Accept",
             PERSON,
         );
-        change_set::accept(&mut laptop, &proposed.id, merge.revision).expect("accepting");
+        change_set::accept(&mut laptop, &proposed.id, merge.revision, step.revision)
+            .expect("accepting");
         fs::write(
             phone_dir.join("notes.md"),
             "First thought.\nA second.\nLate.\n",
@@ -579,4 +581,231 @@ fn a_retitled_change_set_declines_and_keeps_its_new_title() {
         ChangeState::Abandoned
     ));
     assert!(Store::check(store.root()).is_ok());
+}
+
+#[test]
+fn accepting_wants_the_tip_the_reviewer_saw_and_approving_wants_it_submitted() {
+    let (base, mut store, head) = library("change-set-accept-seen");
+    let proposed = change_set::propose(&mut store, &proposing(head, "Add a line"), &mut Platform)
+        .expect("proposing");
+    fs::write(base.join("notes.md"), "First thought.\nA second.\n").unwrap();
+    let reviewed = record_folder(&mut store, &base, vec![proposed.tip], "Second", AGENT);
+    change_set::submit(&mut store, &proposed.id).expect("submitting");
+    assert!(store.change_set(&proposed.id).unwrap().is_approvable());
+    change_set::approvable(&store, &proposed.id, reviewed.revision).expect("approvable");
+
+    // A step after the review, and after the submission.
+    fs::write(
+        base.join("notes.md"),
+        "First thought.\nA second.\nSlipped in.\n",
+    )
+    .unwrap();
+    let slipped = record_folder(&mut store, &base, vec![reviewed.revision], "Slip", AGENT);
+
+    // Asked before the merge is recorded, so nothing is written on refusal.
+    let before = store.len();
+    assert!(matches!(
+        change_set::acceptable(&store, &proposed.id, reviewed.revision),
+        Err(ChangeSetError::TipMoved { seen, tip, .. })
+            if seen == reviewed.revision && tip == slipped.revision
+    ));
+    assert_eq!(store.len(), before);
+
+    // An approver refuses a tip beyond what was submitted, even at the tip.
+    let read = store.change_set(&proposed.id).unwrap();
+    assert_eq!(read.state(), State::Submitted);
+    assert!(!read.is_approvable());
+    assert!(matches!(
+        change_set::approvable(&store, &proposed.id, slipped.revision),
+        Err(ChangeSetError::NotSubmitted { submitted: Some(at), .. }) if at == reviewed.revision
+    ));
+
+    // A merge of the new tip, accepted at the old one, is refused too.
+    let merge = record_folder(
+        &mut store,
+        &base,
+        vec![head, slipped.revision],
+        "Accept",
+        PERSON,
+    );
+    assert!(matches!(
+        change_set::accept(&mut store, &proposed.id, merge.revision, reviewed.revision),
+        Err(ChangeSetError::TipMoved { .. })
+    ));
+    assert_eq!(
+        store.change_set(&proposed.id).unwrap().state(),
+        State::Submitted
+    );
+
+    // Submitted again, it is approvable at the new tip.
+    change_set::submit(&mut store, &proposed.id).expect("submitting again");
+    change_set::approvable(&store, &proposed.id, slipped.revision).expect("approvable");
+    change_set::accept(&mut store, &proposed.id, merge.revision, slipped.revision)
+        .expect("accepting");
+}
+
+/// What a host's sync carries: revisions and what they name, never `names/`.
+fn carry_revisions(from: &Store, to: &Path) -> Store {
+    for dir in ["revisions", "operations"] {
+        if from.root().join(dir).is_dir() {
+            copy_dir(&from.root().join(dir), &to.join("history").join(dir));
+        }
+    }
+    Store::open(to.join("history")).expect("the copy")
+}
+
+#[test]
+fn a_names_object_carries_a_submission_and_a_decision_that_no_revision_does() {
+    let (base, mut laptop, head) = library("change-set-names-object");
+    let proposed = change_set::propose(&mut laptop, &proposing(head, "Add a line"), &mut Platform)
+        .expect("proposing");
+    let (phone_dir, _) = replica(&laptop, "change-set-names-object-phone");
+
+    fs::write(base.join("notes.md"), "First thought.\nA second.\n").unwrap();
+    let step = record_folder(&mut laptop, &base, vec![proposed.tip], "Second", AGENT);
+    change_set::submit(&mut laptop, &proposed.id).expect("submitting");
+    laptop
+        .set_bookmark(
+            "change-sets/not-a-change-set",
+            Bookmark::shared(Name::Revision(head)),
+        )
+        .ok();
+
+    // The revisions arrive and the names do not: the phone still reads the
+    // change set as it was proposed.
+    let mut phone = carry_revisions(&laptop, &phone_dir);
+    assert_eq!(phone.change_set(&proposed.id).unwrap().state(), State::Open);
+    assert_eq!(
+        phone.change_set(&proposed.id).unwrap().tip,
+        proposed.opening
+    );
+
+    // The object travels as text, sealed by the host, and is applied.
+    let sent = laptop.change_set_names().write();
+    assert!(sent.starts_with("historica-change-set-names-1\n"), "{sent}");
+    let received = change_set::Names::parse(&sent).expect("reading it back");
+    assert_eq!(received, laptop.change_set_names());
+    let taken = change_set::take_names(&mut phone, &received).expect("taking");
+    assert_eq!(
+        taken.taken,
+        vec![
+            tip_name(&proposed.id),
+            fact_name(&proposed.id, change_set::SUBMITTED)
+        ]
+    );
+    assert!(taken.kept.is_empty());
+    let read = phone.change_set(&proposed.id).unwrap();
+    assert_eq!(read.state(), State::Submitted);
+    assert_eq!(read.tip, step.revision);
+
+    // The phone accepts; the laptop hears of it from the phone's object alone.
+    let phone_folder = phone_dir.clone();
+    fs::write(phone_folder.join("notes.md"), "First thought.\nA second.\n").unwrap();
+    let merge = record_folder(
+        &mut phone,
+        &phone_folder,
+        vec![head, step.revision],
+        "Accept",
+        PERSON,
+    );
+    change_set::accept(&mut phone, &proposed.id, merge.revision, step.revision).expect("accepting");
+    laptop = carry_revisions(&phone, &base);
+    let taken = change_set::take_names(&mut laptop, &phone.change_set_names()).expect("taking");
+    assert_eq!(
+        taken.taken,
+        vec![fact_name(&proposed.id, change_set::ACCEPTED)]
+    );
+    assert_eq!(
+        laptop.change_set(&proposed.id).unwrap().state(),
+        State::Accepted
+    );
+
+    // Taking it again changes nothing.
+    let again = change_set::take_names(&mut laptop, &phone.change_set_names()).expect("again");
+    assert!(again.taken.is_empty() && again.kept.is_empty());
+}
+
+#[test]
+fn a_reading_that_parts_is_kept_and_reported_and_the_rest_still_apply() {
+    let (base, mut laptop, head) = library("change-set-names-conflict");
+    let parting = change_set::propose(&mut laptop, &proposing(head, "Parting"), &mut Platform)
+        .expect("proposing");
+    let (phone_dir, mut phone) = replica(&laptop, "change-set-names-conflict-phone");
+    let fresh = change_set::propose(&mut laptop, &proposing(head, "Fresh"), &mut Platform)
+        .expect("proposing another");
+
+    fs::write(base.join("notes.md"), "Left.\n").unwrap();
+    let left = record_folder(&mut laptop, &base, vec![parting.tip], "Left", AGENT);
+    fs::write(phone_dir.join("notes.md"), "Right.\n").unwrap();
+    let right = record_folder(&mut phone, &phone_dir, vec![parting.tip], "Right", AGENT);
+
+    // Before the laptop's revisions arrive, the phone cannot tell.
+    let not_yet = change_set::take_names(&mut phone, &laptop.change_set_names()).expect("taking");
+    assert_eq!(not_yet.kept.len(), 1);
+    assert_eq!(not_yet.kept[0].because, change_set::Kept::NotHeld);
+    assert_eq!(not_yet.taken, vec![tip_name(&fresh.id)]);
+
+    // Once they have, it is a real disagreement, kept and reported.
+    phone = carry_revisions(&laptop, &phone_dir);
+    let taken = change_set::take_names(&mut phone, &laptop.change_set_names()).expect("taking");
+    assert_eq!(taken.kept.len(), 1);
+    let kept = &taken.kept[0];
+    assert_eq!(kept.name, tip_name(&parting.id));
+    assert_eq!(kept.because, change_set::Kept::Conflict);
+    assert_eq!(kept.ours, Bookmark::shared(Name::Revision(right.revision)));
+    assert_eq!(kept.theirs, left.revision);
+    assert_eq!(phone.change_set(&parting.id).unwrap().tip, right.revision);
+}
+
+#[test]
+fn a_names_object_holds_only_shared_change_set_pins_and_refuses_anything_else() {
+    let (_base, mut store, head) = library("change-set-names-grammar");
+    let proposed = change_set::propose(&mut store, &proposing(head, "Add a line"), &mut Platform)
+        .expect("proposing");
+    let hidden = change_set::propose(&mut store, &proposing(head, "Hidden"), &mut Platform)
+        .expect("proposing");
+    store
+        .set_bookmark(
+            &tip_name(&hidden.id),
+            Bookmark::private(Name::Revision(hidden.opening)),
+        )
+        .unwrap();
+    store
+        .set_bookmark("main", Bookmark::shared(Name::Revision(head)))
+        .unwrap();
+
+    let names = store.change_set_names();
+    assert_eq!(
+        names.names().keys().cloned().collect::<Vec<_>>(),
+        vec![tip_name(&proposed.id)]
+    );
+
+    let digest = proposed.opening.to_string();
+    for (text, line) in [
+        ("nonsense\n".to_owned(), 1),
+        (format!("historica-change-set-names-1\n{digest}\n"), 2),
+        (
+            format!(
+                "historica-change-set-names-1\nnot-a-digest {}\n",
+                tip_name(&proposed.id)
+            ),
+            2,
+        ),
+        (format!("historica-change-set-names-1\n{digest} main\n"), 2),
+        (
+            format!(
+                "historica-change-set-names-1\n{digest} {0}\n{digest} {0}\n",
+                tip_name(&proposed.id)
+            ),
+            3,
+        ),
+    ] {
+        let refused = change_set::Names::parse(&text).expect_err("a malformed object");
+        assert_eq!(refused.line, line, "{text}");
+    }
+    assert!(
+        change_set::Names::parse("historica-change-set-names-1\n")
+            .unwrap()
+            .is_empty()
+    );
 }

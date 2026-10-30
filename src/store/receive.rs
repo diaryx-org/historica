@@ -233,7 +233,7 @@ impl<F: Filesystem> Store<F> {
         // withheld, so the union of asked and did-not-ask is asked, which is
         // the union every other set here performs rather than a tie-break.
         //
-        // Decision 0090 adds the one move a receive makes: a change set's tip,
+        // Decision 0091 adds the one move a receive makes: a change set's tip,
         // or its `submitted`, takes whichever reading is further along the
         // line. Asked over both stores' revisions, since the further reading
         // may be one only the source holds yet.

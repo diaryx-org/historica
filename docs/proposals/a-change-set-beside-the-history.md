@@ -12,7 +12,7 @@ description: 'A change set as historica''s own: an opening revision that records
 ## Status
 
 Implemented 2026-10-29, unreleased, as decision
-[0090](/docs/decisions/0090-a-change-set.md), which is the authority from now
+[0091](/docs/decisions/0091-a-change-set.md), which is the authority from now
 on.
 
 Adam settled the one question that changes what he gets, on 2026-10-29:
@@ -216,17 +216,23 @@ Diaryx sync carries revisions, operation documents and payloads, and not
 which belong in a Diaryx pull request once this one is merged and
 `cargo xtask bump historica` takes it:
 
-1. **Carry shared bookmarks.** A pack, or a small object of its own,
-   carries `names/` entries whose bookmark is shared, and `incoming` applies
-   each through `change_set::reconcile`. A reading that conflicts is kept as
-   this device has it and reported, rather than refusing the pull. A
-   private bookmark does not travel, by 0062.
+1. **Carry the names object.** Each device seals
+   `Store::change_set_names().write()` and puts it beside its per-device
+   head object whenever it changes, since `outgoing` sends nothing while
+   the heads stay where they are, and a submission moves no head. `incoming`
+   parses each other device's with `change_set::Names::parse` and applies it
+   with `change_set::take_names`, which keeps a reading that conflicts as
+   this device has it and reports it, rather than refusing the pull. A
+   private bookmark is not in the object, by 0062.
 2. **Read change sets from the store.** `begin_change_set_by` calls
    `change_set::propose` with the model as author and `diaryx.by` as an
    extension. `record_step` records on `line.tip()` exactly as now, and the
    pin moves itself. `submit_change_set` calls `change_set::submit`.
-   `accept_line` records its capture with the tip as a second parent, then
-   `change_set::accept`. `decline_change_set` calls `change_set::decline`.
+   `accept_line` asks `change_set::acceptable` with the tip the person
+   reviewed before it writes anything, records its capture with that tip as
+   a second parent, then calls `change_set::accept` with it. `--approve`
+   asks `change_set::approvable`, so a step added after submission cannot
+   be approved. `decline_change_set` calls `change_set::decline`.
    `change_sets()` lists `Store::change_sets()`. The device's
    `caches/assist/` record is retired. A one-time conversion reads each
    cached record and its `diaryx.change-set` revisions into an opening, a

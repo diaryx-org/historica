@@ -1,4 +1,4 @@
-# 0090 — A change set
+# 0091 — A change set
 
 A change set is a line of work somebody proposes beside a history, which
 somebody else then takes in or turns down. Diaryx built one for its
@@ -45,6 +45,15 @@ without the tip among them. When the accepted head has not moved since the
 change set began, the merge names the base and the tip, which `record`
 already allows.
 
+**An acceptance names the tip its reviewer saw.** `accept` takes that tip
+and refuses with `TipMoved` if the change set's tip is anywhere else. A tool
+asks `change_set::acceptable` with the same tip *before* it records the
+merge, so a step added after the review refuses the acceptance while
+nothing has been written. An approver acting on a person's behalf asks
+`change_set::approvable`, which also wants `submitted` to be the tip: a step
+added after the proposer submitted leaves `submitted` behind, and nothing
+the proposer did not finish can be approved until they submit again.
+
 **Declining is a tombstone** over the opening and every step (0013),
 standing on the base, with the reason as its message.
 `change_set::decline` writes it and the `declined` name. The change set's
@@ -83,6 +92,22 @@ forward by it, and does not ask whether the copy follows the proposer
 (0086): a copy holds a proposal, it does not follow one. Everything 0088
 says of every other bookmark is unchanged.
 
+**A host that syncs without `names/` carries a names object.** A sync that
+sends revisions and not bookmarks never sends a submission, an acceptance's
+name or a decline's name, and a sync that sends only when its heads move may
+not send anything at all, since submitting writes only a name.
+`Store::change_set_names` is every shared `change-sets/` pin as one small
+text object, `historica-change-set-names-1` and then a digest and a name
+per line. The host seals and sends it beside its per-device head object,
+whenever it changes, and applies each other device's with
+`change_set::take_names`. That takes each name through `reconcile`. Where
+`reconcile` says conflict, the name is kept as this device has it and
+reported as `KeptReading`, as `NotHeld` if the other device's revision has
+not arrived yet and `Conflict` otherwise, and the rest still apply. A sync
+that runs every thirty seconds cannot stop at something a person has to
+settle, and keeping a reading loses nothing: the other device still holds
+its own and says it again next time.
+
 ## The library
 
 `historica::change_set` holds the whole concept. `ChangeSet` is one read
@@ -92,8 +117,11 @@ reads a name as one of a change set's four. `Store::change_sets` lists them
 newest first. It leaves out a name whose revisions have not arrived yet,
 because nothing can say what it proposes. `Store::change_set` reads one,
 and `Store::acceptances` lists the merges naming its tip. The writers are
-`propose`, `advance`, `submit`, `accept` and `decline`. `reconcile` is for a
-host that syncs without `receive`.
+`propose`, `advance`, `submit`, `accept` and `decline`, and `acceptable` and
+`approvable` are the questions asked before an acceptance is recorded.
+`reconcile` is for a host that syncs without `receive`, and `Names`,
+`Store::change_set_names` and `take_names` are the object such a host
+carries.
 
 ## The CLI
 

@@ -307,7 +307,7 @@ target and cannot disagree with it. What it withholds is the name and nothing
 else: the revisions a bookmark points at are in the copy already, or the
 bookmark would not have been a candidate to travel.
 
-Names under `change-sets/` are change sets (decision 0090), and every one is a
+Names under `change-sets/` are change sets (decision 0091), and every one is a
 pin. `change-sets/<id>` is the tip of a line proposed beside the history,
 where `<id>` is the change of the line's opening revision: one that records
 nothing and whose message is the proposal. `change-sets/<id>/submitted`,

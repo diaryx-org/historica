@@ -1,7 +1,7 @@
 //! A change set: a line of work proposed beside a history, and the decision on
 //! it.
 //!
-//! Decision 0090. A change set is three things this format already had, put
+//! Decision 0091. A change set is three things this format already had, put
 //! together under one name:
 //!
 //! - **An opening revision.** It stands on the revisions the change set is
@@ -191,6 +191,12 @@ impl ChangeSet {
         }
     }
 
+    /// Whether an approver may accept it: undecided, and submitted at the
+    /// tip it has, so no step was added after its proposer finished.
+    pub fn is_approvable(&self) -> bool {
+        self.state() == State::Submitted && self.submitted == Some(self.tip)
+    }
+
     /// Its tip bookmark's name.
     pub fn name(&self) -> String {
         tip_name(&self.id)
@@ -284,6 +290,24 @@ pub enum ChangeSetError {
         /// The revision offered as its acceptance.
         revision: RevisionId,
     },
+    /// The tip moved since the reviewer saw it.
+    TipMoved {
+        /// The change set.
+        id: ChangeId,
+        /// The tip the reviewer saw.
+        seen: RevisionId,
+        /// The tip it has now.
+        tip: RevisionId,
+    },
+    /// An approver asked of a change set not submitted at its tip.
+    NotSubmitted {
+        /// The change set.
+        id: ChangeId,
+        /// Its tip.
+        tip: RevisionId,
+        /// Where its proposer submitted it, if anywhere.
+        submitted: Option<RevisionId>,
+    },
     /// Declining would leave work that is not the change set's standing on
     /// what it supersedes: another change set proposed on its tip, say.
     StoodOn {
@@ -350,6 +374,29 @@ impl fmt::Display for ChangeSetError {
                 tip_name(id),
                 tip.abbreviate(12)
             ),
+            Self::TipMoved { id, seen, tip } => write!(
+                f,
+                "change set {} has moved since it was reviewed: its tip is {} now, \
+                 not {}; review it again",
+                tip_name(id),
+                tip.abbreviate(12),
+                seen.abbreviate(12)
+            ),
+            Self::NotSubmitted { id, tip, submitted } => match submitted {
+                Some(submitted) => write!(
+                    f,
+                    "change set {} was submitted at {}, and has had steps added \
+                     since, up to {}; it can be approved once it is submitted again",
+                    tip_name(id),
+                    submitted.abbreviate(12),
+                    tip.abbreviate(12)
+                ),
+                None => write!(
+                    f,
+                    "change set {} has not been submitted, so it cannot be approved",
+                    tip_name(id)
+                ),
+            },
             Self::StoodOn { id, revisions } => write!(
                 f,
                 "change set {} cannot be declined while other work stands on it: {}. \
@@ -805,20 +852,65 @@ pub fn submit<F: Filesystem>(
     store.change_set(id)
 }
 
+/// The change set, if it can still be accepted at the tip a reviewer saw.
+///
+/// What a tool asks *before* it records the acceptance merge, so that a step
+/// recorded after the review refuses the acceptance while nothing has been
+/// written yet. `seen` is the tip the reviewer read. Undecided, and its tip
+/// still `seen`, or [`ChangeSetError::TipMoved`].
+pub fn acceptable<F: Filesystem>(
+    store: &Store<F>,
+    id: &ChangeId,
+    seen: RevisionId,
+) -> Result<ChangeSet, ChangeSetError> {
+    let change_set = store.change_set(id)?;
+    undecided(&change_set)?;
+    if change_set.tip != seen {
+        return Err(ChangeSetError::TipMoved {
+            id: *id,
+            seen,
+            tip: change_set.tip,
+        });
+    }
+    Ok(change_set)
+}
+
+/// [`acceptable`], and also submitted at that tip: what an approver acting on
+/// a person's behalf asks. A step added after the proposer submitted leaves
+/// `submitted` behind the tip, and such a change set is not approvable until
+/// its proposer submits again, so nothing the proposer did not finish can be
+/// approved.
+pub fn approvable<F: Filesystem>(
+    store: &Store<F>,
+    id: &ChangeId,
+    seen: RevisionId,
+) -> Result<ChangeSet, ChangeSetError> {
+    let change_set = acceptable(store, id, seen)?;
+    if !change_set.is_approvable() {
+        return Err(ChangeSetError::NotSubmitted {
+            id: *id,
+            tip: change_set.tip,
+            submitted: change_set.submitted,
+        });
+    }
+    Ok(change_set)
+}
+
 /// Record that `acceptance`, a merge naming the change set's tip among its
-/// parents, accepted it.
+/// parents, accepted it at `seen`, the tip the reviewer saw.
 ///
 /// The merge is the acceptance. It is recorded the way any merge is, by
 /// whoever accepts, and this writes the name that says which merge it was.
 /// A tool that signs its revisions signs the merge, which vouches for the
-/// line beneath it (decision 0046).
+/// line beneath it (decision 0046). Ask [`acceptable`] before recording the
+/// merge: this asks it again, and refuses a tip that moved since `seen`.
 pub fn accept<F: Filesystem>(
     store: &mut Store<F>,
     id: &ChangeId,
     acceptance: RevisionId,
+    seen: RevisionId,
 ) -> Result<ChangeSet, ChangeSetError> {
-    let change_set = store.change_set(id)?;
-    undecided(&change_set)?;
+    let change_set = acceptable(store, id, seen)?;
     let revision = store.revision(&acceptance).ok_or(ChangeSetError::NotHeld {
         revision: acceptance,
     })?;
@@ -969,4 +1061,193 @@ pub(crate) fn stepped_on<F: Filesystem>(store: &Store<F>, parents: &[RevisionId]
         })
         .map(|(name, _)| name.clone())
         .collect()
+}
+
+/// The first line of a [`Names`] object.
+pub const NAMES_HEADER: &str = "historica-change-set-names-1";
+
+/// A store's change-set bookmarks, as one object a host syncs.
+///
+/// Decision 0091. A host whose sync carries revisions and not `names/` sends
+/// this beside them, whenever it changes, and each device applies the others'
+/// with [`take_names`]. It is how a submission, an acceptance or a decline
+/// reaches a device when no revision does: submitting writes only a name.
+///
+/// It holds every shared bookmark under `change-sets/` that pins a revision,
+/// and nothing else. A private one stays behind, as decision 0062 has it.
+/// The text is a header line, then one line per name, sorted:
+///
+/// ```text
+/// historica-change-set-names-1
+/// <digest> change-sets/<id>
+/// <digest> change-sets/<id>/submitted
+/// ```
+///
+/// The digest is spelled whole, and the name takes the rest of the line. The
+/// object holds digests and change IDs and no text anyone wrote, but a host
+/// that seals what it syncs should seal this too.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Names {
+    names: BTreeMap<String, RevisionId>,
+}
+
+impl Names {
+    /// Each name, and the revision it pins.
+    pub fn names(&self) -> &BTreeMap<String, RevisionId> {
+        &self.names
+    }
+
+    /// Whether it holds no names.
+    pub fn is_empty(&self) -> bool {
+        self.names.is_empty()
+    }
+
+    /// The object's text.
+    pub fn write(&self) -> String {
+        let mut out = format!("{NAMES_HEADER}\n");
+        for (name, revision) in &self.names {
+            out.push_str(&format!("{revision} {name}\n"));
+        }
+        out
+    }
+
+    /// Read the object's text.
+    pub fn parse(text: &str) -> Result<Self, MalformedNames> {
+        let refuse = |line: usize, because: &'static str| Err(MalformedNames { line, because });
+        let mut lines = text.strip_suffix('\n').unwrap_or(text).split('\n');
+        if lines.next() != Some(NAMES_HEADER) {
+            return refuse(1, "it does not begin with `historica-change-set-names-1`");
+        }
+        let mut names = BTreeMap::new();
+        for (at, line) in lines.enumerate() {
+            let at = at + 2;
+            let Some((digest, name)) = line.split_once(' ') else {
+                return refuse(at, "a line is a digest, a space, and a name");
+            };
+            let Ok(revision) = digest.parse::<RevisionId>() else {
+                return refuse(at, "the first word is not a revision digest");
+            };
+            if Part::of(name).is_none() {
+                return refuse(at, "the name is not one of a change set's");
+            }
+            if names.insert(name.to_owned(), revision).is_some() {
+                return refuse(at, "the name is stated twice");
+            }
+        }
+        Ok(Self { names })
+    }
+}
+
+/// Why a [`Names`] object could not be read.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct MalformedNames {
+    /// The line, from 1.
+    pub line: usize,
+    /// What is wrong with it.
+    pub because: &'static str,
+}
+
+impl fmt::Display for MalformedNames {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "line {} of a change-set names object: {}",
+            self.line, self.because
+        )
+    }
+}
+
+impl std::error::Error for MalformedNames {}
+
+/// What [`take_names`] did with another device's names.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct TakenNames {
+    /// Names written here: new to this store, or moved forward along the line.
+    pub taken: Vec<String>,
+    /// Names this store kept as it has them, against another reading.
+    pub kept: Vec<KeptReading>,
+}
+
+/// A name [`take_names`] kept as this device has it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
+pub struct KeptReading {
+    /// The name.
+    pub name: String,
+    /// What this store says.
+    pub ours: Bookmark,
+    /// The revision the other device's object pins.
+    pub theirs: RevisionId,
+    /// Why this store's stayed.
+    pub because: Kept,
+}
+
+/// Why [`take_names`] kept a reading.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Kept {
+    /// The other device's revision has not arrived here, so nothing can say
+    /// whether it is further along. Taking the object again once it has
+    /// arrived settles it.
+    NotHeld,
+    /// The two readings part: two steps on two devices, or two decisions.
+    /// A person settles it, by moving the name on one side.
+    Conflict,
+}
+
+impl<F: Filesystem> Store<F> {
+    /// This store's change-set names, as the object a host syncs.
+    pub fn change_set_names(&self) -> Names {
+        let names = self
+            .names()
+            .iter()
+            .filter(|(name, bookmark)| Part::of(name).is_some() && !bookmark.private)
+            .filter_map(|(name, bookmark)| match bookmark.target {
+                Name::Revision(revision) => Some((name.clone(), revision)),
+                Name::Change(_) | Name::File(_) => None,
+            })
+            .collect();
+        Names { names }
+    }
+}
+
+/// Apply another device's [`Names`] here, name by name, by [`reconcile`].
+///
+/// A name this store lacks is taken. One it holds goes the way `reconcile`
+/// says, except that where `reconcile` says conflict the name is kept as this
+/// store has it and reported, and the rest still apply. A sync that runs
+/// every thirty seconds cannot stop at a disagreement a person has to settle,
+/// and no reading is lost by keeping one: the other device still holds its
+/// own, and says it again next time.
+pub fn take_names<F: Filesystem>(
+    store: &mut Store<F>,
+    names: &Names,
+) -> Result<TakenNames, StoreError> {
+    let history = store.history();
+    let mut out = TakenNames::default();
+    for (name, revision) in names.names() {
+        let theirs = Bookmark::shared(Name::Revision(*revision));
+        let Some(ours) = store.bookmark(name) else {
+            store.set_bookmark(name, theirs)?;
+            out.taken.push(name.clone());
+            continue;
+        };
+        match reconcile(&history, name, ours, theirs) {
+            Reconciled::Keep => {}
+            Reconciled::Take(bookmark) => {
+                store.set_bookmark(name, bookmark)?;
+                out.taken.push(name.clone());
+            }
+            Reconciled::Conflict => out.kept.push(KeptReading {
+                name: name.clone(),
+                ours,
+                theirs: *revision,
+                because: match store.holds(revision) {
+                    true => Kept::Conflict,
+                    false => Kept::NotHeld,
+                },
+            }),
+        }
+    }
+    Ok(out)
 }

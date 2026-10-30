@@ -1,6 +1,6 @@
 //! `change-set`: proposing a line of work beside the history, and deciding it.
 //!
-//! Decision 0090. The library holds the whole of what a change set is. This
+//! Decision 0091. The library holds the whole of what a change set is. This
 //! is the spelling a person types: a list, one change set shown, and the four
 //! acts. Recording a step is `record --onto change-sets/<id>`, and the merge
 //! an acceptance names is `record --merge change-sets/<id>`, because each is
@@ -259,10 +259,26 @@ fn submit(root: PathBuf, rest: Vec<String>) -> Result<u8, Failure> {
     })
 }
 
-/// `accept <id> [<merge>]`: name the merge that took the line in. With no
-/// merge named, the one merge in the store naming the tip.
+/// `accept <id> [<merge>] [--tip <target>]`: name the merge that took the
+/// line in. With no merge named, the one merge in the store naming the tip.
+/// `--tip` is the tip the person reviewed. Without it, it is the tip the
+/// merge names, so a change set that moved after it was merged is refused.
 fn accept(root: PathBuf, rest: Vec<String>) -> Result<u8, Failure> {
-    let (spelling, merge) = match rest.as_slice() {
+    let mut seen = None;
+    let mut positional = Vec::new();
+    let mut rest = rest.into_iter();
+    while let Some(argument) = rest.next() {
+        match argument.as_str() {
+            "--tip" => {
+                seen = Some(
+                    rest.next()
+                        .ok_or_else(|| Failure::usage("`--tip` wants a target"))?,
+                );
+            }
+            _ => positional.push(argument),
+        }
+    }
+    let (spelling, merge) = match positional.as_slice() {
         [spelling] => (spelling.clone(), None),
         [spelling, merge] => (spelling.clone(), Some(merge.clone())),
         [] => return Err(Failure::usage("`change-set accept` wants the change set")),
@@ -299,7 +315,22 @@ fn accept(root: PathBuf, rest: Vec<String>) -> Result<u8, Failure> {
             }
         }
     };
-    let accepted = change_set::accept(&mut store, &id, acceptance).map_err(failed)?;
+    let seen = match seen {
+        Some(spelling) => target::resolve(&store, &spelling)?,
+        None => {
+            let change_set = store.change_set(&id).map_err(failed)?;
+            let parents = store
+                .revision(&acceptance)
+                .map(|revision| revision.parents.clone())
+                .unwrap_or_default();
+            change_set
+                .revisions()
+                .filter(|revision| parents.contains(revision))
+                .last()
+                .unwrap_or(change_set.tip)
+        }
+    };
+    let accepted = change_set::accept(&mut store, &id, acceptance, seen).map_err(failed)?;
     printing(|out| report(out, &accepted, State::Accepted))
 }
 

@@ -213,10 +213,12 @@ const REST: &str = "  change-set [list]        the change sets proposed here, ne
                            title, under the bookmark change-sets/<id>.
                            record its steps with --onto change-sets/<id>
   change-set submit <id>   say it is finished, at the tip it has now
-  change-set accept <id> [<merge>]
+  change-set accept <id> [<merge>] [--tip <target>]
                            say which merge took it in. accepting is a merge
                            whose parents include the tip, so record that
-                           first, with --merge change-sets/<id>
+                           first, with --merge change-sets/<id>. --tip is
+                           the tip you reviewed, and a change set whose tip
+                           has moved since is refused
   change-set decline <id> [-m <why>]
                            abandon it with one tombstone that says why
   forget <target> <path> [--lines <first>..<last>] [--dry-run] [--fields]

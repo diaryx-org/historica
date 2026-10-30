@@ -454,7 +454,7 @@ fn a_fetch_moves_no_bookmark_onto_held_work_and_never_a_pinned_one() {
     assert_eq!(out(&reader, &["names"]), before);
 }
 
-/// Decision 0090: a change set's tip is a pin that moves forward. A fetch
+/// Decision 0091: a change set's tip is a pin that moves forward. A fetch
 /// takes it along the proposer's line even onto work this copy holds rather
 /// than follows, because a change set is somebody's proposal and not the
 /// copy's own line.
@@ -510,7 +510,7 @@ fn a_fetch_moves_a_change_sets_tip_forward_onto_held_work() {
     assert_eq!(here.tip, store(&origin).change_set(&id).unwrap().tip);
 }
 
-/// Decision 0090: a step the publisher recorded before hearing that this copy
+/// Decision 0091: a step the publisher recorded before hearing that this copy
 /// accepted the change set arrives, moves the pin, and is not accepted.
 #[test]
 fn a_step_fetched_after_an_acceptance_here_is_not_accepted() {

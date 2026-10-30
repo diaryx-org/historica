@@ -1,4 +1,4 @@
-//! `change-set`, as decision 0090 describes it: proposed, stepped on with
+//! `change-set`, as decision 0091 describes it: proposed, stepped on with
 //! `record`, submitted, and decided by a merge or a tombstone.
 
 use std::fs;
