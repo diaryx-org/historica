@@ -129,3 +129,10 @@ cannot see a deletion at all, so it would work only from a paged manifest.
   current. A correction published as new history is a second line, and two
   heads is the true description of it.
 - 0062 gains a `## Since` naming this document.
+
+## Since
+
+[0091](0091-a-change-set.md) moves one kind of pin: a change set's tip and
+its `submitted` move forward along the proposer's line, on a fetch and on a
+receive, without the follow condition, because a copy holds a proposal
+rather than follows it.

@@ -8,6 +8,7 @@ contents:
   - '[A fetch moves the bookmarks its copy follows](/docs/proposals/a-fetch-moves-the-bookmarks-its-copy-follows.md)'
   - '[History held elsewhere](/docs/proposals/history-held-elsewhere.md)'
   - '[Keystrokes under a revision](/docs/proposals/keystrokes-under-a-revision.md)'
+  - '[A change set beside the history](/docs/proposals/a-change-set-beside-the-history.md)'
 part_of: '[historica](/README.md)'
 ---
 

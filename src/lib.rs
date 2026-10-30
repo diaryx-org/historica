@@ -23,6 +23,7 @@ mod ancestry;
 #[allow(unused_imports)]
 use vstd::prelude::*;
 
+pub mod change_set;
 pub mod conflict;
 pub mod core;
 pub mod diff;

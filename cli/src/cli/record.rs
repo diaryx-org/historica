@@ -1363,7 +1363,7 @@ fn perform(repository: &Path, from: &str, to: &str) -> Result<(), Failure> {
 /// interpret a body 0002 promises never to interpret, and a journal entry
 /// beginning with a Markdown heading is the case that would lose its first
 /// line.
-fn from_an_editor(base: &Path) -> Result<String, Failure> {
+pub(super) fn from_an_editor(base: &Path) -> Result<String, Failure> {
     let Some(editor) = std::env::var_os("VISUAL")
         .or_else(|| std::env::var_os("EDITOR"))
         .filter(|editor| !editor.is_empty())
@@ -1396,7 +1396,7 @@ fn from_an_editor(base: &Path) -> Result<String, Failure> {
 /// Decision 0010: the failure worth catching is the machine that says 1970,
 /// because 0005 copies that into every later revision of the change. The
 /// comparison is the front end's, on the same terms as `log`'s tie-break.
-fn warn_about_the_clock(store: &Store, now: &historica::format::Timestamp) {
+pub(super) fn warn_about_the_clock(store: &Store, now: &historica::format::Timestamp) {
     let Some(newest) = store
         .iter()
         .filter_map(Result::ok)

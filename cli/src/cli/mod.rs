@@ -24,6 +24,7 @@ mod ahead;
 mod arrange;
 mod blame;
 mod cache;
+mod change_set;
 mod diff;
 #[cfg(feature = "dispatch")]
 mod dispatch;
@@ -201,7 +202,26 @@ writing a store
                            manifest and that page rather than the whole listing
 ";
 
-const REST: &str = "  forget <target> <path> [--lines <first>..<last>] [--dry-run] [--fields]
+const REST: &str = "  change-set [list]        the change sets proposed here, newest first: a line
+                           of work beside the history, waiting to be accepted
+                           or declined
+  change-set show <id>     one change set: what it proposes, its steps, and
+                           what has been decided
+  change-set propose [-m <title>] [--on <target>]
+                           begin a change set on the head: an opening
+                           revision that records nothing and carries the
+                           title, under the bookmark change-sets/<id>.
+                           record its steps with --onto change-sets/<id>
+  change-set submit <id>   say it is finished, at the tip it has now
+  change-set accept <id> [<merge>] [--tip <target>]
+                           say which merge took it in. accepting is a merge
+                           whose parents include the tip, so record that
+                           first, with --merge change-sets/<id>. --tip is
+                           the tip you reviewed, and a change set whose tip
+                           has moved since is refused
+  change-set decline <id> [-m <why>]
+                           abandon it with one tombstone that says why
+  forget <target> <path> [--lines <first>..<last>] [--dry-run] [--fields]
                            destroy those lines everywhere history quotes
                            them, leaving their shape; the file's paths,
                            authors, and times stay recorded. A file of bytes
@@ -449,6 +469,7 @@ pub fn run(arguments: impl IntoIterator<Item = String>) -> Result<u8, Failure> {
         )),
         "forget" => forget(&base, rest),
         "merge" => record::merge(locate(&base)?, rest),
+        "change-set" => change_set::change_set(&base, locate(&base)?, rest),
         "update" => update::update(locate(&base)?, rest),
         "revert" => revert::revert(locate(&base)?, rest),
         "identity" => record::set_identity(rest),
