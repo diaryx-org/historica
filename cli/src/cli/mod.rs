@@ -34,6 +34,7 @@ mod fetch;
 mod offer;
 mod record;
 mod render;
+mod revert;
 mod target;
 mod update;
 
@@ -144,6 +145,10 @@ writing a store
                            make the folder hold a head: write what it
                            records, remove what it does not, touch nothing
                            unrecorded
+  revert <target> [--dry-run]
+                           take one revision's work back out of the folder,
+                           keeping everything recorded since, and print the
+                           `record` that writes the undoing down
   abandon <target> [--only] [-m <why>] [--dry-run] [--fields]
                            supersede this revision, and everything standing
                            on it, with a tombstone that says why. --only
@@ -444,6 +449,7 @@ pub fn run(arguments: impl IntoIterator<Item = String>) -> Result<u8, Failure> {
         "forget" => forget(&base, rest),
         "merge" => record::merge(locate(&base)?, rest),
         "update" => update::update(locate(&base)?, rest),
+        "revert" => revert::revert(locate(&base)?, rest),
         "identity" => record::set_identity(rest),
         // Decision 0072: a word this tool has no command for may still name a
         // program beside it. Dispatch reports the same "no such command" when

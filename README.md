@@ -43,6 +43,7 @@ argument in its rustdoc, and the choice behind it is written down in
 | `fs` | persistence asked for rather than assumed, so a store can live somewhere `std::fs` cannot reach |
 | `store` | the format as a folder a person can read, rearrange, and check with `shasum` |
 | `conflict` | the view a person edits when two heads disagree |
+| `revert` | one revision's work taken back out of the folder, keeping everything recorded since |
 | `update`, `naming` | the folder made to hold a head, and the filenames both the writer and `arrange` produce |
 
 The binary decides nothing the library has not: every answer a command gives is

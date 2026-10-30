@@ -995,6 +995,16 @@ depend on each other in.
   lacks and the store does not hold whole is held elsewhere, not dropped.
   `evict` for text is deferred.
 
+- [0090 — Taking a revision back](0090-taking-a-revision-back.md)
+  Every way back rewrote, so a mistake with work on top of it could only be
+  withdrawn by restating everyone's work above it. `revert <target>` takes one
+  revision's work back out of the folder, keeping everything recorded since,
+  and prints the `record` that writes the undoing down as a new revision on
+  the head, narrowed to the paths it touched and stating every rename it puts
+  back. Lines are undone by 0007's merge, as a carry restates them; where
+  later work met the target's lines, the whole undoing refuses and names the
+  files. The library's `revert::plan` decides all of it.
+
 Not a decision, but the evaluation one of them rests on:
 [`docs/loro.md`](../loro.md) — the initial Loro evaluation, and the conditions
 that would reverse it.

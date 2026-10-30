@@ -33,6 +33,7 @@ pub mod merge;
 pub mod naming;
 pub mod record;
 pub mod replay;
+pub mod revert;
 pub mod store;
 pub mod tree;
 mod trusted;
