@@ -42,7 +42,10 @@ from one person, that every replica receives like any other.
   swept into a revision that says it undid something else. Every rename the
   undoing puts back is stated with `--move`, because the folder cannot show
   one ([0011](0011-working-copy.md)), and without it the file would come back
-  as a new file with a new identifier.
+  as a new file with a new identifier. Every file it brings back is stated
+  as the kind it was, with `--bytes` or `--lines`, because the sniff
+  ([0017](0017-content-that-arrives-whole.md)) could decide otherwise and a
+  file's kind is the history's decision rather than its bytes'.
 - **The message names what was undone**: `Undo "<its first line>"
   (<digest>)`, so `log` reads as what happened and `show` finds the revision
   that was taken back. It is a suggestion in a printed command; the person
@@ -56,8 +59,10 @@ from one person, that every replica receives like any other.
   the two they meant to keep. Every refused path is named with its reason and
   nothing is written, because a folder half-holding an undoing would be
   recorded as one.
-- **The folder has to hold the head at every path the undoing touches**, and
-  nothing at a path it brings a file back to. What is there otherwise is
+- **The folder has to hold the head at every path the undoing touches** —
+  its bytes and, where the folder can say one, its mode
+  ([0034](0034-a-file-can-be-run.md)), or where a link points — and nothing
+  at a path it brings a file back to. What is there otherwise is
   somebody's unrecorded work, and [0030](0030-the-folder-catches-up.md)'s
   rule — never overwrite or remove bytes no revision records — is kept by
   refusing rather than by asking.
@@ -132,8 +137,16 @@ the target left:
 | replaced a file of bytes | replaced them again | refuses: there is no line to undo one change by |
 | changed a mode or a link | holds what the target set | sets it back |
 
+A rename put back also moves every link that names the file by identity
+([0040](0040-a-file-can-be-a-link.md)): a `file:` target is spelled from the
+file's current path, so the undoing re-points those links at where the file
+ends up, and the folder it leaves is exactly the one `record` states. A link
+naming a file the undoing removes is refused.
+
 Anything the head has already put back by other means is left alone and
-reported, and a revert with nothing left to undo says so and succeeds.
+reported, and a revert with nothing left to undo says so and succeeds. An
+undoing is an ordinary revision, so it can itself be reverted, and the
+mistake comes back.
 
 ## Refusals
 

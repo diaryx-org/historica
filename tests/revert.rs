@@ -169,3 +169,123 @@ fn a_revision_the_head_does_not_stand_on_is_refused() {
     ));
     let _ = fs::remove_dir_all(&root);
 }
+
+/// What a host records once the folder holds the undoing: the reversal's own
+/// paths, renames and kinds, as `historica record` would be told them.
+fn record_reversal(
+    store: &mut Store,
+    root: &Path,
+    reversal: &historica::revert::Reversal,
+    message: &str,
+) -> historica::record::Recorded {
+    let working = Working::read(root, store.skipped()).expect("the folder");
+    let mut asked = recording(
+        vec![reversal.head],
+        message,
+        Restriction::Paths(reversal.paths.iter().cloned().collect()),
+    );
+    asked.moves = reversal.moves.clone();
+    asked.kinds = reversal.kinds.clone();
+    record(store, &working, &asked, &mut Platform).expect("recording the undoing")
+}
+
+/// A file deleted by mistake comes back as the kind the history decided, not
+/// as whatever its bytes sniff as now.
+#[test]
+fn a_restored_file_keeps_the_kind_it_was_recorded_as() {
+    use historica::record::Kinds;
+    use historica::tree::Kind;
+
+    let (root, mut store) = folder("kind");
+    fs::write(root.join("f"), "plain text\n").expect("a file");
+    let working = Working::read(&root, store.skipped()).expect("the folder");
+    let mut first = recording(Vec::new(), "Bytes, said so", Restriction::Everything);
+    let mut kinds = Kinds::default();
+    kinds.state("f", Kind::Whole);
+    first.kinds = kinds;
+    let first = record(&mut store, &working, &first, &mut Platform)
+        .expect("recording")
+        .revision;
+    fs::remove_file(root.join("f")).expect("a delete");
+    let deletion = recorded(&mut store, &root, vec![first], "Delete it");
+
+    let working = Working::read(&root, store.skipped()).expect("the folder");
+    let reversal = plan(&store, &working, &deletion, &deletion).expect("a plan");
+    assert_eq!(reversal.kinds.stated("f"), Some(Kind::Whole));
+    update::apply(&store, &working, &root, &reversal.update).expect("applying");
+    let undone = record_reversal(&mut store, &root, &reversal, "Undo the delete");
+
+    let tree = store.tree(&undone.revision).expect("the tree");
+    let (file, _) = tree.files().next().expect("the file");
+    assert_eq!(tree.kind(file), Some(Kind::Whole), "bytes, as it was");
+    let _ = fs::remove_dir_all(&root);
+}
+
+/// An executable bit nobody recorded is unrecorded work: the plan refuses
+/// the path rather than handing `apply` a write that would reset it.
+#[cfg(unix)]
+#[test]
+fn an_unrecorded_mode_is_refused() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let (root, mut store) = folder("dirty-mode");
+    fs::write(root.join("f"), "a\n").expect("a file");
+    let first = recorded(&mut store, &root, Vec::new(), "Start");
+    fs::write(root.join("f"), "b\n").expect("a file");
+    let edit = recorded(&mut store, &root, vec![first], "Edit");
+    fs::set_permissions(root.join("f"), fs::Permissions::from_mode(0o755)).expect("a chmod");
+
+    let working = Working::read(&root, store.skipped()).expect("the folder");
+    match plan(&store, &working, &edit, &edit) {
+        Err(RevertError::Refused { paths }) => assert_eq!(paths[0].0, "f", "{paths:?}"),
+        other => panic!("a refusal naming f, not {other:?}"),
+    }
+    let _ = fs::remove_dir_all(&root);
+}
+
+/// A link naming a file by identity is re-pointed when the undoing moves
+/// the file back, so applying leaves the complete undoing in the folder and
+/// recording it leaves nothing differing.
+#[cfg(unix)]
+#[test]
+fn a_rename_put_back_re_points_the_links_naming_it() {
+    use std::os::unix::fs::symlink;
+
+    let (root, mut store) = folder("rename-link");
+    fs::write(root.join("f"), "x\n").expect("a file");
+    symlink("f", root.join("link")).expect("a link");
+    let first = recorded(&mut store, &root, Vec::new(), "Start");
+    fs::rename(root.join("f"), root.join("g")).expect("a rename");
+    let working = Working::read(&root, store.skipped()).expect("the folder");
+    let mut renaming = recording(vec![first], "Rename", Restriction::Everything);
+    renaming.moves = vec![("f".to_owned(), "g".to_owned())];
+    let rename = record(&mut store, &working, &renaming, &mut Platform)
+        .expect("recording the rename")
+        .revision;
+    // The folder catches up, so the link spells the new path.
+    let working = Working::read(&root, store.skipped()).expect("the folder");
+    let following = historica::following::Following::Everything;
+    let caught_up =
+        update::plan(&store, &working, &root, &rename, &following).expect("an update plan");
+    update::apply(&store, &working, &root, &caught_up).expect("an update");
+    assert_eq!(
+        fs::read_link(root.join("link")).expect("a link"),
+        Path::new("g")
+    );
+
+    let working = Working::read(&root, store.skipped()).expect("the folder");
+    let reversal = plan(&store, &working, &rename, &rename).expect("a plan");
+    assert_eq!(reversal.moves, [("g".to_owned(), "f".to_owned())]);
+    assert!(reversal.paths.contains(&"link".to_owned()), "{reversal:?}");
+    update::apply(&store, &working, &root, &reversal.update).expect("applying");
+    assert_eq!(
+        fs::read_link(root.join("link")).expect("a link"),
+        Path::new("f")
+    );
+
+    let undone = record_reversal(&mut store, &root, &reversal, "Undo the rename");
+    let working = Working::read(&root, store.skipped()).expect("the folder");
+    let again = plan(&store, &working, &rename, &undone.revision).expect("a plan");
+    assert!(again.is_settled(), "{again:?}");
+    let _ = fs::remove_dir_all(&root);
+}

@@ -382,3 +382,184 @@ fn revert_needs_a_target() {
     let refusal = refused(&directory, &["revert"]);
     assert!(refusal.contains("revert"), "{refusal}");
 }
+
+/// The revision a `log` names first: the head.
+fn head(directory: &Path) -> String {
+    out(directory, &["log", "--limit", "1"])
+        .split_whitespace()
+        .nth(1)
+        .expect("a digest")
+        .to_owned()
+}
+
+/// An undoing is a revision like any other, so it can be undone in turn,
+/// and the mistake comes back.
+#[test]
+fn an_undoing_can_itself_be_undone() {
+    let directory = repository("revert-a-revert");
+    write(&directory, "a.md", "one\ntwo\n");
+    record(&directory, "Start");
+    write(&directory, "a.md", "one\nTWO\n");
+    let change = record(&directory, "Change");
+    write(&directory, "b.md", "b\n");
+    record(&directory, "Beside it");
+
+    revert_and_record(&directory, &change);
+    assert_eq!(read(&directory, "a.md"), "one\ntwo\n");
+    let undoing = head(&directory);
+
+    revert_and_record(&directory, &undoing);
+    assert_eq!(read(&directory, "a.md"), "one\nTWO\n", "the change is back");
+    assert_eq!(read(&directory, "b.md"), "b\n");
+    let checked = out(&directory, &["check"]);
+    assert!(checked.contains("nothing to report"), "{checked}");
+}
+
+/// A file deleted by mistake comes back as the kind the history decided it
+/// was, even where its bytes would sniff as the other kind.
+#[test]
+fn a_deleted_file_comes_back_as_the_kind_it_was() {
+    let directory = repository("kind");
+    write(&directory, "f", "plain text\n");
+    out(
+        &directory,
+        &["record", "--bytes", "f", "-m", "Bytes, said so"],
+    );
+    fs::remove_file(directory.join("f")).expect("a delete");
+    let deletion = record(&directory, "Delete it");
+
+    let said = out(&directory, &["revert", &deletion]);
+    assert!(said.contains("--bytes f"), "{said}");
+    let arguments = printed_record(&said);
+    let arguments: Vec<&str> = arguments.iter().map(String::as_str).collect();
+    out(&directory, &arguments);
+
+    let shown = out(&directory, &["show", "head"]);
+    assert!(
+        shown.lines().any(|line| line.starts_with("bytes ")),
+        "stated whole, as before: {shown}"
+    );
+    assert_eq!(read(&directory, "f"), "plain text\n");
+}
+
+/// A rename that would move a file back onto a path another file has taken
+/// since refuses, naming the path, and writes nothing.
+#[test]
+fn a_rename_back_onto_a_taken_path_refuses() {
+    let directory = repository("rename-collision");
+    write(&directory, "f.md", "f\n");
+    record(&directory, "Start");
+    out(
+        &directory,
+        &["record", "--move", "f.md=g.md", "-m", "Rename"],
+    );
+    let rename = head(&directory);
+    write(&directory, "f.md", "a new file where the old one was\n");
+    record(&directory, "A new f");
+
+    let history = recorded_history(&directory);
+    let refusal = refused(&directory, &["revert", &rename]);
+    assert!(refusal.contains("f.md"), "{refusal}");
+    assert!(
+        refusal.contains("another file holds this path"),
+        "{refusal}"
+    );
+    assert_eq!(read(&directory, "g.md"), "f\n");
+    assert_eq!(history, recorded_history(&directory));
+}
+
+#[cfg(unix)]
+mod unix {
+    use std::os::unix::fs::{PermissionsExt, symlink};
+
+    use super::*;
+
+    /// A `chmod` nobody recorded is unrecorded work, so an undoing that
+    /// would write over the file refuses rather than resetting its mode.
+    #[test]
+    fn an_unrecorded_mode_refuses() {
+        let directory = repository("dirty-mode");
+        write(&directory, "f", "a\n");
+        record(&directory, "Start");
+        write(&directory, "f", "b\n");
+        let edit = record(&directory, "Edit");
+        let file = directory.join("f");
+        fs::set_permissions(&file, fs::Permissions::from_mode(0o755)).expect("a chmod");
+
+        let refusal = refused(&directory, &["revert", &edit]);
+        assert!(refusal.contains("f:"), "{refusal}");
+        assert_eq!(read(&directory, "f"), "b\n");
+        let mode = fs::metadata(&file).expect("the file").permissions().mode();
+        assert_eq!(mode & 0o111, 0o111, "the unrecorded mode stays");
+    }
+
+    /// A link naming a file by identity follows it: putting a rename back
+    /// re-points the link at where the file is again, so the folder after
+    /// the undoing is exactly what gets recorded.
+    #[test]
+    fn a_link_follows_a_file_its_rename_puts_back() {
+        let directory = repository("rename-link");
+        write(&directory, "f", "x\n");
+        symlink("f", directory.join("link")).expect("a link");
+        record(&directory, "Start");
+        out(&directory, &["record", "--move", "f=g", "-m", "Rename"]);
+        let rename = head(&directory);
+        out(&directory, &["update"]);
+        assert_eq!(
+            fs::read_link(directory.join("link")).expect("the link"),
+            Path::new("g")
+        );
+
+        revert_and_record(&directory, &rename);
+        assert_eq!(
+            fs::read_link(directory.join("link")).expect("the link"),
+            Path::new("f")
+        );
+        let status = out(&directory, &["status"]);
+        assert!(status.contains("nothing here differs"), "{status}");
+        let checked = out(&directory, &["check"]);
+        assert!(checked.contains("nothing to report"), "{checked}");
+    }
+
+    /// A link pointed somewhere else by mistake points back.
+    #[test]
+    fn a_repointed_link_points_back() {
+        let directory = repository("link-edit");
+        write(&directory, "a", "a\n");
+        write(&directory, "b", "b\n");
+        symlink("a", directory.join("link")).expect("a link");
+        record(&directory, "Start");
+        fs::remove_file(directory.join("link")).expect("unlinking");
+        symlink("b", directory.join("link")).expect("a link");
+        let repoint = record(&directory, "Repoint");
+
+        revert_and_record(&directory, &repoint);
+        assert_eq!(
+            fs::read_link(directory.join("link")).expect("the link"),
+            Path::new("a")
+        );
+        let status = out(&directory, &["status"]);
+        assert!(status.contains("nothing here differs"), "{status}");
+    }
+
+    /// A link deleted by mistake comes back pointing where it did.
+    #[test]
+    fn a_deleted_link_comes_back() {
+        let directory = repository("link-delete");
+        write(&directory, "a", "a\n");
+        symlink("a", directory.join("link")).expect("a link");
+        record(&directory, "Start");
+        fs::remove_file(directory.join("link")).expect("unlinking");
+        let deletion = record(&directory, "Delete the link");
+        write(&directory, "later", "later\n");
+        record(&directory, "Later");
+
+        revert_and_record(&directory, &deletion);
+        assert_eq!(
+            fs::read_link(directory.join("link")).expect("the link"),
+            Path::new("a")
+        );
+        let status = out(&directory, &["status"]);
+        assert!(status.contains("nothing here differs"), "{status}");
+    }
+}

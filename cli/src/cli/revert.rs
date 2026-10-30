@@ -11,7 +11,8 @@ use std::io::Write as _;
 use std::path::PathBuf;
 
 use historica::core::RevisionId;
-use historica::revert::{RevertError, plan};
+use historica::revert::{Reversal, RevertError, plan};
+use historica::tree::Kind;
 use historica::update::apply;
 
 use super::{Failure, printing, target};
@@ -113,7 +114,7 @@ pub fn revert(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
         });
     }
 
-    let command = recording(&reversal.paths, &reversal.moves, &message, &target);
+    let command = recording(&reversal, &message);
     if dry_run {
         return printing(|out| {
             for (fact, path) in &reversal.facts {
@@ -180,29 +181,33 @@ pub fn revert(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
 /// Narrowed to the paths the undoing touched, which is decision 0039: a
 /// person's unrecorded work elsewhere in the folder is not compared with
 /// anything, so it is not swept into a revision that says it undid something
-/// else. Every rename put back is stated, since the folder cannot show one,
-/// and the message names what was undone by its own first line and its digest,
-/// so `log` reads as what happened and `show` finds the revision undone.
-fn recording(
-    paths: &[String],
-    moves: &[(String, String)],
-    message: &str,
-    target: &RevisionId,
-) -> String {
+/// else. Every rename put back is stated, since the folder cannot show one;
+/// every file brought back is stated as the kind it was, since the sniff
+/// could decide otherwise (0017); and the message names what was undone by
+/// its own first line and its digest, so `log` reads as what happened and
+/// `show` finds the revision undone.
+fn recording(reversal: &Reversal, message: &str) -> String {
     let mut command = String::from("historica record");
-    for path in paths {
+    for path in &reversal.paths {
         command.push(' ');
         command.push_str(&quoted(path));
     }
-    for (from, to) in moves {
+    for (from, to) in &reversal.moves {
         command.push_str(" --move ");
         command.push_str(&quoted(&format!("{from}={to}")));
+    }
+    for (path, kind) in reversal.kinds.paths() {
+        command.push_str(match kind {
+            Kind::Whole => " --bytes ",
+            _ => " --lines ",
+        });
+        command.push_str(&quoted(path));
     }
     let summary = message.lines().next().unwrap_or_default().trim();
     command.push_str(" -m ");
     command.push_str(&quoted(&format!(
         "Undo \"{summary}\" ({})",
-        target.abbreviate(12)
+        reversal.target.abbreviate(12)
     )));
     command
 }

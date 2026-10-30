@@ -475,11 +475,15 @@ pub fn materialise(tree: &Tree, at: &str, target: &LinkTarget) -> Option<String>
         // Exactly its bytes: a person who spelled this said something about a
         // machine, and tidying it would change what the folder said.
         LinkTarget::Verbatim(spelling) => Some(spelling.clone()),
-        LinkTarget::Reference(named) => Some(host_separators(&relative(
-            directory_of(at),
-            tree.path(named)?,
-        ))),
+        LinkTarget::Reference(named) => Some(spell_reference(at, tree.path(named)?)),
     }
+}
+
+/// How a link at `at` spells a reference to the file at `to`, both store
+/// paths: what [`materialise`] writes, for a caller placing files at paths no
+/// tree holds yet.
+pub(crate) fn spell_reference(at: &str, to: &str) -> String {
+    host_separators(&relative(directory_of(at), to))
 }
 
 /// The directory part of a store path, empty at the root.
