@@ -380,6 +380,47 @@ same operation documents, named again, and the store gains none. Content-
 editing the middle waits on 0030's working forward from the past, where it
 has always lived.
 
+### `revert`
+
+Decision [0090](decisions/0090-taking-a-revision-back.md): the way back that
+does not rewrite. `revert <target>` takes one revision's work back out of the
+folder and keeps everything recorded since — what it added goes, what it
+dropped comes back where it was, what it renamed moves back, and the lines it
+changed are changed back inside whatever the head holds now — and then prints
+the `record` that writes the undoing down as a new revision on the head.
+
+It records nothing itself, which is `merge`'s shape for `merge`'s reason: the
+content is a file nobody has written yet, so it appears in the folder first,
+where `status` and `diff` read it, and `record` is what writes a revision
+about a folder. The command it prints names only the paths the undoing
+touched, so unrecorded work elsewhere is not swept in
+([0039](decisions/0039-recording-some-of-the-folder.md)); states every rename
+it put back with `--move`, so the file keeps its identity; and suggests a
+message naming what was undone.
+
+The lines are undone by [0007](decisions/0007-content-and-merge.md)'s merge
+— the target's own change, played backwards, concurrently with everything
+since — so later work in the same file stays. Where later work changed a line
+the target wrote, the whole undoing refuses and names the file, because which
+of the two to keep is a person's to say, and markers a plain `record` would
+not notice are not something a tool for mistakes should leave behind. It also
+refuses where the folder does not hold the head at a path it would write,
+since what is there is somebody's unrecorded work. `--dry-run` says what the
+undoing would record and writes nothing.
+
+A merge is undone against a side: `revert <merge> --parent <side>` keeps the
+parent named and takes back everything the merge brought in from the others,
+in one undoing. Accepting a change set is recorded as a merge whose parents
+include the change set's tip, so `revert <acceptance> --parent <what it was
+accepted onto>` takes the whole change set back, however many revisions it
+held, and keeps the work recorded on top of it. Without `--parent` a merge is
+refused and its parents are listed, because a merge's parents have no order
+to pick a "first" from.
+
+`abandon` is still the answer when the history should not say the work
+happened at all; `revert` is the answer when it should say the work happened
+and was taken back.
+
 ### `abandon`
 
 Decision [0013](decisions/0013-abandoning-and-pruning.md)'s other tip-first

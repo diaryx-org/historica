@@ -96,7 +96,7 @@ The Historica CLI is WASI-compatible (except for `fetch`).
 
 | Git | Historica | Not the same thing because |
 |---|---|---|
-| `git revert <rev>` | — | undo the edit and `record` it, which is what the history should say happened |
+| `git revert <rev>` | `historica revert <target>`, then the `record` it prints | writes the undoing into the folder rather than committing it, so `diff` shows it before the history does; refuses a file where later work met the target's lines rather than leaving markers (0090) |
 | `git filter-repo`, BFG | `historica forget <target> <path> --lines <a>..<b>` | destroys those lines everywhere history quotes them and preserves their arithmetic, so everything downstream still materialises and merges. Every other hash in the history is untouched (0014) |
 | `git reflog` | superseded revisions, until `historica prune` | the undo history is in the readable files rather than in a local log the format does not know about |
 | — | `historica abandon <target> -m <why>` | supersedes a revision, and everything standing on it, with a tombstone that says why (0013) |
