@@ -95,6 +95,16 @@ pub struct Forgotten {
     /// where a person is least likely to expect it, so it is counted here and
     /// said out loud.
     pub elsewhere: Vec<RevisionId>,
+    /// Superseded revisions this store holds that still show the text of a
+    /// forgotten line, which this forgetting does not touch.
+    ///
+    /// Decision 0023: an amendment that changed a file mints its own items
+    /// for what its predecessor's folder said, so the two hold one text under
+    /// two names and forgetting it at the amendment destroys one of them. The
+    /// predecessor stays legible until it is forgotten there too or `prune`
+    /// takes it — the per-item rule of 0014 again, said for lines as
+    /// [`elsewhere`](Self::elsewhere) says it for bytes.
+    pub superseded: Vec<RevisionId>,
 }
 
 impl Forgotten {
@@ -322,6 +332,59 @@ impl<F: Filesystem> Store<F> {
         Ok(others.into_iter().collect())
     }
 
+    /// Every revision the history being forgotten in supersedes, at any
+    /// remove, that this store holds and that still shows one of `texts` in
+    /// `file` through an item this forgetting leaves alone.
+    ///
+    /// Decision 0023's amendment restates its predecessor's text under items
+    /// of its own, so those items are not the span's and survive the
+    /// forgetting. An item is judged by the document that holds it rather
+    /// than the revision that wrote it: an amendment that left the file alone
+    /// names the same document as its predecessor, and destroying that
+    /// destroys both copies. A predecessor whose history this store cannot
+    /// walk any more is one it cannot say anything about, and is passed over.
+    fn superseded_holding(
+        &self,
+        reachable: &[(RevisionId, &crate::format::RevisionDocument)],
+        file: &FileId,
+        named: &BTreeMap<RevisionId, RevisionId>,
+        destroyed: &BTreeMap<RevisionId, BTreeSet<(usize, usize)>>,
+        texts: &BTreeSet<&str>,
+    ) -> Result<Vec<RevisionId>, ForgetError> {
+        let current: BTreeSet<RevisionId> = reachable.iter().map(|(id, _)| *id).collect();
+        let mut pending: Vec<RevisionId> = reachable
+            .iter()
+            .flat_map(|(_, document)| document.supersedes.iter().copied())
+            .collect();
+        let mut seen = BTreeSet::new();
+        let mut holding = Vec::new();
+        while let Some(predecessor) = pending.pop() {
+            if current.contains(&predecessor) || !seen.insert(predecessor) {
+                continue;
+            }
+            let Ok(history) = self.reachable(&predecessor) else {
+                continue;
+            };
+            if let Some((_, document)) = history.iter().find(|(id, _)| *id == predecessor) {
+                pending.extend(document.supersedes.iter().copied());
+            }
+            let legible = self.quotes_over(&history, file)?.iter().any(|quoted| {
+                quoted.visible
+                    && !quoted.forgotten
+                    && texts.contains(quoted.text.as_str())
+                    && !named
+                        .get(&quoted.written_by)
+                        .and_then(|document| destroyed.get(document))
+                        .is_some_and(|items| items.contains(&quoted.write))
+            });
+            if legible {
+                holding.push(predecessor);
+            }
+        }
+        holding.sort();
+        Ok(holding)
+    }
+
     /// What forgetting a span of lines would destroy.
     fn forget_lines(
         &self,
@@ -360,6 +423,10 @@ impl<F: Filesystem> Store<F> {
         let everywhere = self.quotes_over(&every, &forgetting.file)?;
 
         copies_into(&mut span, &everywhere);
+        let texts: BTreeSet<&str> = visible[first - 1..last]
+            .iter()
+            .map(|quoted| quoted.text.as_str())
+            .collect();
 
         // The document each revision names for this file, which is what the
         // quote indices index into.
@@ -398,8 +465,11 @@ impl<F: Filesystem> Store<F> {
 
         // One forgetting document per destroyed digest, skipped where the
         // stand-ins the store already holds say everything this would.
+        let superseded =
+            self.superseded_holding(&reachable, &forgetting.file, &named, &items, &texts)?;
         let mut plan = Forgotten {
             already,
+            superseded,
             ..Forgotten::default()
         };
         for (target, forget) in &items {

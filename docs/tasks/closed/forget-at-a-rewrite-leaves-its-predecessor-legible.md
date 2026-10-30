@@ -1,13 +1,23 @@
 ---
 title: Forget at a rewrite leaves its predecessor legible
 description: Forgetting lines at an amended revision destroys the amendment's copy and leaves the superseded original's, which mints its own items for the same text (0023), legible until `prune` — and `forget` does not say so
-status: open
+status: done
 created: 2026-10-13
-updated: 2026-10-13
-part_of: '[Tasks](/docs/tasks/tasks.md)'
+updated: 2026-10-30
+part_of: '[Closed tasks](/docs/tasks/closed/closed.md)'
 ---
 
 # Forget at a rewrite leaves its predecessor legible
+
+**Status.** Done, by `feat(store): forget names the superseded revisions
+still holding the text`, which takes the first candidate below. `forget
+--lines` lists, as `Forgotten::superseded`, every revision the history it
+forgets in supersedes that still shows a forgotten line's text through an
+item it leaves alone, and the CLI prints one line for each, naming the
+revision and the `forget` or `prune` that would take it. An amendment that
+left the file alone names the same document as its predecessor, so one
+forget destroys both copies and nothing is named. The repro now prints
+`<X> still holds that text`.
 
 [0014](/docs/decisions/0014-forgetting.md) forgets *items*, and
 [0023](/docs/decisions/0023-what-an-amendment-keeps.md) has an amendment mint

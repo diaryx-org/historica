@@ -13,6 +13,7 @@ contents:
 - '[The state at a revision without the walk](/docs/tasks/closed/the-state-at-a-revision-without-the-walk.md)'
 - '[The web source asks for one file at a time](/docs/tasks/closed/the-web-source-asks-for-one-file-at-a-time.md)'
 - '[A fetch asks past its bound](/docs/tasks/closed/a-fetch-asks-past-its-bound.md)'
+- '[Forget at a rewrite leaves its predecessor legible](/docs/tasks/closed/forget-at-a-rewrite-leaves-its-predecessor-legible.md)'
 ---
 
 # Closed tasks

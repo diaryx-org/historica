@@ -502,6 +502,64 @@ fn each_version_of_a_file_of_bytes_is_forgotten_on_its_own() {
     assert!(run(&directory, &["check"]).status.success());
 }
 
+/// Decision 0023 has an amendment mint its own items for what its
+/// predecessor's folder said, so forgetting lines at the amendment leaves the
+/// superseded revision's copy of the same text legible until `prune`. That
+/// is the per-item rule as written, and `forget` says so rather than leaving
+/// a person to assume the text is gone.
+#[test]
+fn forgetting_at_an_amendment_names_the_predecessor_still_holding_the_text() {
+    let directory = scratch("amended");
+    assert!(run(&directory, &["init"]).status.success());
+    write(&directory, "f.txt", "a\nsecret\n");
+    let first = digest_in(&out(&directory, &["record", "-m", "x"]));
+    write(&directory, "f.txt", "a\nsecret\nmore\n");
+    out(&directory, &["amend"]);
+
+    let planned = out(
+        &directory,
+        &["forget", "head", "f.txt", "--lines", "2", "--dry-run"],
+    );
+    let said = out(&directory, &["forget", "head", "f.txt", "--lines", "2"]);
+    for said in [&planned, &said] {
+        assert!(
+            said.contains(&format!("{} still holds", &first[..12])),
+            "{said}"
+        );
+        assert!(said.contains("supersedes"), "{said}");
+    }
+
+    // What the note describes: the predecessor still prints the text.
+    let cat = out(&directory, &["cat", &first, "f.txt"]);
+    assert_eq!(cat, "a\nsecret\n");
+
+    // Forgetting it there too, as the note says, takes it, and a forget at
+    // the head again has nothing left to name.
+    out(&directory, &["forget", &first, "f.txt", "--lines", "2"]);
+    assert!(!contains(&store_bytes(&directory), "secret"));
+    let again = out(&directory, &["forget", "head", "f.txt", "--lines", "2"]);
+    assert!(!again.contains("still holds"), "{again}");
+    assert!(run(&directory, &["check"]).status.success());
+}
+
+/// An amendment that left a file alone shares its items with its
+/// predecessor, so one forget destroys both copies and there is nothing to
+/// name.
+#[test]
+fn forgetting_where_the_amendment_left_the_file_alone_names_nothing() {
+    let directory = scratch("amended-elsewhere");
+    assert!(run(&directory, &["init"]).status.success());
+    write(&directory, "f.txt", "a\nsecret\n");
+    write(&directory, "g.txt", "one\n");
+    out(&directory, &["record", "-m", "x"]);
+    write(&directory, "g.txt", "one\ntwo\n");
+    out(&directory, &["amend"]);
+
+    let said = out(&directory, &["forget", "head", "f.txt", "--lines", "2"]);
+    assert!(!said.contains("still holds"), "{said}");
+    assert!(!contains(&store_bytes(&directory), "secret"));
+}
+
 /// Every file under `from`, copied to the same place under `to`.
 fn copy_tree(from: &Path, to: &Path) {
     fs::create_dir_all(to).expect("a directory to copy into");
