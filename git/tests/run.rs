@@ -4,10 +4,12 @@
 use std::io::Write;
 use std::process::{Command, Output, Stdio};
 
-/// Run `historica-git write --wrote -` in an empty directory, with `input` on
-/// standard input.
-fn run(input: &str) -> Output {
-    let nowhere = std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join("run-cli");
+/// Run `historica-git write --wrote -` in an empty directory of `test`'s own,
+/// with `input` on standard input. Each test names its own, since `cargo test`
+/// runs them on separate threads and one would remove the other's.
+fn run(test: &str, input: &str) -> Output {
+    let nowhere =
+        std::path::PathBuf::from(env!("CARGO_TARGET_TMPDIR")).join(format!("run-cli-{test}"));
     let _ = std::fs::remove_dir_all(&nowhere);
     std::fs::create_dir_all(&nowhere).expect("a scratch directory");
     let mut child = Command::new(env!("CARGO_BIN_EXE_historica-git"))
@@ -30,7 +32,7 @@ fn run(input: &str) -> Output {
 #[test]
 fn wrote_nothing_is_silent_and_succeeds_with_no_store_anywhere() {
     for input in ["historica-wrote-1\n", ""] {
-        let out = run(input);
+        let out = run("wrote_nothing_is_silent", input);
         assert!(out.status.success(), "{input:?}: {out:?}");
         assert!(out.stdout.is_empty(), "{input:?}: {out:?}");
         assert!(out.stderr.is_empty(), "{input:?}: {out:?}");
@@ -44,7 +46,7 @@ fn a_statement_this_build_does_not_read_is_refused_whole() {
         "historica-wrote-2\nrevision 00\n",
         "historica-wrote-1\nmoved main\n",
     ] {
-        let out = run(input);
+        let out = run("a_statement_this_build_does_not_read", input);
         assert!(!out.status.success(), "{input:?}: {out:?}");
         let said = String::from_utf8_lossy(&out.stderr);
         assert!(said.contains("nothing was written to git"), "{said}");

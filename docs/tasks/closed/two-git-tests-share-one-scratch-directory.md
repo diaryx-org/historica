@@ -1,13 +1,19 @@
 ---
 title: Two git tests share one scratch directory
 description: Both tests in `git/tests/run.rs` delete and remake `CARGO_TARGET_TMPDIR/run-cli` before running the binary in it, so under `cargo test`'s parallel threads one removes the other's working directory and its spawn fails — about one run in six
-status: open
+status: done
 created: 2026-10-28
-updated: 2026-10-28
-part_of: '[Tasks](/docs/tasks/tasks.md)'
+updated: 2026-10-30
+part_of: '[Closed tasks](/docs/tasks/closed/closed.md)'
 ---
 
 # Two git tests share one scratch directory
+
+**Status.** Done, by `test(git): give each run test a scratch directory of
+its own`, which takes the change below: `run` takes a name, and each test's
+directory is `CARGO_TARGET_TMPDIR/run-cli-<name>`. The test binary, run 300
+times with the default thread count, failed 11 times before and none after;
+the repro's first loop prints `0`.
 
 `run` in `git/tests/run.rs` gives every call the same directory,
 `CARGO_TARGET_TMPDIR/run-cli`: it removes it, makes it again, and spawns
