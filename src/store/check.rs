@@ -1249,7 +1249,9 @@ fn check_replay<F: Filesystem + ?Sized>(
     // it has to be UTF-8, because a later `edit` quotes its items into a
     // document that is. Keyed by revision *and* file: one revision creates as
     // many files as it likes, and each of them arrives with its own content.
-    let mut held: BTreeMap<(RevisionId, FileId), Held> = BTreeMap::new();
+    // By file first, so that one file's statements are a map of their own
+    // for the walk to read.
+    let mut held: BTreeMap<FileId, BTreeMap<RevisionId, Held>> = BTreeMap::new();
     for (id, document) in documents {
         for (file, named) in &document.edited {
             // Decision 0032: an `edit` line names either grammar, and a
@@ -1271,7 +1273,9 @@ fn check_replay<F: Filesystem + ?Sized>(
                                 named_by: *id,
                             });
                         }
-                        held.insert((*id, *file), Held::Resolution(*named, effective));
+                        held.entry(*file)
+                            .or_default()
+                            .insert(*id, Held::Resolution(*named, effective));
                     }
                     None => report.push(Finding::MissingOperations {
                         document: *named,
@@ -1289,7 +1293,9 @@ fn check_replay<F: Filesystem + ?Sized>(
                             named_by: *id,
                         });
                     }
-                    held.insert((*id, *file), Held::Operations(*named, effective));
+                    held.entry(*file)
+                        .or_default()
+                        .insert(*id, Held::Operations(*named, effective));
                 }
                 None => report.push(Finding::MissingOperations {
                     document: *named,
@@ -1358,7 +1364,9 @@ fn check_replay<F: Filesystem + ?Sized>(
                 }
             };
             if let Some(effective) = crate::format::stand_in(base.as_ref(), &standing) {
-                held.insert((*id, *file), Held::Operations(*named, effective));
+                held.entry(*file)
+                    .or_default()
+                    .insert(*id, Held::Operations(*named, effective));
             }
         }
     }
@@ -1427,13 +1435,13 @@ fn check_replay<F: Filesystem + ?Sized>(
                     .edited
                     .keys()
                     .chain(document.text.keys())
-                    .all(|file| matches!(held.get(&(*id, *file)), Some(Held::Operations(..))))
+                    .all(|file| matches!(held_at(&held, id, file), Some(Held::Operations(..))))
             })
         {
             for file in &edited {
                 let mut state = crate::replay::State::empty();
                 for (id, _) in &chain {
-                    let Some(Held::Operations(_, document)) = held.get(&(*id, *file)) else {
+                    let Some(Held::Operations(_, document)) = held_at(&held, id, file) else {
                         continue;
                     };
                     match state.apply(document) {
@@ -1460,25 +1468,58 @@ fn check_replay<F: Filesystem + ?Sized>(
             // wrote — an absence already reported, read as a contradiction.
             let undelivered = reachable.iter().any(|(id, document)| {
                 (document.edited.contains_key(&file) || document.text.contains_key(&file))
-                    && !held.contains_key(&(*id, file))
+                    && held_at(&held, id, &file).is_none()
             });
             if undelivered {
                 continue;
             }
-            let events: Vec<crate::merge::Event<'_>> = reachable
+            // Decision 0017: a creation stated whole replays as the document
+            // it is equivalent to, and decision 0014's redactions are already
+            // folded in — what is checked here is what a person
+            // materialising would get.
+            let none = BTreeMap::new();
+            let stated = held.get(&file).unwrap_or(&none);
+            let parents: BTreeMap<RevisionId, Vec<RevisionId>> = reachable
                 .iter()
-                .map(|(id, document)| {
-                    let parents = document.parents.iter().copied().collect();
-                    // Decision 0017: a creation stated whole replays as the
-                    // document it is equivalent to, and decision 0014's
-                    // redactions are already folded in — what is checked here
-                    // is what a person materialising would get.
-                    match held.get(&(*id, file)) {
-                        Some(stated) => stated.event(*id, parents),
-                        None => crate::merge::Event::nothing(*id, parents),
-                    }
-                })
+                .map(|(id, document)| (*id, document.parents.iter().copied().collect()))
                 .collect();
+            // Decision 0032: a merge whose parents agree states nothing, and
+            // the walk reads it as the agreed state, as the reader does. With
+            // no rule to ask here, the parents agree where the walk through
+            // each of them reads the same text.
+            let agreed = match super::agreed_resolutions(
+                &parents,
+                stated,
+                |merge, through| {
+                    let mut states = Vec::new();
+                    for parent in &parents[merge] {
+                        states.push(through(parent)?.state);
+                    }
+                    Ok(match states.split_first() {
+                        Some((first, rest)) if rest.iter().all(|state| state == first) => {
+                            Some(std::rc::Rc::new(first.clone()))
+                        }
+                        _ => None,
+                    })
+                },
+                |error| error,
+            ) {
+                Ok(agreed) => agreed,
+                Err(error) => {
+                    report.push(Finding::ContentDisagrees {
+                        revision: *head,
+                        file,
+                        because: error.to_string(),
+                    });
+                    continue;
+                }
+            };
+            let events = super::walked(
+                &agreed.parents,
+                stated,
+                &agreed.held,
+                super::Within::Everything,
+            );
             match crate::merge::quotes(events) {
                 Err(error) => report.push(Finding::ContentDisagrees {
                     revision: *head,
@@ -1486,7 +1527,7 @@ fn check_replay<F: Filesystem + ?Sized>(
                     because: error.to_string(),
                 }),
                 Ok(quoted) => {
-                    still_quoted(documents, &held, &file, &quoted, &mut undercut);
+                    still_quoted(documents, stated, &file, &quoted, &mut undercut);
                 }
             }
         }
@@ -1611,9 +1652,18 @@ fn check_completeness(
 /// An item forgotten at one quote and legible at another is a redaction that
 /// has not finished arriving: `forget` rewrites every document that quotes a
 /// run, and sync delivers them one file at a time.
+/// What `revision` states about `file`, where it is here.
+fn held_at<'h>(
+    held: &'h BTreeMap<FileId, BTreeMap<RevisionId, Held>>,
+    revision: &RevisionId,
+    file: &FileId,
+) -> Option<&'h Held> {
+    held.get(file)?.get(revision)
+}
+
 fn still_quoted(
     documents: &BTreeMap<RevisionId, RevisionDocument>,
-    held: &BTreeMap<(RevisionId, FileId), Held>,
+    held: &BTreeMap<RevisionId, Held>,
     file: &FileId,
     quoted: &[crate::merge::Quoted],
     undercut: &mut BTreeSet<(RevisionId, RevisionId)>,
@@ -1634,7 +1684,7 @@ fn still_quoted(
         for (revision, operation, at) in &item.deletes {
             if let Some(named) = named_for(revision) {
                 let forgotten = held
-                    .get(&(*revision, *file))
+                    .get(revision)
                     .and_then(Held::operations)
                     .map(|document| document.operations[*operation].items[*at].forgotten)
                     .unwrap_or(false);

@@ -29,7 +29,8 @@ use crate::tree::Kind;
 
 use super::{
     Body, MaterialiseError, OPERATION_SUFFIX, OPERATION_SUFFIXES, OPERATIONS_DIR, Store,
-    StoreError, files_claiming, payload_files, prune::remove_empty_directories,
+    StoreError, UNRECORDED, Within, files_claiming, payload_files, prune::remove_empty_directories,
+    walked,
 };
 
 /// What a person asks to forget: some of one file, at one revision.
@@ -579,17 +580,24 @@ impl<F: Filesystem> Store<F> {
         file: &FileId,
     ) -> Result<Vec<Quoted>, ForgetError> {
         let held = self.effective_for(documents, file)?;
-        let events: Vec<merge::Event<'_>> = documents
+        let parents: BTreeMap<RevisionId, Vec<RevisionId>> = documents
             .iter()
-            .map(|(revision, document)| {
-                let parents = document.parents.iter().copied().collect();
-                match held.get(revision) {
-                    Some(stated) => stated.event(*revision, parents),
-                    None => merge::Event::nothing(*revision, parents),
-                }
-            })
+            .map(|(revision, document)| (*revision, document.parents.iter().copied().collect()))
             .collect();
-        Ok(merge::quotes(events)?)
+        // The walk every reader takes, settled where a merge's parents agree
+        // (0032): a line is named here as the reader names it, or the
+        // forgetting destroys some other item than the one a person sees.
+        let head = documents
+            .first()
+            .map(|(revision, _)| *revision)
+            .unwrap_or(UNRECORDED);
+        let agreed = self.agreed_resolutions(&parents, &held, file, head)?;
+        Ok(merge::quotes(walked(
+            &agreed.parents,
+            &held,
+            &agreed.held,
+            Within::Everything,
+        ))?)
     }
 
     /// The creation document standing behind a `text` payload digest, if the

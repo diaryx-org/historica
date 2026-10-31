@@ -292,3 +292,35 @@ rest. Merges where one side's statements about the file all lie in the other's
 past are passed without a look, since the walk cannot meet anything twice
 there. Nothing is written: stores recorded before this read the same by the
 rule, and now by the walk too. Pinned in `tests/agreed.rs`.
+
+**Every walk reads it so, and only by keeping.** The same reading reached only
+`merged_content_of`, and three other walks met the merge raw. `check` read the
+later revision as quoting the wrong item and called the store corrupt, which
+converting a git history does wherever two branches regenerated one file.
+`forget` named a line by its own walk and destroyed another item than the one
+a person sees. And `merge` drew conflict markers between the two copies, which
+`record --merge` then took as content, because a file the parents agree on is
+never asked for markers. Now one function, `agreed_resolutions`, settles each
+such merge, and the reader, `check` and `forget` all walk what it settles:
+
+- **A merge that states a delta**, as a merge whose parents agree may, keeps
+  it. It stands, for the walk, on a revision of its own that settles its
+  parents, so the delta is read against the agreed state its positions were
+  counted in, and its items keep their names.
+- **The merge `historica merge` is about to propose** is settled the same
+  way, as a merge of the heads that nobody has recorded yet, and
+  `Store::proposed_content_of` draws only the contests that merge still has
+  to settle. Where the heads agree there are none, and a contest a head has
+  already seen both sides of was settled by the merge that joined them.
+- **Settling only keeps, by name.** The walk is read as settled only where
+  dropping each second copy of a name the two sides share reaches the agreed
+  state. A resolution that inserted would name items by a revision no
+  forgetting can reach (0014), and the simulation found one handing a
+  forgotten line back. One that kept a line by text, where two sides hold it
+  under two names, leaves the forgetting of the other name unable to reach
+  the copy kept. Those merges are read as they always were, and the question
+  of what *agree* means for two names stays with
+  [the task](../tasks/a-merge-agrees-by-text.md).
+
+`check` has no rule to ask, so for it two parents agree where the walk
+through each reads the same text.

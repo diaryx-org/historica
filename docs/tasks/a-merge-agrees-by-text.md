@@ -3,7 +3,7 @@ title: A merge agrees by text
 description: Decision 0032 lets a merge state a delta, or nothing, where its parents agree, and agreement is decided by comparing text — so two replicas making one edit, or a forgetting on each side, leave `record`, the reader and `check`'s walk answering differently, and `check` calls the store corrupt
 status: open
 created: 2026-10-13
-updated: 2026-10-29
+updated: 2026-10-30
 part_of: '[Tasks](/docs/tasks/tasks.md)'
 ---
 
@@ -92,8 +92,29 @@ $ historica-git import . ../store && cd ../store && historica check
 error: <child>, file <f>: <child> deletes `a` at position 1, where its author's view held `x`; one of the two is corrupt, and the digests say which
 ```
 
-The 0464747 fix reads the merge right in `merged_content_of`; `check`'s walk
-still does not.
+## Where it stands
+
+The same edit made twice is settled where the two sides share the names.
+`agreed_resolutions` settles each such merge for every walk: the reader,
+`check` and `forget`, a merge that states a delta as well as one that states
+nothing, and the merge `historica merge` is about to propose (0032's
+paragraph *Every walk reads it so, and only by keeping*). The first repro and
+the git repro check clean, `merge` draws no markers for heads that agree, and
+`tests/agreed.rs` pins each.
+
+What is left is the case where the two sides hold one text under **two
+names**, and the forgetting repro below. Settling only drops second copies of
+a name, so the walk is left as it was where a line arrived twice by two
+documents. That happens when one side was amended, and when two replicas
+record the same lines from different starting points. `HISTORICA_SIMULATION_STRICT=1`
+still finds it in a few hundred rounds, for example with
+`HISTORICA_SIMULATION_SEED=0x5eed0006`: two replicas each record, sync,
+merge, and record again, with no amend and no forget.
+
+Keeping one of the two by text was tried and handed a forgotten line back in
+the simulation (`0x5eed0003`): the forgetting of the copy not kept could not
+reach the copy kept. So that half still needs the decision below, and
+`agreed_by_text` stays until it has one.
 
 ## What it needs
 

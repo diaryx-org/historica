@@ -1116,7 +1116,7 @@ pub fn merge(root: PathBuf, arguments: Vec<String>) -> Result<u8, Failure> {
             Kind::Link => unreachable!("a link was laid down above"),
             Kind::Lines => {
                 let content = store
-                    .merged_content_of(&heads, file)
+                    .proposed_content_of(&heads, file)
                     .map_err(Failure::error)?;
                 let rendered = conflict::render(&content);
                 if !content.contested.is_empty() {
