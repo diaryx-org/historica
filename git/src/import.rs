@@ -694,6 +694,14 @@ impl Conversion<'_> {
             true => across(store, &parents, moves, &tree)?,
             false => (moves, Vec::new()),
         };
+        // A commit with one parent stands on historica's copy of git's
+        // parent tree (decision 0013), so the paths whose entry it changed are
+        // all its record has to look at. A merge is surveyed whole, since
+        // historica's 0032 has it state every file its parents left apart.
+        let only = match parents.len() {
+            1 => touched(&parent, &tree, &moves)?,
+            _ => Restriction::Everything,
+        };
 
         // Git states an author and a committer; historica records one person,
         // and the author is the one it keeps. The committer is not thrown away
@@ -750,7 +758,7 @@ impl Conversion<'_> {
             moves,
             at,
             accepted: Default::default(),
-            only: Restriction::Everything,
+            only,
             extensions,
             // Nothing stated, so every added file is sniffed. Git has no
             // better answer to hand over: a blob carries a mode and bytes and
@@ -1349,6 +1357,52 @@ fn across(
 }
 
 /// Refs as a note names them.
+/// What a commit with one parent changed, as the paths its record looks at.
+///
+/// Every path whose entry differs between the parent's tree and the commit's,
+/// and both ends of every rename. A submodule is left out where it is the
+/// only thing on either side of the change, because the folder holds nothing
+/// for it and a path that answers to nothing is refused. Every link is in,
+/// changed or not: historica's 0040 writes a link's target down by the file
+/// it names, so a record that moves or drops a file has to look at whatever
+/// points at it, and `record` refuses rather than guess which those are. The
+/// whole folder
+/// where the commit changed nothing, or most of it, since looking at it all
+/// is then the cheaper way to say the same.
+fn touched(parent: &Tree, tree: &Tree, moves: &[(String, String)]) -> Result<Restriction, Error> {
+    let file = |entry: Option<&crate::tree::Entry>| {
+        entry.is_some_and(|entry| matches!(entry.content, crate::tree::Held::Bytes(_)))
+    };
+    let mut paths = BTreeSet::new();
+    let changed = tree
+        .iter()
+        .filter(|(path, entry)| parent.get(path) != Some(entry))
+        .map(|(path, _)| path);
+    let gone = parent
+        .iter()
+        .filter(|(path, _)| tree.get(path).is_none())
+        .map(|(path, _)| path);
+    for path in changed.chain(gone) {
+        if file(parent.get(path)) || file(tree.get(path)) {
+            paths.insert(folder::path_of(path)?);
+        }
+    }
+    for (from, to) in moves {
+        paths.insert(from.clone());
+        paths.insert(to.clone());
+    }
+    let changes_anything = !paths.is_empty();
+    for (path, entry) in parent.iter().chain(tree.iter()) {
+        if entry.mode == crate::stream::Mode::Symlink {
+            paths.insert(folder::path_of(path)?);
+        }
+    }
+    if !changes_anything || paths.len() * 4 > tree.len() {
+        return Ok(Restriction::Everything);
+    }
+    Ok(Restriction::Paths(paths))
+}
+
 fn quoted(references: &BTreeSet<String>) -> String {
     references
         .iter()
