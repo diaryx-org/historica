@@ -991,9 +991,10 @@ fn survey_laid<F: Filesystem>(
         // Decision 0081: where one revision states what the parent holds, the
         // digest it names is the comparison 0043 makes below, and nothing is
         // materialised to make it.
-        if let [parent] = parents
-            && let Some(stated) = store.stated_digest(parent, &file)?
-            && stated == working.digest(path)?
+        // A merge asks it of every parent: where each states the digest the
+        // folder holds, the parents agree and the folder holds what they
+        // agree on, which is the case below that states nothing.
+        if !parents.is_empty() && unchanged_by_digest(store, parents, &file, working.digest(path)?)?
         {
             continue;
         }
@@ -1021,8 +1022,8 @@ fn survey_laid<F: Filesystem>(
         // above is: a catalogue that spoke wrongly for this path is corrected
         // by the read it caused, and `diff` below says nothing about a file
         // that turns out not to have changed.
-        let text = match working.text_and_digest(path) {
-            Ok((text, _)) => text,
+        let (text, found) = match working.text_and_digest(path) {
+            Ok(read) => read,
             // 0015: a refusal is a line of the report rather than the end of
             // it. 0017 narrows what is refused to this one case — a file
             // recorded as lines that no longer holds any.
@@ -1042,6 +1043,9 @@ fn survey_laid<F: Filesystem>(
                     survey
                         .edited
                         .insert(path.clone(), Change::Operations(document));
+                    // The state the document will state as its result, which
+                    // the next record of this file reads as its parent's.
+                    store.remember_state(found, after);
                 }
             }
             Joined::Proposed(merged) => {
@@ -1355,6 +1359,24 @@ enum Joined {
     /// They differ, so the merge owes a resolution. This is what the walk
     /// proposes, which is the draft a person edits.
     Proposed(Box<Merged>),
+}
+
+/// Whether every parent states `found` as the file's digest.
+///
+/// Decision 0081's comparison, made of each parent in turn. `false` wherever
+/// one of them states no single digest, which leaves the file to the reader.
+fn unchanged_by_digest<F: Filesystem>(
+    store: &Store<F>,
+    parents: &[RevisionId],
+    file: &FileId,
+    found: RevisionId,
+) -> Result<bool, RecordError> {
+    for parent in parents {
+        if store.stated_digest(parent, file)? != Some(found) {
+            return Ok(false);
+        }
+    }
+    Ok(true)
 }
 
 /// What the parents leave one file as, for a merge being recorded.

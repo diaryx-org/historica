@@ -1503,6 +1503,9 @@ fn check_replay<F: Filesystem + ?Sized>(
                     })
                 },
                 |error| error,
+                // `check` wants the work (0035), so nothing decided for
+                // another head is taken.
+                &mut BTreeMap::new(),
             ) {
                 Ok(agreed) => agreed,
                 Err(error) => {

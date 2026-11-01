@@ -811,6 +811,12 @@ fn first_copies(proposed: &Merged) -> (State, Vec<(RevisionId, usize)>) {
 /// handed the walk through any revision, read as settled so far, for a caller
 /// that has no rule to ask. The reader asks the rule; `check`, which has only
 /// the documents, compares the walk at each parent.
+///
+/// `decided` holds what was settled at a merge before, by the merge. What is
+/// settled there is a function of that merge's past, which no revision added
+/// later changes, so a reader asking at every merge of a long history walks
+/// each earlier one once rather than once per asking. [`UNRECORDED`] is never
+/// kept, since its parents are whichever heads were asked about.
 pub(crate) fn agreed_resolutions<E>(
     parents: &BTreeMap<RevisionId, Vec<RevisionId>>,
     held: &BTreeMap<RevisionId, Held>,
@@ -819,6 +825,7 @@ pub(crate) fn agreed_resolutions<E>(
         &dyn Fn(&RevisionId) -> Result<Merged, merge::MergeError>,
     ) -> Result<Option<Rc<State>>, E>,
     merge_error: impl Fn(merge::MergeError) -> E,
+    decided: &mut BTreeMap<RevisionId, Settled>,
 ) -> Result<Agreed, E> {
     let mut settled = Agreed {
         held: BTreeMap::new(),
@@ -850,60 +857,35 @@ pub(crate) fn agreed_resolutions<E>(
         // A resolution states the file whole, and the walk reads it whole.
         let owed = met && !matches!(stated, Some(Held::Resolution(..)));
         if owed {
-            let through = |at: &RevisionId| {
-                merge::merge(walked(
-                    &settled.parents,
-                    held,
-                    &settled.held,
-                    Within::Through(at),
-                ))
-            };
-            if let Some(state) = parents_agree(revision, &through)? {
-                let proposed = merge::merge(walked(
-                    &settled.parents,
-                    held,
-                    &settled.held,
-                    Within::Before(revision),
-                ))
-                .map_err(&merge_error)?;
-                if proposed.state != *state {
-                    // A resolution that only keeps, by dropping each second
-                    // copy of a name: the copies one edit made on two sides
-                    // share it, and a `keep` of a name takes its first copy.
-                    // Nothing else is settled here. An item this wrote would
-                    // be named by a revision no forgetting can reach, and two
-                    // sides holding one line under two names — an
-                    // amendment's rewrite of one side — would leave the
-                    // other's forgetting unable to reach the copy kept (0014).
-                    let keeping = || {
-                        let (first, references) = first_copies(&proposed);
-                        (first == *state)
-                            .then(|| diff::resolve(&first, &references, &state))
-                            .flatten()
-                    };
-                    match stated {
-                        None => {
-                            if let Some(resolution) = keeping() {
-                                let named = digest(&resolution.write());
-                                settled
-                                    .held
-                                    .insert(*revision, Held::Resolution(named, resolution));
-                                Rc::make_mut(&mut past).insert(*revision);
-                            }
-                        }
-                        Some(_) => {
-                            if let Some(resolution) = keeping() {
-                                let before = settling(revision);
-                                let named = digest(&resolution.write());
-                                settled
-                                    .held
-                                    .insert(before, Held::Resolution(named, resolution));
-                                settled.parents.insert(before, parents[revision].clone());
-                                settled.parents.insert(*revision, vec![before]);
-                                Rc::make_mut(&mut past).insert(before);
-                            }
-                        }
+            let settling_here = match decided.get(revision) {
+                Some(settled) => settled.clone(),
+                None => {
+                    let settled = settle(
+                        revision,
+                        stated.is_some(),
+                        &settled,
+                        held,
+                        &mut parents_agree,
+                        &merge_error,
+                    )?;
+                    if *revision != UNRECORDED {
+                        decided.insert(*revision, settled.clone());
                     }
+                    settled
+                }
+            };
+            match settling_here {
+                Settled::Nothing => {}
+                Settled::Stating(resolution) => {
+                    settled.held.insert(*revision, resolution);
+                    Rc::make_mut(&mut past).insert(*revision);
+                }
+                Settled::Before(resolution) => {
+                    let before = settling(revision);
+                    settled.held.insert(before, resolution);
+                    settled.parents.insert(before, parents[revision].clone());
+                    settled.parents.insert(*revision, vec![before]);
+                    Rc::make_mut(&mut past).insert(before);
                 }
             }
         }
@@ -913,6 +895,74 @@ pub(crate) fn agreed_resolutions<E>(
         stating.insert(*revision, past);
     }
     Ok(settled)
+}
+
+/// What [`agreed_resolutions`] settled at one merge.
+#[derive(Debug, Clone)]
+pub(crate) enum Settled {
+    /// Nothing: the walk reads the merge as it stands.
+    Nothing,
+    /// The merge states nothing, and is read as stating this resolution.
+    Stating(Held),
+    /// The merge states a delta, and stands on [`settling`]'s revision,
+    /// read as stating this resolution.
+    Before(Held),
+}
+
+/// What one merge whose sides met is read as settling, given what the
+/// merges before it settled.
+fn settle<E>(
+    revision: &RevisionId,
+    states: bool,
+    settled: &Agreed,
+    held: &BTreeMap<RevisionId, Held>,
+    parents_agree: &mut impl FnMut(
+        &RevisionId,
+        &dyn Fn(&RevisionId) -> Result<Merged, merge::MergeError>,
+    ) -> Result<Option<Rc<State>>, E>,
+    merge_error: &impl Fn(merge::MergeError) -> E,
+) -> Result<Settled, E> {
+    let through = |at: &RevisionId| {
+        merge::merge(walked(
+            &settled.parents,
+            held,
+            &settled.held,
+            Within::Through(at),
+        ))
+    };
+    let Some(state) = parents_agree(revision, &through)? else {
+        return Ok(Settled::Nothing);
+    };
+    let proposed = merge::merge(walked(
+        &settled.parents,
+        held,
+        &settled.held,
+        Within::Before(revision),
+    ))
+    .map_err(merge_error)?;
+    if proposed.state == *state {
+        return Ok(Settled::Nothing);
+    }
+    // A resolution that only keeps, by dropping each second copy of a name:
+    // the copies one edit made on two sides share it, and a `keep` of a name
+    // takes its first copy. Nothing else is settled here. An item this wrote
+    // would be named by a revision no forgetting can reach, and two sides
+    // holding one line under two names — an amendment's rewrite of one side
+    // — would leave the other's forgetting unable to reach the copy kept
+    // (0014).
+    let (first, references) = first_copies(&proposed);
+    let Some(resolution) = (first == *state)
+        .then(|| diff::resolve(&first, &references, &state))
+        .flatten()
+    else {
+        return Ok(Settled::Nothing);
+    };
+    let named = digest(&resolution.write());
+    let resolution = Held::Resolution(named, resolution);
+    Ok(match states {
+        false => Settled::Stating(resolution),
+        true => Settled::Before(resolution),
+    })
 }
 
 /// What [`agreed_resolutions`] found: what the walk reads each merge it
@@ -1201,6 +1251,14 @@ pub struct Store<F = Disk> {
     /// missing a parent — which leaves every reader on the walk. Let go of
     /// whenever the documents change.
     stating: OnceCell<Option<std::sync::Arc<tree::Stating>>>,
+    /// File states this command has already held, by the digest of their
+    /// bytes: the cache's states, kept in memory rather than on disk, so that
+    /// one command reading a file twice replays it once. Emptied with the
+    /// cache, for decision 0014's reason.
+    states: RefCell<States>,
+    /// What [`agreed_resolutions`] settled at each merge, by file. Emptied
+    /// with the cache, since forgetting changes what a walk reads.
+    settled: RefCell<BTreeMap<FileId, BTreeMap<RevisionId, Settled>>>,
     /// The directory the host keeps this store's caches in, or `None`.
     ///
     /// Decision 0078: a cache is one device's, so it is kept where the host
@@ -1293,6 +1351,49 @@ struct Read {
     /// What [`Store::holds_payload`] answered, having hashed the file, so
     /// that a command asking of one payload twice hashes it once.
     held: BTreeMap<RevisionId, bool>,
+}
+
+/// File states held in memory, by the digest of their bytes, up to
+/// [`STATES_HELD`] bytes of them.
+///
+/// Shared by `Arc` rather than `Rc` because a [`Store`] is `Send`; a reader
+/// takes its own copy, which is one pass over the file where the replay it
+/// saves is one per revision.
+#[derive(Debug, Clone, Default)]
+struct States {
+    by_digest: BTreeMap<RevisionId, std::sync::Arc<State>>,
+    width: usize,
+}
+
+/// How many bytes of file states one command holds in memory before it lets
+/// go of them all. A bound on memory and nothing else: a state let go of is
+/// one the next reader replays, as it would have with nothing held.
+const STATES_HELD: usize = 64 << 20;
+
+impl States {
+    fn get(&self, digest: &RevisionId) -> Option<Rc<State>> {
+        self.by_digest
+            .get(digest)
+            .map(|state| Rc::new(State::clone(state)))
+    }
+
+    fn hold(&mut self, digest: RevisionId, state: std::sync::Arc<State>) {
+        let width = state.width();
+        if width > STATES_HELD {
+            return;
+        }
+        if self.width + width > STATES_HELD {
+            self.clear();
+        }
+        if self.by_digest.insert(digest, state).is_none() {
+            self.width += width;
+        }
+    }
+
+    fn clear(&mut self) {
+        self.by_digest.clear();
+        self.width = 0;
+    }
 }
 
 impl Read {
@@ -1566,6 +1667,8 @@ impl<F: Filesystem> Store<F> {
             walked: OnceCell::new(),
             stating: OnceCell::new(),
             read: RefCell::new(Read::default()),
+            states: RefCell::new(States::default()),
+            settled: RefCell::new(BTreeMap::new()),
             scanned: Cell::new(false),
             cache,
             unkept: Cell::new(false),
@@ -3088,7 +3191,10 @@ impl<F: Filesystem> Store<F> {
         file: &FileId,
         head: RevisionId,
     ) -> Result<Agreed, MaterialiseError> {
-        agreed_resolutions(
+        // Taken out for the call, which asks the store for content and so
+        // must not find this borrowed.
+        let mut decided = self.settled.borrow_mut().remove(file).unwrap_or_default();
+        let agreed = agreed_resolutions(
             parents,
             held,
             |revision, _| {
@@ -3106,7 +3212,10 @@ impl<F: Filesystem> Store<F> {
                 file: *file,
                 error: Box::new(error),
             },
-        )
+            &mut decided,
+        );
+        self.settled.borrow_mut().insert(*file, decided);
+        agreed
     }
 
     /// The content of one file at `head`.
@@ -3264,7 +3373,7 @@ impl<F: Filesystem> Store<F> {
                     .map_err(MaterialiseError::unreadable)?
                 && let Some(state) = self.kept_state(&result)
             {
-                known.insert(id, Stated::Known(Rc::new(state)));
+                known.insert(id, Stated::Known(state));
                 stack.pop();
                 continue;
             }
@@ -3391,11 +3500,18 @@ impl<F: Filesystem> Store<F> {
         // asked for: writing every step would be the whole file once per
         // revision of history, and the next reader needs one checkpoint to
         // stop at, not a copy of every stop along the way.
+        // Held in memory whatever it cost, since that costs only memory: a
+        // command asking twice, or a record asking of the state the last one
+        // wrote, takes it rather than replaying it again.
         if caching == Caching::Take
-            && replayed >= CACHE_AFTER
+            && replayed > 0
             && let Stated::Known(state) = &stated
         {
-            self.keep_state(state);
+            if replayed >= CACHE_AFTER {
+                self.keep_state(state);
+            } else {
+                self.hold_state(state);
+            }
         }
         Ok(stated)
     }
@@ -3416,13 +3532,45 @@ impl<F: Filesystem> Store<F> {
     /// discarded, so an entry left behind by an older version of this program,
     /// half-written by an interrupted one, or edited by a person, is refused
     /// here rather than returned as a file's history.
-    fn kept_state(&self, digest: &RevisionId) -> Option<State> {
+    ///
+    /// A state this command already holds in memory is taken first. It went
+    /// in under the digest of its own bytes, as an entry on disk does.
+    fn kept_state(&self, digest: &RevisionId) -> Option<Rc<State>> {
+        if let Some(state) = self.states.borrow().get(digest) {
+            return Some(state);
+        }
         let cache = self.cache.as_ref()?;
         let bytes = self.files.read(&cache.join(digest.to_string())).ok()?;
         if format::digest(&bytes) != *digest {
             return None;
         }
-        Some(State::from_text(std::str::from_utf8(&bytes).ok()?))
+        let state = State::from_text(std::str::from_utf8(&bytes).ok()?);
+        self.states
+            .borrow_mut()
+            .hold(*digest, std::sync::Arc::new(state.clone()));
+        Some(Rc::new(state))
+    }
+
+    /// Hold this state in memory for the rest of the command, named by the
+    /// digest of its own bytes, as [`Store::keep_state`] names it on disk.
+    fn hold_state(&self, state: &Rc<State>) {
+        self.states
+            .borrow_mut()
+            .hold(state.digest(), std::sync::Arc::new(State::clone(state)));
+    }
+
+    /// Hold a file's state that a writer already has, with the digest of its
+    /// bytes, so that the next reader of the revision it writes takes it
+    /// rather than replaying to it.
+    ///
+    /// The digest is the caller's to have measured, and is what a document
+    /// stating this state names (decision 0031). A wrong one is filed where
+    /// no document names it, or names other bytes: so a caller passes the
+    /// digest of the very text it made the state from.
+    pub(crate) fn remember_state(&self, digest: RevisionId, state: State) {
+        self.states
+            .borrow_mut()
+            .hold(digest, std::sync::Arc::new(state));
     }
 
     /// Keep this state, so the next reader does not replay the history to it.
@@ -3440,12 +3588,16 @@ impl<F: Filesystem> Store<F> {
     /// filesystem, a full disk, and a cache somebody deleted mid-command
     /// are all conditions under which reading a file must still succeed —
     /// there is nothing to report, because nothing was lost.
-    fn keep_state(&self, state: &State) {
+    fn keep_state(&self, state: &Rc<State>) {
+        let text = state.text();
+        let found = format::digest(text.as_bytes());
+        self.states
+            .borrow_mut()
+            .hold(found, std::sync::Arc::new(State::clone(state)));
         let Some(cache) = &self.cache else {
             return;
         };
-        let text = state.text();
-        let path = cache.join(format::digest(text.as_bytes()).to_string());
+        let path = cache.join(found.to_string());
         // `create_new`, so two commands racing to cache one state cannot meet
         // half a file: the loser's write fails and the bytes were identical
         // anyway. The directory may be missing — nothing makes it but this,
@@ -3468,6 +3620,8 @@ impl<F: Filesystem> Store<F> {
     /// reader hashes, finds intact, and correctly uses — and one that is
     /// half-deleted is one the next reader hashes and discards.
     fn clear_cache(&self) {
+        self.states.borrow_mut().clear();
+        self.settled.borrow_mut().clear();
         if let Some(cache) = &self.cache {
             clear_states(&self.files, cache);
         }

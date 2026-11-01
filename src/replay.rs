@@ -119,7 +119,7 @@ impl State {
     /// materialising a long history builds this string once per revision, and
     /// growing it by doubling is the difference between one allocation and a
     /// dozen.
-    fn width(&self) -> usize {
+    pub(crate) fn width(&self) -> usize {
         self.items
             .iter()
             .map(|item| item.shown().len() + usize::from(item.terminated))
