@@ -14,6 +14,7 @@ contents:
 - '[The web source asks for one file at a time](/docs/tasks/closed/the-web-source-asks-for-one-file-at-a-time.md)'
 - '[A fetch asks past its bound](/docs/tasks/closed/a-fetch-asks-past-its-bound.md)'
 - '[Forget at a rewrite leaves its predecessor legible](/docs/tasks/closed/forget-at-a-rewrite-leaves-its-predecessor-legible.md)'
+- '[cargo doc writes the CLI''s pages over the library''s](/docs/tasks/closed/cargo-doc-writes-the-cli-over-the-library.md)'
 ---
 
 # Closed tasks

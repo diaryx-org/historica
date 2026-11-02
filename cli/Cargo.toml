@@ -27,9 +27,16 @@ exclude = ["tests/"]
 # caller of the library compiled a platform HTTP stack unless they knew to turn
 # it off. Here the seam is the package boundary, so it holds without anyone
 # having to know anything.
+#
+# `doc = false` because the name is shared. rustdoc writes a crate's pages to
+# `target/doc/<crate name>/`, so a documented binary called `historica` writes
+# over the library's, and `cargo doc --workspace` leaves whichever finished
+# last (rust-lang/cargo#6313). The binary's modules are private to it and were
+# never published; the library's pages are the ones a reader came for.
 [[bin]]
 name = "historica"
 path = "src/main.rs"
+doc = false
 
 # `http` is decision 0057's transport: the platform's own HTTP stack, behind one
 # interface. On by default so that `cargo install historica-cli` fetches out of
