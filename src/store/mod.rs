@@ -3349,6 +3349,16 @@ impl<F: Filesystem> Store<F> {
         // kept. A revision that says nothing about the file costs nothing to
         // pass — it shares its parent's state — so it does not count.
         let mut replayed = 0usize;
+        // Decision 0092: the reader that wants the answer holds the state it
+        // was asked for to the digest stated about it, once, rather than
+        // every state on the way to it. Here is, for each revision whose
+        // state was replayed and not yet hashed, which revision stated what.
+        // `check` replays every step held to its digest, as it always did.
+        let mut unverified: BTreeMap<RevisionId, (RevisionId, RevisionId)> = BTreeMap::new();
+        let step = |state: State, document: &OperationDocument| match caching {
+            Caching::Take => state.applied_unverified(document),
+            Caching::Replay => state.applied(document),
+        };
         while let Some(id) = stack.last().copied() {
             if known.contains_key(&id) {
                 stack.pop();
@@ -3406,6 +3416,9 @@ impl<F: Filesystem> Store<F> {
                             Some(stated) => {
                                 let stated = stated.clone();
                                 known.insert(id, stated);
+                                if let Some(pending) = unverified.get(&from).copied() {
+                                    unverified.insert(id, pending);
+                                }
                                 stack.pop();
                             }
                             None => stack.push(from),
@@ -3442,13 +3455,21 @@ impl<F: Filesystem> Store<F> {
             // a creation is the first thing said about that identifier.
             if let Some(payload) = document.text.get(file) {
                 let created = match self.creation_for(payload, id)? {
-                    Some(creation) => State::empty().applied(&creation).map_err(|error| {
-                        MaterialiseError::Content {
-                            revision: id,
-                            file: *file,
-                            error,
+                    Some(creation) => {
+                        let created = step(State::empty(), &creation).map_err(|error| {
+                            MaterialiseError::Content {
+                                revision: id,
+                                file: *file,
+                                error,
+                            }
+                        })?;
+                        if caching == Caching::Take
+                            && let Some(result) = creation.result
+                        {
+                            unverified.insert(id, (id, result));
                         }
-                    })?,
+                        created
+                    }
                     None => State::empty(),
                 };
                 known.insert(id, Stated::Known(Rc::new(created)));
@@ -3456,6 +3477,17 @@ impl<F: Filesystem> Store<F> {
             }
 
             let base = agreed(document.parents.iter().map(|parent| &known[parent]));
+            // A revision that says nothing about the file holds what its
+            // parents hold, and is owed the check theirs is. Parents that
+            // agree hold one state, so any one's stated digest is the one.
+            if !document.edited.contains_key(file)
+                && let Some(pending) = document
+                    .parents
+                    .iter()
+                    .find_map(|parent| unverified.get(parent).copied())
+            {
+                unverified.insert(id, pending);
+            }
             let stated = match document.edited.get(file) {
                 Some(named) => match base {
                     Stated::Unstated => Stated::Unstated,
@@ -3474,13 +3506,19 @@ impl<F: Filesystem> Store<F> {
                             Stated::Known(state) => Rc::unwrap_or_clone(state),
                             _ => State::empty(),
                         };
-                        Stated::Known(Rc::new(before.applied(&operations).map_err(|error| {
+                        let after = step(before, &operations).map_err(|error| {
                             MaterialiseError::Content {
                                 revision: id,
                                 file: *file,
                                 error,
                             }
-                        })?))
+                        })?;
+                        if caching == Caching::Take
+                            && let Some(result) = operations.result
+                        {
+                            unverified.insert(id, (id, result));
+                        }
+                        Stated::Known(Rc::new(after))
                     }
                 },
                 // A revision that says nothing about the file says what its
@@ -3495,6 +3533,21 @@ impl<F: Filesystem> Store<F> {
         // The states the rest of the walk shared go with it, so the one asked
         // for is usually held once and is handed over rather than copied.
         drop(known);
+        // The one hash 0092 keeps. A state that is not what its document
+        // says is walked again, every step held to its digest, so the refusal
+        // names the first document that is wrong, as it did before — and the
+        // answer is the same answer, reached by more work.
+        if let Stated::Known(state) = &stated
+            && let Some((revision, result)) = unverified.get(head).copied()
+            && let Err(error) = state.check_result(Some(result))
+        {
+            self.stated_content(head, file, Caching::Replay)?;
+            return Err(MaterialiseError::Content {
+                revision,
+                file: *file,
+                error,
+            });
+        }
         // Keep what the walk cost, so the next reader does not pay it again —
         // and only when it cost something. One entry, for the state that was
         // asked for: writing every step would be the whole file once per
