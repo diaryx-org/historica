@@ -1519,6 +1519,95 @@ fn agreeing_parents_are_each_held_to_the_digest_they_state() {
     }
 }
 
+/// Decision 0093: a walk lets go of a state once the last step that reads
+/// it has, so that step moves it rather than copying it. Which step is last
+/// is counted before the walk, and a state two steps read is held for both:
+/// a fork both sides edit, a statement a revision that skips the file holds,
+/// and a merge of two sides that agree, each asked about on a store just
+/// opened so that nothing is taken from memory.
+#[test]
+fn a_state_two_steps_read_is_there_for_both() {
+    let (root, mut store) = tree_corpus_store("a-state-two-steps-read");
+    let (head, readme, base) = readme_at_head(&store);
+    let titled = |title: &str| format!("{title}\n{README_REST}");
+    let to = |from: &str, to: &str| retitled(from, to, digest(titled(to).as_bytes()));
+    // The head's state is read by three edits.
+    let journal = revision_on(
+        &mut store,
+        &base,
+        readme,
+        0,
+        &[head],
+        Some(&to("# Notes", "# Journal")),
+    );
+    let log = revision_on(
+        &mut store,
+        &base,
+        readme,
+        1,
+        &[head],
+        Some(&to("# Notes", "# Log")),
+    );
+    let again = revision_on(
+        &mut store,
+        &base,
+        readme,
+        2,
+        &[head],
+        Some(&to("# Notes", "# Journal")),
+    );
+    // A revision that says nothing of the file holds `journal`'s state, and
+    // an edit on it reads that state through it.
+    let quiet = revision_on(&mut store, &base, readme, 3, &[journal], None);
+    let diary = revision_on(
+        &mut store,
+        &base,
+        readme,
+        4,
+        &[quiet],
+        Some(&to("# Journal", "# Diary")),
+    );
+    // A merge of the two sides that agree, and an edit on the merge.
+    let merge = revision_on(&mut store, &base, readme, 5, &[journal, again], None);
+    let after = revision_on(
+        &mut store,
+        &base,
+        readme,
+        6,
+        &[merge],
+        Some(&to("# Journal", "# Book")),
+    );
+    // And one revision on both edits, which reads `journal` twice over.
+    let both = revision_on(&mut store, &base, readme, 7, &[diary, after], None);
+    for (asked, title) in [
+        (head, "# Notes"),
+        (journal, "# Journal"),
+        (log, "# Log"),
+        (quiet, "# Journal"),
+        (diary, "# Diary"),
+        (merge, "# Journal"),
+        (after, "# Book"),
+    ] {
+        let store = Store::open(&root).expect("reopening");
+        assert_eq!(
+            store.content(&asked, &readme).expect("the README").text(),
+            titled(title),
+            "asked at the revision that says {title}"
+        );
+    }
+    // The two sides disagree, and nothing states the merge: the algorithm
+    // answers, from both sides' states, each read in full.
+    let store = Store::open(&root).expect("reopening");
+    let merged = store.content(&both, &readme).expect("the README").text();
+    assert!(merged.ends_with(README_REST), "{merged:?}");
+    // And one store asked about all of them in turn, which reads each from
+    // the last.
+    let store = Store::open(&root).expect("reopening");
+    for asked in [after, diary, log, merge, quiet] {
+        store.content(&asked, &readme).expect("the README");
+    }
+}
+
 #[test]
 fn an_undelivered_operation_document_is_a_note() {
     // Transport has more to deliver, which is ordinary — the same judgement

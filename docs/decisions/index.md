@@ -1023,6 +1023,15 @@ depend on each other in.
   step. A digest stated wrongly partway down a history no longer stops a
   reader at a later revision that edits the file again.
 
+- [0093 — A state read once is moved](0093-a-state-read-once-is-moved.md)
+  The walk kept every state it computed in case another revision asked for
+  it, so each step copied its parent's whole file before applying a
+  document. The walk now counts, before it starts, how many steps read each
+  state, and lets go of a state once the last of them has, so that step
+  moves it. A count that is wrong costs time and never the answer. Reading a
+  2,000-line file at the end of 1,000 revisions went from 186 ms to 60 ms.
+  The proved replay is unchanged.
+
 Not a decision, but the evaluation one of them rests on:
 [`docs/loro.md`](../loro.md) — the initial Loro evaluation, and the conditions
 that would reverse it.

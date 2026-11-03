@@ -1130,6 +1130,50 @@ enum Verify {
     Asked,
 }
 
+/// How many steps of one walk will read each revision's state, counted
+/// before the walk starts, so that the last of them can have it rather than
+/// a copy.
+///
+/// Decision 0093. A step that applies a document consumes the state it
+/// starts from, and [`State::applied`] moves every item it does not touch
+/// into what it returns. But the walk kept every state it computed, in case
+/// another step asked for it, so the state a step started from was always
+/// still held, and taking it copied the whole file: every line's bytes,
+/// once per revision walked. Most states are read by exactly one step. Once
+/// that step has read it, the walk lets go of it, and the step has the only
+/// hold on it and moves it.
+///
+/// A count only ever lets go early when the walk reads a state it did not
+/// plan to, and a state let go of is one the walk computes again if it is
+/// asked for: slower, and the same answer. A revision the plan never reached
+/// has no count and is never let go of. So a plan that is wrong costs time
+/// and never changes what the walk says.
+#[derive(Debug, Default)]
+struct Readers {
+    /// For each revision the plan reached, how many steps still read its
+    /// state.
+    left: BTreeMap<RevisionId, usize>,
+    /// The kept states the plan found, by the digest they are kept under,
+    /// so the walk takes them rather than reading the cache again.
+    kept: BTreeMap<RevisionId, Rc<State>>,
+    /// Where 0081 sends each revision that says nothing of the file, as the
+    /// plan asked it, so the walk does not ask again.
+    staters: BTreeMap<RevisionId, Stater>,
+}
+
+impl Readers {
+    /// One step has read `revision`'s state. If it was the last the plan
+    /// counted, the walk lets go of it.
+    fn read(&mut self, revision: &RevisionId, known: &mut BTreeMap<RevisionId, Stated>) {
+        if let Some(left) = self.left.get_mut(revision) {
+            *left = left.saturating_sub(1);
+            if *left == 0 {
+                known.remove(revision);
+            }
+        }
+    }
+}
+
 /// The digests stated about one revision's state that nothing has hashed it
 /// against yet: which revision stated each, and what it stated. Shared, since
 /// every revision that says nothing of the file holds its parent's.
@@ -3376,6 +3420,80 @@ impl<F: Filesystem> Store<F> {
         }
     }
 
+    /// Who will read each state in the walk from `head`: decision 0093's
+    /// plan for [`Store::walked_content`].
+    ///
+    /// The same walk with nothing applied. Each revision it reaches is
+    /// settled as the walk settles it: by a kept state, by a resolution, by
+    /// the one statement 0081 sends it to, by a creation, or by its parents.
+    /// A statement it is sent to is read once by it, and each parent once
+    /// by a revision built from its parents. A creation waits for its
+    /// parents and reads none of them. Where the walk would fail, the plan
+    /// stops and counts nothing, and the walk fails as it always did.
+    fn readers(
+        &self,
+        head: &RevisionId,
+        file: &FileId,
+        caching: Caching,
+        stating: Option<&tree::Stating>,
+    ) -> Readers {
+        let mut readers = Readers::default();
+        let mut reached: BTreeSet<RevisionId> = BTreeSet::new();
+        let mut stack = vec![*head];
+        while let Some(id) = stack.pop() {
+            if !reached.insert(id) {
+                continue;
+            }
+            let Some(document) = self
+                .documents
+                .get(&id)
+                .and_then(|document| document.whole().ok())
+            else {
+                return Readers::default();
+            };
+            let named = document.edited.get(file);
+            if caching == Caching::Take
+                && let Some(named) = named
+                && let Ok(Some(result)) = self.stated_result(named)
+                && let Some(state) = self.kept_state(&result)
+            {
+                readers.kept.insert(result, state);
+                continue;
+            }
+            if let Some(named) = named {
+                match self.effective_resolution(named) {
+                    Ok(Some(_)) => continue,
+                    Ok(None) => {}
+                    Err(_) => return Readers::default(),
+                }
+            }
+            if let Some(stating) = stating
+                && named.is_none()
+                && !document.text.contains_key(file)
+            {
+                let stater = stating.stater(file, &id);
+                readers.staters.insert(id, stater);
+                match stater {
+                    Stater::Nothing => continue,
+                    Stater::One(from) => {
+                        *readers.left.entry(from).or_default() += 1;
+                        stack.push(from);
+                        continue;
+                    }
+                    Stater::Several => {}
+                }
+            }
+            let created = document.text.contains_key(file);
+            for parent in &document.parents {
+                if !created {
+                    *readers.left.entry(*parent).or_default() += 1;
+                }
+                stack.push(*parent);
+            }
+        }
+        readers
+    }
+
     /// The walk under [`Store::stated_content`], hashing what `verify` says.
     fn walked_content(
         &self,
@@ -3394,6 +3512,9 @@ impl<F: Filesystem> Store<F> {
             Caching::Take => self.stating(),
             Caching::Replay => None,
         };
+        // Decision 0093: who reads each state, so the last reader moves it
+        // rather than copying it.
+        let mut readers = self.readers(head, file, caching, stating.as_deref());
         // What this walk cost, in operation documents it had to apply rather
         // than read an answer for. It is what decides whether the answer is
         // kept. A revision that says nothing about the file costs nothing to
@@ -3433,7 +3554,10 @@ impl<F: Filesystem> Store<F> {
                 && let Some(result) = self
                     .stated_result(named)
                     .map_err(MaterialiseError::unreadable)?
-                && let Some(state) = self.kept_state(&result)
+                && let Some(state) = readers
+                    .kept
+                    .remove(&result)
+                    .or_else(|| self.kept_state(&result))
             {
                 known.insert(id, Stated::Known(state));
                 stack.pop();
@@ -3457,7 +3581,12 @@ impl<F: Filesystem> Store<F> {
                 && !document.edited.contains_key(file)
                 && !document.text.contains_key(file)
             {
-                match stating.stater(file, &id) {
+                match readers
+                    .staters
+                    .get(&id)
+                    .copied()
+                    .unwrap_or_else(|| stating.stater(file, &id))
+                {
                     Stater::Nothing => {
                         known.insert(id, Stated::Absent);
                         stack.pop();
@@ -3468,6 +3597,7 @@ impl<F: Filesystem> Store<F> {
                             Some(stated) => {
                                 let stated = stated.clone();
                                 known.insert(id, stated);
+                                readers.read(&from, &mut known);
                                 if let Some(pending) = unverified.get(&from).cloned() {
                                     unverified.insert(id, pending);
                                 }
@@ -3529,6 +3659,9 @@ impl<F: Filesystem> Store<F> {
             }
 
             let base = agreed(document.parents.iter().map(|parent| &known[parent]));
+            for parent in &document.parents {
+                readers.read(parent, &mut known);
+            }
             // A revision that says nothing about the file holds what its
             // parents hold, and is owed every check theirs are. Parents that
             // agree hold one state, but two edits that reach it may state
