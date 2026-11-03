@@ -1014,6 +1014,14 @@ depend on each other in.
   tombstone. `record` moves the tip onto a step, and `receive` and `fetch`
   move it forward.
 
+- [0092 — What a command already worked out](0092-what-a-command-already-worked-out.md)
+  A command recording many revisions in a row, as `historica-git import`
+  does, asked the same questions about files again with every revision it
+  added. A merge now compares digests where every parent states the one the
+  folder holds. A state worked out, and what a merge settled, are held for
+  the rest of the command, in memory and bounded, and emptied wherever the
+  cache is. Answers and what is on disk are unchanged.
+
 Not a decision, but the evaluation one of them rests on:
 [`docs/loro.md`](../loro.md) — the initial Loro evaluation, and the conditions
 that would reverse it.

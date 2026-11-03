@@ -1,4 +1,4 @@
-# 0090 — What a command already worked out
+# 0092 — What a command already worked out
 
 [0081](0081-who-states-a-file.md) made one command's questions about files
 cheap by answering them from one pass. A command that records many revisions
