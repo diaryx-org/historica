@@ -1,13 +1,22 @@
 ---
 title: Two decisions are numbered 0090
 description: '`0090-taking-a-revision-back.md` and `0090-what-a-command-already-worked-out.md` share a number, and the index lists only the first, so `prov check` finds the second an orphan and every "decision 0090" in the code and docs is ambiguous'
-status: open
+status: done
 created: 2026-11-03
 updated: 2026-11-03
-part_of: '[Tasks](/docs/tasks/tasks.md)'
+part_of: '[Closed tasks](/docs/tasks/closed/closed.md)'
 ---
 
 # Two decisions are numbered 0090
+
+**Status.** Done, by `docs(decisions): number the decision about what a
+command already worked out 0094`. The decision about stored states is
+`0094-what-a-command-already-worked-out.md` now, its heading says 0094,
+`index.md` lists it after 0093, and `git/docs/decisions/0014-…` says
+"historica's 0094". 0092 was free when this task was filed, and went to
+`0092-the-digest-a-reader-checks.md` and 0093 to
+`0093-a-state-read-once-is-moved.md` before the fix landed. Every "0090" left
+in the code and docs means `revert`. `prov check` reports nothing.
 
 `docs/decisions/` holds two decisions numbered 0090:
 

@@ -10,7 +10,6 @@ contents:
   - '[A stand-in filed beside another copy](/docs/tasks/a-stand-in-filed-beside-another-copy.md)'
   - '[Forget leaves the folder holding what it destroyed](/docs/tasks/forget-leaves-the-folder-holding-what-it-destroyed.md)'
   - '[Two git tests share one scratch directory](/docs/tasks/two-git-tests-share-one-scratch-directory.md)'
-  - '[Two decisions are numbered 0090](/docs/tasks/two-decisions-numbered-0090.md)'
 part_of: '[historica](/README.md)'
 ---
 
