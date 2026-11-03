@@ -11,7 +11,8 @@ use std::path::{Path, PathBuf};
 
 use historica::core::{ChangeState, FileId, RevisionId};
 use historica::format::{OperationDocument, RevisionDocument, digest};
-use historica::store::{Bookmark, Finding, Name, Placement, Severity, Store};
+use historica::replay::ReplayError;
+use historica::store::{Bookmark, Finding, MaterialiseError, Name, Placement, Severity, Store};
 
 /// A fresh directory for one test, inside the target directory.
 fn scratch(test: &str) -> PathBuf {
@@ -1218,6 +1219,304 @@ fn a_document_that_disagrees_with_its_file_is_an_error() {
         .content(&revision.id(), &file)
         .expect_err("a document applied to the wrong file");
     assert!(error.to_string().contains("corrupt"), "{error}");
+}
+
+/// Decision 0092: a reader holds the state it was asked for to the digest
+/// stated about it, and leaves the steps on the way to `check`.
+///
+/// A digest stated wrongly partway down a history changes no state a walk
+/// computes, since no state is computed from a stated digest. So a later
+/// revision that edits the file again reads; the revision that states it, and
+/// one that holds what it holds, do not; and a refusal names the first
+/// document that is wrong, as every step being hashed named it.
+#[test]
+fn a_wrong_digest_on_the_way_is_checks_and_the_one_asked_for_is_the_readers() {
+    let (root, mut store) = tree_corpus_store("a-wrong-digest-on-the-way");
+    let head = head_of(&store);
+    let readme = *store
+        .tree(&head)
+        .expect("a tree")
+        .files()
+        .next()
+        .expect("the README")
+        .0;
+    let base = store
+        .get(&head)
+        .expect("readable")
+        .expect("the head")
+        .clone();
+    let mut changes = ["ztkwnrvzlmyxqsotnkwlpvzr", "ztkwnrvzlmyxqsotnkwlpvzs"]
+        .into_iter()
+        .chain(["ztkwnrvzlmyxqsotnkwlpvzt", "ztkwnrvzlmyxqsotnkwlpvzu"]);
+    let mut on = |store: &mut Store, parent: RevisionId, document: Option<&str>| {
+        let mut revision = base.clone();
+        revision.change = changes
+            .next()
+            .expect("a change")
+            .parse()
+            .expect("a change ID");
+        revision.parents = BTreeSet::from([parent]);
+        revision.added.clear();
+        revision.moved.clear();
+        revision.dropped.clear();
+        revision.edited.clear();
+        if let Some(document) = document {
+            let document = OperationDocument::parse(document.as_bytes()).expect("it parses");
+            let written = store.insert_operation(&document).expect("writing it");
+            revision.edited = [(readme, written)].into_iter().collect();
+        }
+        store.insert(&revision).expect("writing the revision");
+        revision.id()
+    };
+    let rest = "\nA journal kept in Historica, and the notes that came with it.\n";
+    let nobody = digest(b"no file holds these bytes");
+    let retitled = |from: &str, to: &str, result: RevisionId| {
+        format!("historica\nresult {result}\n\ndelete 0 1\n-{from}\ninsert 0\n+{to}\n")
+    };
+
+    // A digest no file has, stated where the title is changed.
+    let lying = on(
+        &mut store,
+        head,
+        Some(&retitled("# Notes", "# Journal", nobody)),
+    );
+    // Changed again, stating the digest of what it produces.
+    let again = format!("# Notes again\n{rest}");
+    let honest = on(
+        &mut store,
+        lying,
+        Some(&retitled(
+            "# Journal",
+            "# Notes again",
+            digest(again.as_bytes()),
+        )),
+    );
+    // One that says nothing of the README holds what the lying one holds.
+    let quiet = on(&mut store, lying, None);
+    // And one that is wrong too, after the first.
+    let worse = on(
+        &mut store,
+        lying,
+        Some(&retitled("# Journal", "# Log", nobody)),
+    );
+    let store = Store::open(&root).expect("reopening");
+
+    assert_eq!(
+        store.content(&honest, &readme).expect("the README").text(),
+        again
+    );
+    for asked in [lying, quiet, worse] {
+        match store.content(&asked, &readme) {
+            Err(MaterialiseError::Content {
+                revision,
+                error: ReplayError::ResultDisagrees { stated, .. },
+                ..
+            }) => {
+                assert_eq!(revision, lying, "the first document that is wrong");
+                assert_eq!(stated, nobody);
+            }
+            other => panic!("{other:?}"),
+        }
+    }
+
+    let report = Store::check(&root);
+    assert!(
+        report
+            .errors()
+            .any(|finding| finding.to_string().contains("and replaying it produces")),
+        "{:?}",
+        report.findings()
+    );
+}
+
+/// The README of the tree corpus, the revision at its head, and that
+/// revision's document to copy new ones from.
+fn readme_at_head(store: &Store) -> (RevisionId, FileId, RevisionDocument) {
+    let head = head_of(store);
+    let readme = *store
+        .tree(&head)
+        .expect("a tree")
+        .files()
+        .next()
+        .expect("the README")
+        .0;
+    let base = store
+        .get(&head)
+        .expect("readable")
+        .expect("the head")
+        .clone();
+    (head, readme, base)
+}
+
+/// A revision on `parents` that edits `file` with `document`, or says nothing
+/// of it, under the `n`th of a run of change IDs.
+fn revision_on(
+    store: &mut Store,
+    base: &RevisionDocument,
+    file: FileId,
+    n: usize,
+    parents: &[RevisionId],
+    document: Option<&str>,
+) -> RevisionId {
+    const DIGITS: &[u8] = b"klmnopqrstuvwxyz";
+    let mut change = String::from("ztkwnrvzlmyxqsotnkwl");
+    for place in (0..4).rev() {
+        change.push(DIGITS[(n >> (4 * place)) & 15] as char);
+    }
+    let mut revision = base.clone();
+    revision.change = change.parse().expect("a change ID");
+    revision.parents = parents.iter().copied().collect();
+    revision.added.clear();
+    revision.moved.clear();
+    revision.dropped.clear();
+    revision.edited.clear();
+    if let Some(document) = document {
+        let document = OperationDocument::parse(document.as_bytes()).expect("it parses");
+        let written = store.insert_operation(&document).expect("writing it");
+        revision.edited = [(file, written)].into_iter().collect();
+    }
+    store.insert(&revision).expect("writing the revision");
+    revision.id()
+}
+
+/// The README's title changed from `from` to `to`, stating `result`.
+fn retitled(from: &str, to: &str, result: RevisionId) -> String {
+    format!("historica\nresult {result}\n\ndelete 0 1\n-{from}\ninsert 0\n+{to}\n")
+}
+
+/// The rest of the README, under its title.
+const README_REST: &str = "\nA journal kept in Historica, and the notes that came with it.\n";
+
+/// Asking for `file` at `asked` refuses, naming `named` and the digest it
+/// stated.
+fn refuses_naming(
+    store: &Store,
+    asked: RevisionId,
+    file: FileId,
+    named: RevisionId,
+    stated: RevisionId,
+) {
+    match store.content(&asked, &file) {
+        Err(MaterialiseError::Content {
+            revision,
+            error: ReplayError::ResultDisagrees { stated: found, .. },
+            ..
+        }) => {
+            assert_eq!(revision, named, "the first document that is wrong");
+            assert_eq!(found, stated);
+        }
+        other => panic!("{other:?}"),
+    }
+}
+
+/// Decision 0092: a reader that skipped an earlier digest and then fails on
+/// a later step for any other reason walks again with every step hashed, so
+/// the refusal names the earlier document, as it did when every step was.
+#[test]
+fn a_wrong_digest_on_the_way_is_named_before_a_later_step_that_fails() {
+    let (root, mut store) = tree_corpus_store("a-wrong-digest-before-a-failing-step");
+    let (head, readme, base) = readme_at_head(&store);
+    let nobody = digest(b"no file holds these bytes");
+    let lying = revision_on(
+        &mut store,
+        &base,
+        readme,
+        0,
+        &[head],
+        Some(&retitled("# Notes", "# Journal", nobody)),
+    );
+    // A delete quoting a title the file does not have, stating the digest
+    // the edit would have produced had the quote agreed.
+    let log = format!("# Log\n{README_REST}");
+    let misquoting = revision_on(
+        &mut store,
+        &base,
+        readme,
+        1,
+        &[lying],
+        Some(&retitled(
+            "# Not the title",
+            "# Log",
+            digest(log.as_bytes()),
+        )),
+    );
+    // A delete past the end of the file.
+    let beyond = revision_on(
+        &mut store,
+        &base,
+        readme,
+        2,
+        &[lying],
+        Some(&format!(
+            "historica\nresult {}\n\ndelete 99 1\n-# Journal\n",
+            digest(README_REST.as_bytes())
+        )),
+    );
+    let store = Store::open(&root).expect("reopening");
+    for asked in [misquoting, beyond] {
+        refuses_naming(&store, asked, readme, lying, nobody);
+    }
+}
+
+/// Decision 0092: a merge whose parents agree is owed every check its
+/// parents are. Two edits can produce one state and state different digests
+/// of it; the merge holds the state the wrong one states, and refuses
+/// whichever parent its ID sorts first.
+#[test]
+fn agreeing_parents_are_each_held_to_the_digest_they_state() {
+    let (root, mut store) = tree_corpus_store("agreeing-parents-each-held");
+    let (head, readme, base) = readme_at_head(&store);
+    let nobody = digest(b"no file holds these bytes");
+    let journal = format!("# Journal\n{README_REST}");
+    // The same edit twice, one stating a digest no file has and one the
+    // right digest, a pair to a change ID, until one pair's honest revision
+    // sorts before its lying one and another's after.
+    let (mut before, mut after) = (None, None);
+    for n in 0..64 {
+        let lying = revision_on(
+            &mut store,
+            &base,
+            readme,
+            2 * n,
+            &[head],
+            Some(&retitled("# Notes", "# Journal", nobody)),
+        );
+        let honest = revision_on(
+            &mut store,
+            &base,
+            readme,
+            2 * n + 1,
+            &[head],
+            Some(&retitled(
+                "# Notes",
+                "# Journal",
+                digest(journal.as_bytes()),
+            )),
+        );
+        if honest < lying {
+            before.get_or_insert((honest, lying));
+        } else {
+            after.get_or_insert((honest, lying));
+        }
+        if before.is_some() && after.is_some() {
+            break;
+        }
+    }
+    let pairs = [before.expect("one before"), after.expect("one after")];
+    let merges = pairs.map(|(honest, lying)| {
+        revision_on(&mut store, &base, readme, 1000, &[honest, lying], None)
+    });
+    // Each merge on a store just opened, before anything has read a parent:
+    // a parent read first is held in memory under its own digest, and the
+    // walk takes it from there.
+    for ((honest, lying), merge) in pairs.into_iter().zip(merges) {
+        let store = Store::open(&root).expect("reopening");
+        refuses_naming(&store, merge, readme, lying, nobody);
+        assert_eq!(
+            store.content(&honest, &readme).expect("the README").text(),
+            journal
+        );
+    }
 }
 
 #[test]

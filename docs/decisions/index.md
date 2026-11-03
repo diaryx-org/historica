@@ -1014,6 +1014,15 @@ depend on each other in.
   tombstone. `record` moves the tip onto a step, and `receive` and `fetch`
   move it forward.
 
+- [0092 — The digest a reader checks](0092-the-digest-a-reader-checks.md)
+  Replay hashed every state of a file on the way to the one asked for, and on
+  a long history the hashing was most of the cost. A reader now applies each
+  step with every check but the hash, then hashes the state it was asked for
+  against the digests stated about it. A refusal walks again with every step
+  hashed, so it names the same document. `check` still hashes every
+  step. A digest stated wrongly partway down a history no longer stops a
+  reader at a later revision that edits the file again.
+
 Not a decision, but the evaluation one of them rests on:
 [`docs/loro.md`](../loro.md) — the initial Loro evaluation, and the conditions
 that would reverse it.

@@ -1,5 +1,10 @@
 # 0031 — A document states its result
 
+> **Amended 2026-11-02.** *Replay verifies it* now means the state a reader
+> asks for, not every state on the way to it.
+> [0092](0092-the-digest-a-reader-checks.md) has a reader hash the state it
+> was asked for, once. `check` still hashes every step.
+
 This is the first of two decisions that raise the format to `historica-v3`,
 and the pair share one purpose, decided when 0030's review of the tool-less
 writer was read: **a person with an editor and `shasum` must be able to read,

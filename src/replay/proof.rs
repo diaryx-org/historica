@@ -7,7 +7,9 @@
 //! position by position against the parent, and [`cause`] says what would
 //! make a replay refuse. `applied` is held to all three: it replays to
 //! `result` exactly when there is no `cause`, and every refusal names one
-//! that holds.
+//! that holds. It is proved through its two halves: `applied_unverified`,
+//! held to the same statement with no digest stated, and `check_result`,
+//! held to [`digest_disagrees`] and [`names_digest`].
 //!
 //! Positions are stated against the parent and none of them move, so the
 //! order a document's operations come in does not enter — for a document
@@ -117,6 +119,16 @@ pub open spec fn names(error: ReplayError, parent: Seq<ItemS>, ops: Seq<Operatio
         ReplayError::ResultDisagrees { stated: said, found } =>
             stated == Some(said) && found == digest_of(result(parent, ops)) && said != found
                 && !any_forgotten(result(parent, ops)),
+        _ => false,
+    }
+}
+
+/// The cause a refusal to take a state as the stated digest names: that
+/// digest, stated, and another found.
+pub open spec fn names_digest(error: ReplayError, out: Seq<ItemS>, stated: Option<RevisionId>) -> bool {
+    match error {
+        ReplayError::ResultDisagrees { stated: said, found } =>
+            stated == Some(said) && found == digest_of(out) && said != found && !any_forgotten(out),
         _ => false,
     }
 }
