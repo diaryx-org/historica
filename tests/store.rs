@@ -1579,6 +1579,23 @@ fn a_state_two_steps_read_is_there_for_both() {
     );
     // And one revision on both edits, which reads `journal` twice over.
     let both = revision_on(&mut store, &base, readme, 7, &[diary, after], None);
+    // A file created on `journal` waits for it and reads none of it, and a
+    // revision on the creation and `both` reaches `journal` both ways.
+    let notes: FileId = "zzzzkkkkllllmmmmnnnnoooo".parse().expect("a file ID");
+    let payload = store
+        .insert_payload(b"Fresh\n")
+        .expect("writing the payload");
+    let mut created = base.clone();
+    created.change = "ztkwnrvzlmyxqsotnkwlkkkz".parse().expect("a change ID");
+    created.parents = [journal].into_iter().collect();
+    created.added.clear();
+    created.moved.clear();
+    created.dropped.clear();
+    created.edited.clear();
+    created.added = [(notes, "notes.md".to_string())].into_iter().collect();
+    created.text = [(notes, payload)].into_iter().collect();
+    let anew = store.insert(&created).expect("writing the creation");
+    let whole = revision_on(&mut store, &base, readme, 9, &[both, anew], None);
     for (asked, title) in [
         (head, "# Notes"),
         (journal, "# Journal"),
@@ -1587,6 +1604,7 @@ fn a_state_two_steps_read_is_there_for_both() {
         (diary, "# Diary"),
         (merge, "# Journal"),
         (after, "# Book"),
+        (anew, "# Journal"),
     ] {
         let store = Store::open(&root).expect("reopening");
         assert_eq!(
@@ -1596,15 +1614,40 @@ fn a_state_two_steps_read_is_there_for_both() {
         );
     }
     // The two sides disagree, and nothing states the merge: the algorithm
-    // answers, from both sides' states, each read in full.
-    let store = Store::open(&root).expect("reopening");
-    let merged = store.content(&both, &readme).expect("the README").text();
-    assert!(merged.ends_with(README_REST), "{merged:?}");
+    // answers, from both sides' states, each read in full. The revision on
+    // the creation and `both` holds the same README, and the created file.
+    let merged =
+        "# Book\n# Diary\n\nA journal kept in Historica, and the notes that came with it.\n";
+    for (asked, file, text) in [
+        (both, readme, merged),
+        (whole, readme, merged),
+        (whole, notes, "Fresh\n"),
+    ] {
+        let store = Store::open(&root).expect("reopening");
+        assert_eq!(
+            store.content(&asked, &file).expect("the file").text(),
+            text,
+            "asked at {asked}"
+        );
+    }
     // And one store asked about all of them in turn, which reads each from
     // the last.
     let store = Store::open(&root).expect("reopening");
-    for asked in [after, diary, log, merge, quiet] {
-        store.content(&asked, &readme).expect("the README");
+    for (asked, file, text) in [
+        (after, readme, titled("# Book")),
+        (diary, readme, titled("# Diary")),
+        (log, readme, titled("# Log")),
+        (merge, readme, titled("# Journal")),
+        (quiet, readme, titled("# Journal")),
+        (whole, notes, "Fresh\n".to_string()),
+        (both, readme, merged.to_string()),
+        (anew, readme, titled("# Journal")),
+    ] {
+        assert_eq!(
+            store.content(&asked, &file).expect("the file").text(),
+            text,
+            "asked at {asked}, with the store warm"
+        );
     }
 }
 
