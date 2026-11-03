@@ -97,6 +97,12 @@ or twenty, old and new library alternated on one store:
 
 ## Deferred
 
+[0093](0093-a-state-read-once-is-moved.md) measured this and found most of
+the 41 µs was not `applied` at all: the walk held every state it computed,
+so each step copied its parent's whole file before applying anything. The
+walk now lets go of a state once the last step that reads it has, and that
+step moves it. What follows is what was left, and 0093 defers it again.
+
 **A step that costs what its document says.** `applied` still moves every
 item of the parent into a new vector at every step, so a walk costs
 revisions × lines even without the hash. On the deep store above, that is
