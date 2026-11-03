@@ -10,11 +10,13 @@ part_of: '[Closed tasks](/docs/tasks/closed/closed.md)'
 # Two decisions are numbered 0090
 
 **Status.** Done, by `docs(decisions): number the decision about what a
-command already worked out 0092`. The decision about stored states is
-`0092-what-a-command-already-worked-out.md` now, its heading says 0092,
-`index.md` lists it after 0091, and `git/docs/decisions/0014-…` says
-"historica's 0092". Every "0090" left in the code and docs means `revert`.
-`prov check` reports nothing.
+command already worked out 0094`. The decision about stored states is
+`0094-what-a-command-already-worked-out.md` now, its heading says 0094,
+`index.md` lists it after 0093, and `git/docs/decisions/0014-…` says
+"historica's 0094". 0092 was free when this task was filed, and went to
+`0092-the-digest-a-reader-checks.md` and 0093 to
+`0093-a-state-read-once-is-moved.md` before the fix landed. Every "0090" left
+in the code and docs means `revert`. `prov check` reports nothing.
 
 `docs/decisions/` holds two decisions numbered 0090:
 

@@ -1014,7 +1014,25 @@ depend on each other in.
   tombstone. `record` moves the tip onto a step, and `receive` and `fetch`
   move it forward.
 
-- [0092 — What a command already worked out](0092-what-a-command-already-worked-out.md)
+- [0092 — The digest a reader checks](0092-the-digest-a-reader-checks.md)
+  Replay hashed every state of a file on the way to the one asked for, and on
+  a long history the hashing was most of the cost. A reader now applies each
+  step with every check but the hash, then hashes the state it was asked for
+  against the digests stated about it. A refusal walks again with every step
+  hashed, so it names the same document. `check` still hashes every
+  step. A digest stated wrongly partway down a history no longer stops a
+  reader at a later revision that edits the file again.
+
+- [0093 — A state read once is moved](0093-a-state-read-once-is-moved.md)
+  The walk kept every state it computed in case another revision asked for
+  it, so each step copied its parent's whole file before applying a
+  document. The walk now counts, before it starts, how many steps read each
+  state, and lets go of a state once the last of them has, so that step
+  moves it. A count that is wrong costs time and never the answer. Reading a
+  2,000-line file at the end of 1,000 revisions went from 186 ms to 60 ms.
+  The proved replay is unchanged.
+
+- [0094 — What a command already worked out](0094-what-a-command-already-worked-out.md)
   A command recording many revisions in a row, as `historica-git import`
   does, asked the same questions about files again with every revision it
   added. A merge now compares digests where every parent states the one the

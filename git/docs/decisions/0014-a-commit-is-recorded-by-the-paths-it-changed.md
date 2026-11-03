@@ -41,7 +41,7 @@ the commit has anything to say about.
 
 - A converted store is byte for byte what it was: prov and leaf convert to
   the same history before and after.
-- With historica's 0092, converting diaryx takes 7 minutes rather than 31,
+- With historica's 0094, converting diaryx takes 7 minutes rather than 31,
   prov 2.8 seconds rather than 11.7, and leaf about 10 rather than 42.
 - The folder is still walked once per commit, because `record` reads it
   through `Working`. Only the files named are hashed.

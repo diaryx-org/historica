@@ -128,8 +128,9 @@ impl State {
 
     /// The digest of [`State::text`], without building it.
     ///
-    /// Decision 0031 has every replay hash the file it produced, which means
-    /// this happens once per revision walked. The bytes are the same bytes;
+    /// Decision 0031 has a replay hash the file it produced: once per
+    /// revision walked for `check`, and once per file asked for elsewhere
+    /// (decision 0092). The bytes are the same bytes;
     /// what is saved is materialising them into a `String` only to hand them
     /// to the hasher and drop them — this is the number `shasum -a 256`
     /// prints for the file, and the number the document states.
@@ -207,25 +208,55 @@ impl State {
     /// statement and the proof are in `replay/proof.rs`, and SHA-256 is taken
     /// on trust in `trusted.rs`.
     ///
-    /// It is written in the part of Rust Verus reads: loops where iterator
-    /// adapters would take closures, `copy` where a derived `Clone` has no
-    /// specification, and a run taken out of the map and put back where
-    /// `entry` has none either.
+    /// It is `applied_unverified` followed by `check_result`: the
+    /// arithmetic, then the digest.
     #[cfg_attr(verus_keep_ghost, verus_spec(r =>
         ensures
             r is Ok <==> !proof::cause(self@, document.operations.deep_view(), document.result),
             r is Ok ==> r->Ok_0@ == proof::result(self@, document.operations.deep_view()),
             r is Err ==> proof::names(r->Err_0, self@, document.operations.deep_view(), document.result),
     ))]
+    pub fn applied(self, document: &OperationDocument) -> Result<Self, ReplayError> {
+        let produced = self.applied_unverified(document)?;
+        produced.check_result(document.result)?;
+        Ok(produced)
+    }
+
+    /// The same, without holding the result to the digest the document
+    /// states.
+    ///
+    /// Every other check is made: positions in range, quoted items that agree,
+    /// a terminator only where one may be missing. What is left out is
+    /// decision 0031's hash, and that is most of what a step costs: the
+    /// arithmetic touches the items a document names, while the hash reads
+    /// every byte of the file, once per revision walked. Decision 0092 has a
+    /// reader that wants the answer hash the state it was asked for, once,
+    /// with [`State::check_result`], and leaves the steps on the way to
+    /// `check`. A wrong digest stated on the way changes no state the walk
+    /// computes, because no state is computed from a stated digest.
+    ///
+    /// Proved as `applied` is, with no digest stated: the document replays
+    /// exactly when nothing else is a cause to refuse it, and then to exactly
+    /// the file its operations describe.
+    ///
+    /// It is written in the part of Rust Verus reads: loops where iterator
+    /// adapters would take closures, `copy` where a derived `Clone` has no
+    /// specification, and a run taken out of the map and put back where
+    /// `entry` has none either.
+    #[cfg_attr(verus_keep_ghost, verus_spec(r =>
+        ensures
+            r is Ok <==> !proof::cause(self@, document.operations.deep_view(), None),
+            r is Ok ==> r->Ok_0@ == proof::result(self@, document.operations.deep_view()),
+            r is Err ==> proof::names(r->Err_0, self@, document.operations.deep_view(), None),
+    ))]
     #[cfg_attr(verus_keep_ghost, verifier::loop_isolation(false))]
     // Each is the tidier spelling Verus has no specification for, or cannot
-    // read: `unwrap_or_default`, `enumerate`, and a `let` chain.
-    #[allow(
-        clippy::manual_unwrap_or_default,
-        clippy::explicit_counter_loop,
-        clippy::collapsible_if
-    )]
-    pub fn applied(self, document: &OperationDocument) -> Result<Self, ReplayError> {
+    // read: `unwrap_or_default` and `enumerate`.
+    #[allow(clippy::manual_unwrap_or_default, clippy::explicit_counter_loop)]
+    pub(crate) fn applied_unverified(
+        self,
+        document: &OperationDocument,
+    ) -> Result<Self, ReplayError> {
         #[cfg(verus_keep_ghost)]
         proof_decl! {
             let ghost ops = document.operations.deep_view();
@@ -429,24 +460,34 @@ impl State {
             return Err(ReplayError::UnterminatedItemNotLast { position });
         }
 
-        let produced = Self { items };
+        Ok(Self { items })
+    }
 
-        // Decision 0031: a document states the digest of the file it
-        // produces, and a replay is held to it — the checkpoint a hand
-        // replayer has, an implementation must not be spared. Verification
-        // stops where forgetting begins, because a state showing markers has
-        // bytes the recorder never hashed: 0014's structure-not-content
-        // sentence, collecting one more thing.
-        if let Some(stated) = document.result {
-            if !forgotten_in(&produced.items) {
-                let found = trusted::digest(&produced);
+    /// Hold this state to the digest a document states it to be.
+    ///
+    /// Decision 0031: a document states the digest of the file it produces,
+    /// and a replay is held to it — the checkpoint a hand replayer has.
+    /// Verification stops where forgetting begins, because a state showing
+    /// markers has bytes the recorder never hashed: 0014's
+    /// structure-not-content sentence, collecting one more thing. A document
+    /// that states nothing is held to nothing.
+    #[cfg_attr(verus_keep_ghost, verus_spec(r =>
+        ensures
+            r is Ok <==> !proof::digest_disagrees(self@, stated),
+            r is Err ==> proof::names_digest(r->Err_0, self@, stated),
+    ))]
+    // `let` chains, which Verus cannot read.
+    #[allow(clippy::collapsible_if)]
+    pub(crate) fn check_result(&self, stated: Option<RevisionId>) -> Result<(), ReplayError> {
+        if let Some(stated) = stated {
+            if !forgotten_in(&self.items) {
+                let found = trusted::digest(self);
                 if found != stated {
                     return Err(ReplayError::ResultDisagrees { stated, found });
                 }
             }
         }
-
-        Ok(produced)
+        Ok(())
     }
 }
 
