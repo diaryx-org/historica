@@ -483,13 +483,17 @@ pub(crate) fn materialised<F: Filesystem>(
     store: &Store<F>,
     revision: &RevisionId,
 ) -> Result<Vec<(String, String)>> {
+    // The tree is merged once and every file read from it: asking
+    // `content_at` per file merged the whole tree again for each one, which
+    // made receiving a chain of n documents cost n merges of n.
     let tree = store.tree(revision).map_err(history)?;
+    let heads = [*revision];
     let mut out = Vec::new();
     for (file, entry) in tree.entries() {
         if entry.kind != Kind::Lines {
             continue;
         }
-        let content = store.content_at(revision, file).map_err(history)?;
+        let content = store.content_in(&tree, &heads, file).map_err(history)?;
         if let Some(state) = content.lines() {
             out.push((entry.path.clone(), state.text()));
         }
