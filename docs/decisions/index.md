@@ -1018,8 +1018,8 @@ depend on each other in.
   Replay hashed every state of a file on the way to the one asked for, and on
   a long history the hashing was most of the cost. A reader now applies each
   step with every check but the hash, then hashes the state it was asked for
-  against the digest stated about it. A mismatch walks again with every step
-  hashed, so the refusal names the same document. `check` still hashes every
+  against the digests stated about it. A refusal walks again with every step
+  hashed, so it names the same document. `check` still hashes every
   step. A digest stated wrongly partway down a history no longer stops a
   reader at a later revision that edits the file again.
 

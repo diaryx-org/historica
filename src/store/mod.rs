@@ -1116,6 +1116,25 @@ enum Caching {
     Replay,
 }
 
+/// How much of a walk is held to the digests its documents state.
+///
+/// Decision 0092: a reader hashes the state it asked for, once, and leaves
+/// the steps on the way to `check`; a refusal walks again hashing every step,
+/// so that it names what it named before.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Verify {
+    /// Every step, as decision 0031 has it: `check`'s walk, and a reader's
+    /// second walk after a refusal.
+    EveryStep,
+    /// The state asked for alone, against every digest stated about it.
+    Asked,
+}
+
+/// The digests stated about one revision's state that nothing has hashed it
+/// against yet: which revision stated each, and what it stated. Shared, since
+/// every revision that says nothing of the file holds its parent's.
+type Pending = Rc<BTreeSet<(RevisionId, RevisionId)>>;
+
 /// What one revision effectively stated about one file, and what named it.
 ///
 /// Effective, in decision 0014's sense: redactions are folded in and a `text`
@@ -3334,6 +3353,37 @@ impl<F: Filesystem> Store<F> {
         file: &FileId,
         caching: Caching,
     ) -> Result<Stated, MaterialiseError> {
+        match caching {
+            Caching::Replay => self.walked_content(head, file, caching, Verify::EveryStep),
+            // Decision 0092: a refusal names the document it named before.
+            // A walk that hashed only the state asked for may have passed a
+            // wrong digest on the way and then failed later, on the hash or
+            // on anything else: a quote, a position, a document missing. So
+            // whatever stops it, the walk runs again as a reader walked
+            // before, every step hashed, and its refusal is the one returned.
+            // Failing costs a second walk; succeeding costs none.
+            Caching::Take => self
+                .walked_content(head, file, caching, Verify::Asked)
+                .map_err(|error| {
+                    match self.walked_content(head, file, caching, Verify::EveryStep) {
+                        Err(first) => first,
+                        // Every step hashed is every check the first walk
+                        // made and more, so this does not happen; if it
+                        // did, the first walk's refusal still stands.
+                        Ok(_) => error,
+                    }
+                }),
+        }
+    }
+
+    /// The walk under [`Store::stated_content`], hashing what `verify` says.
+    fn walked_content(
+        &self,
+        head: &RevisionId,
+        file: &FileId,
+        caching: Caching,
+        verify: Verify,
+    ) -> Result<Stated, MaterialiseError> {
         let mut known: BTreeMap<RevisionId, Stated> = BTreeMap::new();
         let mut stack = vec![*head];
         // Decision 0081, for the reader that wants the answer rather than the
@@ -3350,14 +3400,16 @@ impl<F: Filesystem> Store<F> {
         // pass — it shares its parent's state — so it does not count.
         let mut replayed = 0usize;
         // Decision 0092: the reader that wants the answer holds the state it
-        // was asked for to the digest stated about it, once, rather than
+        // was asked for to the digests stated about it, once, rather than
         // every state on the way to it. Here is, for each revision whose
-        // state was replayed and not yet hashed, which revision stated what.
+        // state was replayed and not yet hashed, which revisions stated what
+        // about it: one, where the last thing said of the file is one edit,
+        // and as many as there are where a merge joins parents that agree.
         // `check` replays every step held to its digest, as it always did.
-        let mut unverified: BTreeMap<RevisionId, (RevisionId, RevisionId)> = BTreeMap::new();
-        let step = |state: State, document: &OperationDocument| match caching {
-            Caching::Take => state.applied_unverified(document),
-            Caching::Replay => state.applied(document),
+        let mut unverified: BTreeMap<RevisionId, Pending> = BTreeMap::new();
+        let step = |state: State, document: &OperationDocument| match verify {
+            Verify::Asked => state.applied_unverified(document),
+            Verify::EveryStep => state.applied(document),
         };
         while let Some(id) = stack.last().copied() {
             if known.contains_key(&id) {
@@ -3416,7 +3468,7 @@ impl<F: Filesystem> Store<F> {
                             Some(stated) => {
                                 let stated = stated.clone();
                                 known.insert(id, stated);
-                                if let Some(pending) = unverified.get(&from).copied() {
+                                if let Some(pending) = unverified.get(&from).cloned() {
                                     unverified.insert(id, pending);
                                 }
                                 stack.pop();
@@ -3463,10 +3515,10 @@ impl<F: Filesystem> Store<F> {
                                 error,
                             }
                         })?;
-                        if caching == Caching::Take
+                        if verify == Verify::Asked
                             && let Some(result) = creation.result
                         {
-                            unverified.insert(id, (id, result));
+                            unverified.insert(id, Rc::new(BTreeSet::from([(id, result)])));
                         }
                         created
                     }
@@ -3478,15 +3530,29 @@ impl<F: Filesystem> Store<F> {
 
             let base = agreed(document.parents.iter().map(|parent| &known[parent]));
             // A revision that says nothing about the file holds what its
-            // parents hold, and is owed the check theirs is. Parents that
-            // agree hold one state, so any one's stated digest is the one.
-            if !document.edited.contains_key(file)
-                && let Some(pending) = document
+            // parents hold, and is owed every check theirs are. Parents that
+            // agree hold one state, but two edits that reach it may state
+            // different digests of it, so the merge is owed all of them:
+            // were it owed one parent's, which one would be the order of
+            // their identifiers, and a wrong digest would pass or refuse by
+            // which side sorts first.
+            if !document.edited.contains_key(file) {
+                let mut owed = document
                     .parents
                     .iter()
-                    .find_map(|parent| unverified.get(parent).copied())
-            {
-                unverified.insert(id, pending);
+                    .filter_map(|parent| unverified.get(parent));
+                if let Some(first) = owed.next() {
+                    let mut joined: Option<BTreeSet<(RevisionId, RevisionId)>> = None;
+                    for more in owed {
+                        if !Rc::ptr_eq(first, more) {
+                            joined
+                                .get_or_insert_with(|| (**first).clone())
+                                .extend(more.iter().copied());
+                        }
+                    }
+                    let pending = joined.map_or_else(|| first.clone(), Rc::new);
+                    unverified.insert(id, pending);
+                }
             }
             let stated = match document.edited.get(file) {
                 Some(named) => match base {
@@ -3513,10 +3579,10 @@ impl<F: Filesystem> Store<F> {
                                 error,
                             }
                         })?;
-                        if caching == Caching::Take
+                        if verify == Verify::Asked
                             && let Some(result) = operations.result
                         {
-                            unverified.insert(id, (id, result));
+                            unverified.insert(id, Rc::new(BTreeSet::from([(id, result)])));
                         }
                         Stated::Known(Rc::new(after))
                     }
@@ -3533,20 +3599,28 @@ impl<F: Filesystem> Store<F> {
         // The states the rest of the walk shared go with it, so the one asked
         // for is usually held once and is handed over rather than copied.
         drop(known);
-        // The one hash 0092 keeps. A state that is not what its document
-        // says is walked again, every step held to its digest, so the refusal
-        // names the first document that is wrong, as it did before — and the
-        // answer is the same answer, reached by more work.
+        // The hash 0092 keeps: the state asked for, against each digest
+        // stated about it, each distinct digest once. A state that is not
+        // what a document says refuses here, and `stated_content` walks
+        // again with every step hashed, so the refusal names the first
+        // document that is wrong, as it did before.
         if let Stated::Known(state) = &stated
-            && let Some((revision, result)) = unverified.get(head).copied()
-            && let Err(error) = state.check_result(Some(result))
+            && let Some(pending) = unverified.get(head)
         {
-            self.stated_content(head, file, Caching::Replay)?;
-            return Err(MaterialiseError::Content {
-                revision,
-                file: *file,
-                error,
-            });
+            let mut checked: Vec<RevisionId> = Vec::with_capacity(1);
+            for &(revision, result) in pending.iter() {
+                if checked.contains(&result) {
+                    continue;
+                }
+                state
+                    .check_result(Some(result))
+                    .map_err(|error| MaterialiseError::Content {
+                        revision,
+                        file: *file,
+                        error,
+                    })?;
+                checked.push(result);
+            }
         }
         // Keep what the walk cost, so the next reader does not pay it again —
         // and only when it cost something. One entry, for the state that was

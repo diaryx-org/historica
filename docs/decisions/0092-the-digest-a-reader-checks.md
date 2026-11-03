@@ -28,18 +28,25 @@ with the store's catalogues kept and its states deleted before each run:
   `State::applied_unverified`, which makes every check `applied` makes except
   the hash: positions in range, quoted items that agree, a terminator only
   where one may be missing. It notes, for each revision whose state it has
-  not hashed, which document stated what. When the walk ends, the state asked
-  for is hashed against that statement with `State::check_result`, which is
-  0031's check.
+  not hashed, which documents stated what. When the walk ends, the state
+  asked for is hashed against each of those statements with
+  `State::check_result`, which is 0031's check.
 
 - **A revision that says nothing about the file is owed its parent's check.**
   It holds its parent's state, so asking for the file there checks the digest
-  the last edit stated. The same goes for a merge whose parents agree.
+  the last edit stated. A merge whose parents agree is owed every parent's
+  check. Its parents hold one state, but two edits can reach that state and
+  state different digests of it. Checking only one parent's would make a
+  wrong digest pass or refuse by which parent's identifier sorts first.
 
-- **A refusal names the document it named before.** When the state asked for
-  does not match its digest, the walk runs again with every step hashed, as
-  `check` walks, and returns the first refusal it meets. Failing costs a
-  second walk. Succeeding hashes the state asked for and no other.
+- **A refusal names the document it named before.** When the walk fails,
+  whether on the state asked for not matching a digest or on anything else
+  (a quote that disagrees, a position out of range, a document missing), it
+  runs again as a reader walked before this decision, with every step
+  hashed, and returns the refusal that walk meets. A wrong digest passed on
+  the way is then named ahead of a later step that fails for another reason,
+  as it was. Failing costs a second walk. Succeeding hashes the state asked
+  for and no other.
 
 - **`check` hashes every step**, as 0035 has it: it wants the work, not the
   answer. It walks with `Caching::Replay`, and that walk uses `applied`.
