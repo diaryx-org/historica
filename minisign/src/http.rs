@@ -21,7 +21,10 @@
 //!   and a header made once at the start would be stale before the end.
 
 use std::fmt;
-use std::time::{Duration, SystemTime, UNIX_EPOCH};
+use std::time::Duration;
+
+// std's own clock off the web, and the page's on it (see `sign.rs`).
+use web_time::{SystemTime, UNIX_EPOCH};
 
 use historica::store::{Source, Unreachable};
 use minisign::SecretKey;
