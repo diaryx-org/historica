@@ -29,7 +29,7 @@ categories = ["development-tools", "command-line-utilities", "cryptography"]
 default = ["sign", "disk", "http"]
 # Writing a claim, and the secret key that requires. `minisign` is
 # rust-minisign, the reference implementation's own crate.
-sign = ["dep:minisign"]
+sign = ["dep:minisign", "dep:web-time"]
 # Historica's `disk` feature — the `std::fs` implementation of `Filesystem`,
 # which is what the short constructors and this crate's binary resolve to.
 # Turning it off leaves a library that reaches the store through whatever
@@ -71,6 +71,10 @@ minisign-verify = "0.2.5"
 # Signing. Optional because a verifier should not have to build it; see the
 # `sign` feature above.
 minisign = { version = "0.9.1", optional = true }
+# The time a signature states, so `sign`'s alone. std's `SystemTime::now`
+# panics on wasm32-unknown-unknown, where a page signs what it records;
+# `web_time` is std's own clock everywhere else, so nothing changes off the web.
+web-time = { version = "1", optional = true }
 # The platform's own HTTP stack, behind one interface: WinRT on Windows,
 # NSURLSession on Apple, libcurl elsewhere. Historica's decision 0057 argues
 # the choice and the pin, and this takes both as historica-cli does: exactly

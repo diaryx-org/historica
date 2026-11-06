@@ -16,7 +16,9 @@
 use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
+// `web_time`'s clock: std's own off the web, and the page's `Date.now()` on
+// wasm32-unknown-unknown, where std's `SystemTime::now` panics.
+use web_time::{SystemTime, UNIX_EPOCH};
 
 use historica::core::{FileId, RevisionId};
 use historica::fs::Filesystem;

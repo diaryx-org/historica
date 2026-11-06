@@ -94,6 +94,13 @@ sha2 = "0.11.0"
 similar = "3.2"
 unicode-normalization = "0.1.25"
 
+# On wasm32-unknown-unknown std has no clock, and jiff's `now` panics there
+# unless it may ask the page (`js`: `Date.now()` and the page's own zone). A
+# page records history with `Platform`, so a browser build takes it; no other
+# target sees the feature, and `now` is std's there as before.
+[target.'cfg(all(target_arch = "wasm32", target_os = "unknown"))'.dependencies]
+jiff = { version = "0.2", features = ["js"] }
+
 # The only dev-dependency, and a test's rather than the library's: the
 # parser targets in `tests/strict.rs` are bolero's, so one target runs as an
 # ordinary `#[test]` on stable — random inputs for a second — and the same
