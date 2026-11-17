@@ -73,9 +73,18 @@ Three things follow:
    folder, and every year adds a year of operation documents to it while the
    folder grows by a year of pages. A page revisited often costs its whole
    chain. That is what a state ends.
-3. **A record's cost grows with the history**, folded or not: 171 ms at 417
-   revisions. That is not this proposal's question, and is a task of its own
-   (*Open questions*, 3).
+3. **A sync's cost grew with the history**, folded or not: 171 ms at 417
+   revisions. Most of that was Diaryx's, found after this was written: its
+   send asked `Store::forgetting` of every document it carried, and an
+   absence is answered by reading every document in the store. Asked only
+   of a document that is missing, a sending sync at 90 days went from 323 ms
+   to 33. What is left grows with the revisions a store holds (*Open
+   questions*, 3).
+
+**Since, in Diaryx** (2026-11-17): a sitting is now folded into one revision
+before it is sent, and a year of the same library, written at the app's
+cadence, is 419 revisions and a download of 2.4 times the folder in 418
+packs. That is the library this proposal would start from.
 
 ## What is here already
 
@@ -199,7 +208,10 @@ copy lacks is content, which 0089 already taught a copy to lack and fetch.
    whose branches part at the start needs nothing from before it. The walk
    needs the lines visible at the common ancestor, under their names, and a
    state is exactly that; a settled resolution may need more.
-3. **A record's cost grows with the history.** Measured above: 171 ms at 417
-   revisions, and growing with the square of the library's age. 0049 deferred
-   opening a store without reading every revision; this is the measurement
-   that brings that question back, separately from this one.
+3. **A sync's cost grows with the revisions a store holds.** After the fix
+   above, a device that folds its sittings and keeps the folded runs as undo
+   holds 4,400 revisions after a year, and a sync there takes 150 ms, most of
+   it opening the store. 0049 deferred opening a store without reading every
+   revision; this is the measurement that brings that question back,
+   separately from this one, and `prune` of old undo is the device's own
+   answer meanwhile.
