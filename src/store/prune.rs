@@ -174,35 +174,50 @@ impl<F: Filesystem> Store<F> {
     /// lives on the successor — 0001 put it there — and deleting it would
     /// resurrect the kept revision as current work. A revision in `keeping`
     /// is never let go of, and so neither is what it stands on.
+    ///
+    /// Worked out from a worklist rather than pass after pass over every
+    /// revision: letting go of one revision can only free its parents (one
+    /// fewer to stand on them) and its successors (one fewer kept revision
+    /// they name), and never hold anything back — it went only once nothing
+    /// it supersedes was kept. So the fixpoint is the same whatever order
+    /// it is reached in, and each revision is looked at again only when one
+    /// of its neighbours went. Pass after pass was every revision against
+    /// every other, as many times as the longest run: seconds, for a store a
+    /// year of folded sittings had left 4,400 revisions in.
     fn deletable_revisions(&self, keeping: &BTreeSet<RevisionId>) -> BTreeSet<RevisionId> {
-        let mut kept: BTreeSet<RevisionId> = self.documents.keys().copied().collect();
-        loop {
-            let mut shrank = false;
-            for id in kept.clone() {
-                let revision = self.revision(&id).expect("a revision this store holds");
-                let superseded = kept.iter().any(|keeper| {
-                    self.revision(keeper)
-                        .is_some_and(|keeper| keeper.supersedes.contains(&id))
-                });
-                let stood_on = kept.iter().any(|keeper| {
-                    self.revision(keeper)
-                        .is_some_and(|keeper| keeper.parents.contains(&id))
-                });
-                let evidence = revision.supersedes.iter().any(|named| kept.contains(named));
-                if superseded && !stood_on && !evidence && !keeping.contains(&id) {
-                    kept.remove(&id);
-                    shrank = true;
-                }
+        use std::collections::BTreeMap;
+        let held: BTreeSet<RevisionId> = self.documents.keys().copied().collect();
+        // Who stands on each revision, and who supersedes it, among those held.
+        let mut children: BTreeMap<RevisionId, BTreeSet<RevisionId>> = BTreeMap::new();
+        let mut successors: BTreeMap<RevisionId, BTreeSet<RevisionId>> = BTreeMap::new();
+        for id in &held {
+            let revision = self.revision(id).expect("a revision this store holds");
+            for parent in revision.parents.iter().filter(|p| held.contains(p)) {
+                children.entry(*parent).or_default().insert(*id);
             }
-            if !shrank {
-                return self
-                    .documents
-                    .keys()
-                    .filter(|id| !kept.contains(id))
-                    .copied()
-                    .collect();
+            for named in revision.supersedes.iter().filter(|n| held.contains(n)) {
+                successors.entry(*named).or_default().insert(*id);
             }
         }
+        let none = BTreeSet::new();
+        let mut kept = held.clone();
+        let mut waiting: Vec<RevisionId> = held.iter().copied().collect();
+        while let Some(id) = waiting.pop() {
+            if !kept.contains(&id) || keeping.contains(&id) {
+                continue;
+            }
+            let revision = self.revision(&id).expect("a revision this store holds");
+            let any_kept = |of: &BTreeSet<RevisionId>| of.iter().any(|other| kept.contains(other));
+            let superseded = any_kept(successors.get(&id).unwrap_or(&none));
+            let stood_on = any_kept(children.get(&id).unwrap_or(&none));
+            let evidence = revision.supersedes.iter().any(|named| kept.contains(named));
+            if superseded && !stood_on && !evidence {
+                kept.remove(&id);
+                waiting.extend(revision.parents.iter().copied());
+                waiting.extend(successors.get(&id).unwrap_or(&none).iter().copied());
+            }
+        }
+        held.difference(&kept).copied().collect()
     }
 
     /// One of this store's paths, said as `prune` and `forget` print it.
