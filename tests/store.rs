@@ -2371,3 +2371,58 @@ fn stand_ins_for_a_destroyed_document_read_alike_whichever_is_listed_first() {
         read("stand_ins_listed_askew_first", &askew, &narrow),
     );
 }
+
+/// `prune_keeping` lets go of what `prune` would, less the revisions a
+/// caller keeps and what they stand on: a squashed run with one revision
+/// still named elsewhere keeps that revision and the run behind it, loses
+/// the rest, and a plain prune afterwards clears what is left.
+#[test]
+fn pruning_keeps_what_a_caller_names_and_what_it_stands_on() {
+    let base = scratch("prune-keeping-library");
+    let mut store = Store::init(base.join("history")).expect("a new store");
+
+    fs::write(base.join("notes.md"), "Base.\n").expect("a file");
+    let root = record_folder(&mut store, &base, Vec::new(), "Base");
+    let mut run = Vec::new();
+    let mut parent = root.revision;
+    for line in ["One.", "Two.", "Three."] {
+        let text = fs::read_to_string(base.join("notes.md")).expect("the file");
+        fs::write(base.join("notes.md"), format!("{text}{line}\n")).expect("a file");
+        let recorded = record_folder(&mut store, &base, vec![parent], line);
+        parent = recorded.revision;
+        run.push(recorded.revision);
+    }
+    let squashed = squash_run(&mut store, root.revision, run[2], None).expect("a squash");
+
+    // Keeping the second of the run keeps the first, which it stands on,
+    // and lets the third go.
+    let keeping = BTreeSet::from([run[1]]);
+    let would = store.prunable_keeping(&keeping).expect("a plan");
+    assert_eq!(would.revisions, vec![run[2]]);
+    let pruned = store.prune_keeping(&keeping).expect("pruning");
+    assert_eq!(pruned.revisions, vec![run[2]]);
+    for kept in [run[0], run[1], squashed.revision, root.revision] {
+        assert!(store.revision(&kept).is_some(), "{kept} is kept");
+    }
+    assert_eq!(
+        folder_at(&store, &run[1]),
+        vec![("notes.md".to_owned(), "Base.\nOne.\nTwo.\n".to_owned())],
+        "what a kept revision names is kept with it"
+    );
+
+    // Nothing kept: the rest of the run goes, and the squash holds the tip.
+    let pruned = store.prune().expect("pruning");
+    let mut gone = pruned.revisions.clone();
+    gone.sort();
+    let mut expected = vec![run[0], run[1]];
+    expected.sort();
+    assert_eq!(gone, expected);
+    assert_eq!(
+        folder_at(&store, &squashed.revision),
+        vec![(
+            "notes.md".to_owned(),
+            "Base.\nOne.\nTwo.\nThree.\n".to_owned()
+        )]
+    );
+    assert!(Store::check(store.root()).is_ok());
+}

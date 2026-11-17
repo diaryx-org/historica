@@ -49,7 +49,19 @@ impl<F: Filesystem> Store<F> {
     /// `prune` acts on exactly this, so `--dry-run` and the real thing can
     /// never describe different files.
     pub fn prunable(&self) -> Result<Pruned, StoreError> {
-        let deletable = self.deletable_revisions();
+        self.prunable_keeping(&BTreeSet::new())
+    }
+
+    /// [`prunable`](Self::prunable), less the revisions in `keeping` and
+    /// everything they need: what they stand on, and the documents they name.
+    ///
+    /// For a tool that knows something about this store 0013 cannot: that a
+    /// superseded revision is still named outside it, as the source a derived
+    /// history was recorded from, say. What is pruned is still only what 0013
+    /// lets go of, and never more; a revision in `keeping` that this store
+    /// does not hold, or that is current anyway, keeps nothing extra.
+    pub fn prunable_keeping(&self, keeping: &BTreeSet<RevisionId>) -> Result<Pruned, StoreError> {
+        let deletable = self.deletable_revisions(keeping);
 
         // A reference count over digests, per decision 0013: two revisions
         // with byte-identical edits share one document, so what is kept is
@@ -119,7 +131,14 @@ impl<F: Filesystem> Store<F> {
     /// 0003 and removable with `rm -r`, and a command that deleted both would
     /// blur the one distinction 0013 exists to keep.
     pub fn prune(&mut self) -> Result<Pruned, StoreError> {
-        let pruned = self.prunable()?;
+        self.prune_keeping(&BTreeSet::new())
+    }
+
+    /// [`prune`](Self::prune), keeping the revisions in `keeping` and what
+    /// they need — see [`prunable_keeping`](Self::prunable_keeping), which it
+    /// acts on exactly.
+    pub fn prune_keeping(&mut self, keeping: &BTreeSet<RevisionId>) -> Result<Pruned, StoreError> {
+        let pruned = self.prunable_keeping(keeping)?;
         for relative in &pruned.files {
             let path = self.root.join(relative);
             self.filesystem()
@@ -153,8 +172,9 @@ impl<F: Filesystem> Store<F> {
     /// but is in its reasoning: a successor whose `supersedes` names a
     /// revision this store keeps stays, because the evidence of supersession
     /// lives on the successor — 0001 put it there — and deleting it would
-    /// resurrect the kept revision as current work.
-    fn deletable_revisions(&self) -> BTreeSet<RevisionId> {
+    /// resurrect the kept revision as current work. A revision in `keeping`
+    /// is never let go of, and so neither is what it stands on.
+    fn deletable_revisions(&self, keeping: &BTreeSet<RevisionId>) -> BTreeSet<RevisionId> {
         let mut kept: BTreeSet<RevisionId> = self.documents.keys().copied().collect();
         loop {
             let mut shrank = false;
@@ -169,7 +189,7 @@ impl<F: Filesystem> Store<F> {
                         .is_some_and(|keeper| keeper.parents.contains(&id))
                 });
                 let evidence = revision.supersedes.iter().any(|named| kept.contains(named));
-                if superseded && !stood_on && !evidence {
+                if superseded && !stood_on && !evidence && !keeping.contains(&id) {
                     kept.remove(&id);
                     shrank = true;
                 }
